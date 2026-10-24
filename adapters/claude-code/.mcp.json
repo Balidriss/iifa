@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "iifa": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "iifa.mcp"],
+      "env": {
+        "IIFA_URL": "${IIFA_URL:-http://127.0.0.1:8765}",
+        "IIFA_TOKEN": "${IIFA_TOKEN}",
+        "IIFA_SCOPE": "${IIFA_SCOPE:-user:local/agent:claude-code}",
+        "IIFA_DEFAULT_BUDGET_TOKENS": "${IIFA_HOOK_BUDGET_TOKENS:-400}"
+      }
+    }
+  }
+}

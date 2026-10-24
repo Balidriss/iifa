@@ -1,0 +1,14 @@
+{
+  "name": "iifa-opencode",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "description": "iifa memory for opencode: profile block, recalled handles, turns, compaction, tools. Fails open.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/plugin.test.ts"
+  }
+}

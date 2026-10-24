@@ -1,0 +1,98 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUTF8: "1"
+
+jobs:
+  lint-and-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+
+  opencode-plugin:
+    # The opencode adapter is the repository's only TypeScript: Node runs it
+    # directly (type stripping) against the Python fake service. No npm install.
+    needs: lint-and-types
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: opencode plugin tests (node --test, fake service, no network)
+        env:
+          IIFA_TEST_PYTHON: python
+        run: node --test adapters/opencode/test/plugin.test.ts
+
+  docker-e2e:
+    # SPEC 13.1: the image end to end - start, health, remember, recall,
+    # archive, stop, restart on the same volume. Standard library only.
+    needs: lint-and-types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the image
+        run: docker build -t iifa:e2e .
+      - name: End to end against the container (no network beyond loopback)
+        run: python tests/e2e/docker_smoke.py --image iifa:e2e
+
+  tests:
+    needs: lint-and-types
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    env:
+      TIKTOKEN_CACHE_DIR: ${{ github.workspace }}/.tiktoken-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -e ".[dev,exact-tokens,openai-agents]"
+      - name: Warm the exact tokenizer cache (the suite itself never downloads)
+        if: runner.os == 'Linux'
+        run: python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+      - name: Test suite (no network, no model)
+        run: python -m pytest -n auto -m "not perf" --cov --cov-report= --durations=10
+      # latency thresholds measure the runner too: alone, never beside the parallel suite
+      - name: Latency checks (perf), alone on the runner
+        run: python -m pytest -m perf --cov --cov-append --cov-report=term-missing:skip-covered --cov-report=xml
+      - name: Coverage floor on src/iifa (90 % lines)
+        run: python -m coverage report --fail-under=90
+      - name: Coverage on the budget packer and permission checks (100 % branches)
+        run: python -m coverage report --include="src/iifa/recall/packer.py,src/iifa/api/auth.py" --fail-under=100
+      - name: Tier-0 benchmark at 10k facts, writes and recall (informational, numbers in the log)
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: python bench/recall_latency.py --facts 10000 --queries 200

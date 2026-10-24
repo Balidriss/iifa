@@ -1,0 +1,66 @@
+{
+  "description": "iifa memory: the profile block at session start, recalled handles for each prompt, each turn recorded after Claude answers, the transcript tail handed over before compaction, a flush at session end. Fails open when the service is down or slow. Reads IIFA_URL, IIFA_TOKEN, IIFA_SCOPE from the environment.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/iifa_hook.py", "session-start"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/iifa_hook.py", "user-prompt"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/iifa_hook.py", "stop"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/iifa_hook.py", "pre-compact"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/iifa_hook.py", "session-end"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
