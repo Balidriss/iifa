@@ -1,7 +1,7 @@
 {
   "name": "iifa-memory",
   "displayName": "iifa memory",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Long-term memory under a token budget for Claude Code: handles recalled before each prompt, memory_* tools over MCP. Needs a running iifa service; configured by IIFA_URL, IIFA_TOKEN and IIFA_SCOPE in your environment.",
   "author": { "name": "iifa contributors" },
   "homepage": "https://github.com/Balidriss/iifa",

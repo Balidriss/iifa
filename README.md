@@ -158,7 +158,7 @@ overwritten, so you can ask what was known on any date.
 
 ## Status
 
-**0.1.0a1, pre-alpha.** Everything below is built and tested, but the API may
+**0.1.0a2, pre-alpha.** Everything below is built and tested, but the API may
 still change, and the package is not on PyPI yet.
 
 | Area | State |

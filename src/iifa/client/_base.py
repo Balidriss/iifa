@@ -266,9 +266,21 @@ def forget_call(record_id: str) -> Call:
 
 
 def patch_fact_call(
-    fact_id: str, *, node_id: str | None, detach: bool, pinned: bool | None
+    fact_id: str,
+    *,
+    node_id: str | None,
+    detach: bool,
+    pinned: bool | None,
+    scopes: Sequence[str] | None = None,
 ) -> Call:
-    body = _clean({"node_id": node_id, "detach": detach or None, "pinned": pinned})
+    body = _clean(
+        {
+            "node_id": node_id,
+            "detach": detach or None,
+            "pinned": pinned,
+            "scopes": None if scopes is None else list(scopes),
+        }
+    )
     return Call("PATCH", f"{API}/facts/{fact_id}", json=body)
 
 
@@ -427,10 +439,17 @@ def run_call(
     tokens: int | None,
     seconds: float | None,
     max_jobs: int | None,
+    wait: bool = True,
 ) -> Call:
     budget = _clean({"calls": calls, "tokens": tokens, "seconds": seconds})
     body = _clean({"budget": budget or None, "max_jobs": max_jobs})
+    if not wait:
+        body["wait"] = False
     return Call("POST", f"{API}/background/run", json=body)
+
+
+def background_run_call(run_id: str) -> Call:
+    return Call("GET", f"{API}/background/run/{run_id}")
 
 
 def yield_call(*, timeout_seconds: float | None) -> Call:

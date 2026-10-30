@@ -106,7 +106,7 @@ owner is then written only from the owner's own words. See
 |---|---|---|
 | `POST /remember` | write | an explicit fact, optionally about a node (created on first mention) |
 | `POST /link` | write | an explicit, confirmed edge between two visible nodes |
-| `PATCH /facts/{id}` | write | attach a free-standing fact to a node, detach it, pin it |
+| `PATCH /facts/{id}` | write | attach a free-standing fact to a node, detach it, pin it, or replace its scope set (`scopes`: only scopes the token owns may be added or removed, and the fact's node must stay visible — else 409: detach it in the same call) |
 | `POST /proposals/{id}` | write (+ **review** for a fact proposal) | `decision: accept` (an alias proposal becomes an alias, a fact proposal an explicit fact that keeps its source) or `reject` |
 | `POST /archive`, `POST /restore` | write | hide a record everywhere, and bring it back unchanged |
 | `POST /forget` | **forget** | delete for good, with counts of what went |
@@ -123,11 +123,52 @@ curl -s -H "$H" -H "$J" localhost:8765/v1/remember -d '{
 
 | Route | Permission | What |
 |---|---|---|
-| `GET /health` | any token | version, tier, configured backends, queue depth and oldest pending item, background mode |
+| `GET /health` | any token | version, tier, configured backends, queue depth and oldest pending item, background mode, and `background.run`: the run in progress, or `null` (see below) |
 | `GET /stats` | admin | counts only, never content |
 | `GET` / `PUT /background` | admin | the background mode (saved) and the concurrency per model endpoint |
-| `POST /background/run` | admin | process the queue now under a budget (`calls`, `tokens`, `seconds`, `max_jobs`); refused while paused; answers with what each job did, as counts |
+| `POST /background/run` | admin | process the queue now under a budget (`calls`, `tokens`, `seconds`, `max_jobs`); answers with what each job did, as counts. With `"wait": false`: 202 and the run id at once. 409 while paused, and while another run is in progress (the message names it) |
+| `GET /background/run/{id}` | admin | a run's report, live while it runs; the current run and the last 20 are kept in memory (a restart forgets them: 404) |
 | `POST /background/yield`, `POST /background/resume` | write | a foreground turn starts / ends |
+
+One run at a time. A run started by one client is visible to all of them:
+`/health` (any token) carries it as ids and counts, never content.
+
+```json
+"background": {
+  "mode": "on_demand", "yielded": false, "concurrency": {"chat": 1, "embeddings": 1},
+  "worker": "running",
+  "run": {
+    "run_id": "run_01J…", "started_by": "host-bridge",
+    "started_at": "2026-10-29T08:00:00.000000+00:00",
+    "budget": {"calls": 40, "tokens": null, "seconds": 900, "max_jobs": null},
+    "jobs_done": 7, "jobs_left": 12, "yielded": false
+  }
+}
+```
+
+`started_by` is the name of the token that started the run, so a client tells
+its own runs from others'. `jobs_done` counts jobs taken to an end (done or
+failed); `jobs_left` is the pending jobs, capped by `max_jobs` — an estimate,
+since turns keep arriving and a budget may stop the run first. `yielded` says
+the background is yielded: the run starts no new model call until the
+foreground turn ends (`/background/resume` or the yield's timeout).
+
+Long runs need not hold a request open:
+
+```sh
+curl -s -H "$H" -H "$J" localhost:8765/v1/background/run -d '{"wait": false, "budget": {"seconds": 900}}'
+# 202 {"run_id": "run_01J…", "status": "running"}
+curl -s -H "$H" localhost:8765/v1/background/run/run_01J…
+# {"status": "running", "jobs_done": 3, ...}, later "status": "done"
+```
+
+The report has the synchronous answer's fields (`jobs`, `processed`, `calls`,
+`tokens`, `seconds`, `stopped_by`, `queue`) plus `status`, `started_by`,
+`started_at`, `finished_at`, `budget`, `jobs_done`, `current_job`, and, while
+it runs, `jobs_left` and `yielded` (`null` once done). `stopped_by` is `null`
+while running, then `queue_empty`, `calls`, `tokens`, `seconds`, `max_jobs`,
+`paused`, `shutdown`, or `error` (an internal failure; the run still ends).
+`finished_at` is `null` when the run ended without the store (a shutdown).
 
 ## Dream, review and probes
 
@@ -212,7 +253,7 @@ with IifaClient("http://127.0.0.1:8765", token, scope="user:alice/agent:demo") a
 |---|---|
 | the five lifecycle moments | `session_start()` (the profile block), `recall()`, `turn(user, assistant)` (queued, answers in milliseconds), `precompact(messages)`, `session_end()` |
 | time and relations | `timeline(node_id=..., since=..., until=...)`, `at(node_id, date)`, `path(src, dst)` |
-| background | `background()`, `set_background(mode=...)`, `run_background(...)`, `yield_background()`, `resume_background()` |
+| background | `background()`, `set_background(mode=...)`, `run_background(..., wait=False)`, `background_run(run_id)`, `yield_background()`, `resume_background()` |
 
 `AsyncIifaClient` has the same methods, awaitable. A complete agent loop with
 the five moments, in under 200 lines:

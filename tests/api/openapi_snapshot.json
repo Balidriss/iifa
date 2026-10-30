@@ -442,6 +442,23 @@
               }
             ],
             "title": "Pinned"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the fact's scope set (SPEC 4.6): the token must own every scope added and every scope removed.",
+            "title": "Scopes"
           }
         },
         "title": "FactPatch",
@@ -1329,6 +1346,11 @@
               }
             ],
             "title": "Max Jobs"
+          },
+          "wait": {
+            "default": true,
+            "title": "Wait",
+            "type": "boolean"
           }
         },
         "title": "RunRequest",
@@ -1740,7 +1762,7 @@
   "info": {
     "description": "Rich long-term memory for your agent, delivered under a token budget you set.",
     "title": "iifa",
-    "version": "0.1.0a1"
+    "version": "0.1.0a2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2005,7 +2027,7 @@
     },
     "/v1/background/run": {
       "post": {
-        "description": "Process the queue now, under an optional budget (calls, tokens, seconds,\njobs); answers with a run id and what it processed. Refused while paused.",
+        "description": "Process the queue now, under an optional budget (calls, tokens, seconds,\njobs); answers with a run id and what it processed. With ``wait: false`` it\nanswers 202 with the run id at once; ``GET /background/run/{run_id}`` follows\nit. Refused while paused, and while another run is in progress (409, naming it).",
         "operationId": "run_background_v1_background_run_post",
         "requestBody": {
           "content": {
@@ -2037,6 +2059,9 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "description": "Run started (wait: false)"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2049,6 +2074,48 @@
           }
         },
         "summary": "Run Background"
+      }
+    },
+    "/v1/background/run/{run_id}": {
+      "get": {
+        "description": "A run's report, live while it runs (the current run and the last ones are\nkept in memory; a restart forgets them).",
+        "operationId": "background_run_v1_background_run__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Background Run V1 Background Run  Run Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Background Run"
       }
     },
     "/v1/background/yield": {
@@ -2497,7 +2564,7 @@
     },
     "/v1/health": {
       "get": {
-        "description": "Tier, configured backends, the queue (depth and oldest pending item, so a\npaused queue never fills in silence, P11) and the background mode. Answering\nmakes no model call.",
+        "description": "Tier, configured backends, the queue (depth and oldest pending item, so a\npaused queue never fills in silence, P11), the background mode and the run in\nprogress (ids and counts, so every client sees a run it did not start).\nAnswering makes no model call.",
         "operationId": "health_v1_health_get",
         "responses": {
           "200": {

@@ -52,8 +52,15 @@ def test_async_lifecycle_and_operations(app: FastAPI) -> None:
             assert (await memory.resume_background()) == {"yielded": False}
             report = await memory.run_background(calls=10, seconds=30, max_jobs=2)
             assert report["stopped_by"] == "max_jobs" and report["processed"]["done"] == 2
-            report = await memory.run_background()
-            assert report["stopped_by"] == "queue_empty"
+            held: list[Any] = []
+            app.state.worker._spawn = held.append
+            started = await memory.run_background(wait=False)
+            assert started["status"] == "running"
+            live = await memory.background_run(started["run_id"])
+            assert live["status"] == "running" and live["jobs_left"] == 1
+            held[0]()
+            report = await memory.background_run(started["run_id"])
+            assert report["status"] == "done" and report["stopped_by"] == "queue_empty"
             changed = await memory.set_background(mode="auto", chat_concurrency=2)
             assert changed["mode"] == "auto" and changed["concurrency"]["chat"] == 2
             with pytest.raises(InvalidRequest):
@@ -89,3 +96,5 @@ def test_blocking_client_over_a_socket(live: LiveService) -> None:
         assert memory.background()["mode"] == "auto"
         assert memory.yield_background()["yielded"] is True
         assert memory.resume_background()["yielded"] is False
+        ran = memory.run_background(max_jobs=1)
+        assert memory.background_run(ran["run_id"])["status"] == "done"

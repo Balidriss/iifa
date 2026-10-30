@@ -1,5 +1,5 @@
 name: iifa
-version: 0.1.0a1
+version: 0.1.0a2
 description: "iifa memory: a profile block, recalled handles under a token budget before each turn, turns recorded without blocking, survivors handed to compaction. Fails open."
 hooks:
   - system_prompt_block

@@ -142,6 +142,18 @@ class FactPatch(Strict):
     node_id: str | None = None
     detach: bool = False
     pinned: bool | None = None
+    scopes: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description="Replace the fact's scope set (SPEC 4.6): the token must own every"
+        " scope added and every scope removed.",
+    )
+
+    @field_validator("scopes")
+    @classmethod
+    def _valid_scopes(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else list(dict.fromkeys(_check_scope(v) for v in value))
 
 
 class ProposalDecision(Strict):
@@ -282,6 +294,8 @@ class RunBudget(Strict):
 class RunRequest(Strict):
     budget: RunBudget | None = None
     max_jobs: int | None = Field(default=None, ge=1)
+    # false: answer 202 with the run id at once; follow with GET /background/run/{id}
+    wait: bool = True
 
 
 class YieldRequest(Strict):

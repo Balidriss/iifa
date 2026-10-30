@@ -301,6 +301,18 @@ class Store:
             )
         return unique
 
+    def _replace_scopes(self, record_id: str, scopes: Iterable[str]) -> tuple[str, ...]:
+        """The record's scope set becomes exactly ``scopes``: the rows it leaves are
+        deleted, the new ones inserted (each change bumps ``rev`` by trigger)."""
+        unique = tuple(dict.fromkeys(validate_scope(s) for s in scopes))
+        if not unique:
+            raise ValueError("a record needs at least one scope")
+        self._execute(
+            f"DELETE FROM record_scopes WHERE record_id = ? AND scope NOT IN ({_ph(unique)})",  # noqa: S608
+            (record_id, *unique),
+        )
+        return self._set_scopes(record_id, unique)
+
     def require_identical_scopes(self, record_ids: Sequence[str]) -> tuple[str, ...]:
         """The guard a dream must pass before merging or consolidating records (§5.6):
         every record has exactly the same scope set, or nothing happens."""
@@ -702,10 +714,18 @@ class Store:
                 raise NotFound(fact_id)
             return self._fact_from_row(row)
 
-    def attach_fact(self, fact_id: str, node_id: str | None, *, pinned: bool | None = None) -> Fact:
-        """Attach a free-standing fact to a node (or detach it), and/or pin it."""
+    def attach_fact(
+        self,
+        fact_id: str,
+        node_id: str | None,
+        *,
+        pinned: bool | None = None,
+        scopes: Sequence[str] | None = None,
+    ) -> Fact:
+        """Attach a free-standing fact to a node (or detach it), pin it, and/or
+        replace its scope set (SPEC 4.6) - all in one transaction."""
         with self._lock, self._transaction():
-            self.get_fact(fact_id)
+            fact = self.get_fact(fact_id)
             if node_id is not None:
                 self.get_node(node_id)
             now = self.now()
@@ -714,6 +734,11 @@ class Store:
             )
             if pinned is not None:
                 self._execute("UPDATE facts SET pinned = ? WHERE id = ?", (int(pinned), fact_id))
+            if scopes is not None and tuple(sorted(set(scopes))) != fact.scopes:
+                self._replace_scopes(fact_id, scopes)
+                self._unindex(fact_id)
+                text = self._fact_text(fact.statement, fact.attribute, fact.value)
+                self._index(fact_id, "fact", text, self.scopes_of(fact_id))
             if node_id is not None:
                 self._execute("UPDATE nodes SET updated_at = ? WHERE id = ?", (now, node_id))
             self._refresh_hidden(fact_id, "fact")
