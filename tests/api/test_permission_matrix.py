@@ -19,6 +19,7 @@ PROP = "prop_" + "0" * 26
 PSET = "pset_" + "0" * 26
 DREAM = "dream_" + "0" * 26
 DOP = "dop_" + "0" * 26
+RUN = "run_" + "0" * 26
 
 # A minimal, well-formed request for each route (so the only reason for a 4xx is auth).
 SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
@@ -56,6 +57,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
     ("GET", "/v1/background"): ("/v1/background", {}),
     ("PUT", "/v1/background"): ("/v1/background", {"json": {"mode": "on_demand"}}),
     ("POST", "/v1/background/run"): ("/v1/background/run", {"json": {"max_jobs": 1}}),
+    ("GET", "/v1/background/run/{run_id}"): (f"/v1/background/run/{RUN}", {}),
     ("POST", "/v1/background/yield"): ("/v1/background/yield", {"json": {"timeout_seconds": 1}}),
     ("POST", "/v1/background/resume"): ("/v1/background/resume", {}),
     ("POST", "/v1/probes"): (

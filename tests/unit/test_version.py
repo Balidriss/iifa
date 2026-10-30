@@ -32,7 +32,7 @@ def test_semver_mapping() -> None:
 
 
 def test_the_package_is_the_pre_alpha() -> None:
-    assert iifa.__version__ == "0.1.0a1"
+    assert iifa.__version__ == "0.1.0a2"
 
 
 def test_pyproject_matches_the_package() -> None:

@@ -12,9 +12,11 @@ the **gate**: at most ``concurrency`` calls in flight per endpoint (default 1),
 and none at all while the harness has said ``yield`` — the call in flight
 finishes, the next one waits until ``resume`` or the yield's timeout.
 
-A **run** processes jobs now, in the caller's thread, until the queue is empty
-or a budget (calls, tokens, seconds, jobs) is reached; it stops cleanly, puts an
-interrupted job back untouched, and reports what it did.
+A **run** processes jobs now, in the caller's thread or in a thread of its own,
+until the queue is empty or a budget (calls, tokens, seconds, jobs) is reached;
+it stops cleanly, puts an interrupted job back untouched, and reports what it
+did. At most one run at a time. The current run and the last ``KEPT_RUNS`` are
+kept in memory, so any client can follow a run it did not start.
 """
 
 from __future__ import annotations
@@ -63,11 +65,13 @@ class BudgetExhausted(RuntimeError):
 
 
 class RunRefused(RuntimeError):
-    """``run`` is not possible now: the service is paused, or a run is in progress."""
+    """``run`` is not possible now: the service is paused, or a run is in progress
+    (``run_id`` names it)."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, run_id: str | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.run_id = run_id
 
 
 # --------------------------------------------------------------------------- the gate
@@ -346,9 +350,18 @@ EMBED_SCOPE = "system:vectors"  # the embed job works on every record; a queue r
 WRITING_KINDS = frozenset({"turn", "precompact", "session_end", "dream"})
 
 
+RUN_RUNNING, RUN_DONE = "running", "done"
+KEPT_RUNS = 20  # finished runs kept in memory beside the current one
+
+
 @dataclass
 class RunReport:
     id: str
+    started_by: str | None = None
+    started_at: str | None = None
+    budget: dict[str, Any] = field(default_factory=dict)
+    status: str = RUN_RUNNING
+    finished_at: str | None = None
     jobs: list[dict[str, Any]] = field(default_factory=list)
     counts: dict[str, int] = field(
         default_factory=lambda: {DONE: 0, FAILED: 0, RETRY: 0, RELEASED: 0}
@@ -356,25 +369,49 @@ class RunReport:
     calls: int = 0
     tokens: int = 0
     seconds: float = 0.0
-    stopped_by: str = "queue_empty"
+    stopped_by: str | None = None
     queue: dict[str, Any] = field(default_factory=dict)
+    current_job: str | None = None
 
     def record(self, job: Job, outcome: str, result: dict[str, Any] | None = None) -> None:
         """``result`` is what the handler returned: counts and short words, never content."""
         self.jobs.append({"id": job.id, "kind": job.kind, "outcome": outcome, "result": result})
         self.counts[outcome] += 1
 
+    @property
+    def jobs_done(self) -> int:
+        """Jobs this run took to an end (done, failed, or failed for a later retry);
+        a job put back at a budget limit is still to do."""
+        return sum(n for outcome, n in self.counts.items() if outcome != RELEASED)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.id,
+            "status": self.status,
+            "started_by": self.started_by,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "budget": dict(self.budget),
+            "jobs_done": self.jobs_done,
             "jobs": list(self.jobs),
             "processed": dict(self.counts),
             "calls": self.calls,
             "tokens": self.tokens,
             "seconds": round(self.seconds, 3),
             "stopped_by": self.stopped_by,
+            "current_job": self.current_job,
             "queue": dict(self.queue),
         }
+
+
+def _jobs_left(report: RunReport, pending: int) -> int:
+    """What the run may still take: the pending jobs, capped by ``max_jobs``. An
+    estimate: turns arriving meanwhile add to it, a budget may stop the run first."""
+    max_jobs = report.budget.get("max_jobs")
+    if max_jobs is None:
+        return pending
+    taken = len(report.jobs) + (report.current_job is not None)
+    return max(0, min(pending, int(max_jobs) - taken))
 
 
 # --------------------------------------------------------------------------- the worker
@@ -415,8 +452,14 @@ class Worker:
         self._cond = threading.Condition()
         self._stop = False
         self._thread: threading.Thread | None = None
-        self._run_lock = threading.Lock()
         self._running_job: str | None = None
+        # the run in progress (its report and budget; at most one, set and cleared
+        # under ``_cond``) and the runs kept in memory
+        self._live: tuple[RunReport, Budget] | None = None
+        self._runs: dict[str, RunReport] = {}
+        self._run_thread: threading.Thread | None = None
+        # a test seam: how ``start_run`` hands the run to a thread of its own
+        self._spawn: Callable[[Callable[[], None]], None] = self._spawn_thread
         # a test seam between the mode check and the claim (see _step); never set in service
         self._before_claim: Callable[[], None] | None = None
         # a test seam: the loop is about to wait because the mode is not auto
@@ -490,6 +533,8 @@ class Worker:
             alive = self._thread is not None and self._thread.is_alive()
             running_job = self._running_job
         remaining = self.gate.yield_remaining()
+        queue = self.queue.stats()
+        run = self._run_summary(queue, yielded=remaining is not None)
         return {
             "mode": mode,
             "mode_source": self.mode_source,
@@ -499,10 +544,59 @@ class Worker:
             "yield_remaining_seconds": None if remaining is None else round(remaining, 3),
             "worker": "running" if alive else "stopped",
             "current_job": running_job,
-            "run_in_progress": self._run_lock.locked(),
+            "run_in_progress": run is not None,
+            "run": run,
             "runs": self.runs,
-            "queue": self.queue.stats(),
+            "queue": queue,
         }
+
+    def _run_summary(self, queue: Mapping[str, Any], *, yielded: bool) -> dict[str, Any] | None:
+        """The run in progress, as any client may see it: ids and counts, no content."""
+        with self._cond:
+            if self._live is None:
+                return None
+            report = self._live[0]
+            done = report.jobs_done
+            left = _jobs_left(report, int(queue["pending"]))
+        return {
+            "run_id": report.id,
+            "started_by": report.started_by,
+            "started_at": report.started_at,
+            "budget": dict(report.budget),
+            "jobs_done": done,
+            "jobs_left": left,
+            "yielded": yielded,
+        }
+
+    def run_report(self, run_id: str) -> dict[str, Any] | None:
+        """A kept run's report, live while it runs; None when it is not kept.
+        ``jobs_left`` and ``yielded`` describe a running run and are None after."""
+        with self._cond:
+            report = self._runs.get(run_id)
+            if report is None:
+                return None
+            if not self._is_live(report):
+                return {**report.as_dict(), "jobs_left": None, "yielded": None}
+        queue = self.queue.stats()  # only for the live run, outside the lock
+        yielded = self.gate.yield_remaining() is not None
+        with self._cond:
+            data = report.as_dict()
+            if not self._is_live(report):  # it ended meanwhile
+                return {**data, "jobs_left": None, "yielded": None}
+            assert self._live is not None
+            budget = self._live[1]
+            data.update(
+                calls=budget.calls,
+                tokens=budget.tokens,
+                seconds=round(budget.elapsed(self._monotonic()), 3),
+                queue=queue,
+                jobs_left=_jobs_left(report, int(queue["pending"])),
+                yielded=yielded,
+            )
+            return data
+
+    def _is_live(self, report: RunReport) -> bool:
+        return self._live is not None and self._live[0] is report
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -526,9 +620,13 @@ class Worker:
             self._stop = True
             self._cond.notify_all()
         self.gate.close()
+        deadline = time.monotonic() + timeout  # one timeout for both threads
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         self._thread = None
+        run_thread = self._run_thread
+        if run_thread is not None and run_thread.is_alive():
+            run_thread.join(timeout=max(0.0, deadline - time.monotonic()))
 
     def _loop(self) -> None:
         while self._step() != "stopped":
@@ -578,20 +676,75 @@ class Worker:
 
     # ------------------------------------------------------------------ run (§8.4)
 
-    def run(self, budget: Budget | None = None, *, max_jobs: int | None = None) -> RunReport:
+    def run(
+        self,
+        budget: Budget | None = None,
+        *,
+        max_jobs: int | None = None,
+        started_by: str | None = None,
+    ) -> RunReport:
         """Process now, in this thread, until the queue is empty or a limit is
         reached. Refused while paused (P11: a paused service calls no model) and
         while another run is in progress."""
+        report, budget = self._begin(budget, max_jobs, started_by)
+        self._execute(report, budget, max_jobs)
+        return report
+
+    def start_run(
+        self,
+        budget: Budget | None = None,
+        *,
+        max_jobs: int | None = None,
+        started_by: str | None = None,
+    ) -> RunReport:
+        """As ``run``, but in a thread of its own: returns at once with the run's
+        report, which fills as it goes (``run_report``). Refused the same way."""
+        report, budget = self._begin(budget, max_jobs, started_by)
+        try:
+            self._spawn(lambda: self._execute(report, budget, max_jobs))
+        except BaseException:
+            report.stopped_by = "error"
+            self._end(report, budget)
+            raise
+        return report
+
+    def _spawn_thread(self, work: Callable[[], None]) -> None:
+        thread = threading.Thread(target=work, name="iifa-run", daemon=True)
+        self._run_thread = thread
+        thread.start()
+
+    def _begin(
+        self, budget: Budget | None, max_jobs: int | None, started_by: str | None
+    ) -> tuple[RunReport, Budget]:
+        """Record the run as the current one, unless one is in progress. Nothing
+        is held before the check-and-set, so a failure here leaks nothing."""
         if self.mode == PAUSED:
             raise RunRefused("paused")
-        if not self._run_lock.acquire(blocking=False):
-            raise RunRefused("busy")
+        budget = budget or Budget()
+        budget.started = self._monotonic()
+        report = RunReport(
+            new_id("run"),
+            started_by=started_by,
+            started_at=self.store.now(),
+            budget={
+                "calls": budget.max_calls,
+                "tokens": budget.max_tokens,
+                "seconds": budget.max_seconds,
+                "max_jobs": max_jobs,
+            },
+        )
+        with self._cond:
+            if self._live is not None:
+                raise RunRefused("busy", self._live[0].id)
+            self._live = (report, budget)
+            self._runs[report.id] = report
+        log.event("run_start", run=report.id)
+        return report, budget
+
+    def _execute(self, report: RunReport, budget: Budget, max_jobs: int | None) -> None:
+        """The run's loop; it always ends the run, whatever happens inside it."""
         try:
-            budget = budget or Budget()
-            budget.started = self._monotonic()
-            report = RunReport(new_id("run"))
             session = ModelSession(self.models, budget, self._monotonic)
-            log.event("run_start", run=report.id)
             while True:
                 limit = budget.exhausted(self._monotonic())
                 if limit is not None:
@@ -600,6 +753,11 @@ class Worker:
                 if max_jobs is not None and len(report.jobs) >= max_jobs:
                     report.stopped_by = "max_jobs"
                     break
+                with self._cond:
+                    stopping = self._stop
+                if stopping:
+                    report.stopped_by = "shutdown"
+                    break
                 if self.mode == PAUSED:
                     report.stopped_by = "paused"
                     break
@@ -607,27 +765,51 @@ class Worker:
                 if job is None:
                     report.stopped_by = "queue_empty"
                     break
+                with self._cond:
+                    report.current_job = job.id
                 outcome, result = self._process(job, session)
-                report.record(job, outcome, result)
+                with self._cond:
+                    report.current_job = None
+                    report.record(job, outcome, result)
                 if outcome == RELEASED:
-                    report.stopped_by = session.last_limit or "seconds"
+                    # a call held at a gate the shutdown closed is put back too
+                    with self._cond:
+                        stopping = self._stop
+                    report.stopped_by = "shutdown" if stopping else session.last_limit or "seconds"
                     break
+        finally:
+            if report.stopped_by is None:
+                report.stopped_by = "error"
+            self._end(report, budget)
+
+    def _end(self, report: RunReport, budget: Budget) -> None:
+        """Close the run; it always stops being the current one."""
+        queue: dict[str, Any] = {}
+        finished: str | None = None
+        try:
+            queue = self.queue.stats()
+            finished = self.store.now()
+        except Exception as exc:  # e.g. a store closed under a run at shutdown
+            log.event("run_end_error", run=report.id, error=type(exc).__name__)
+        with self._cond:
             report.calls = budget.calls
             report.tokens = budget.tokens
             report.seconds = budget.elapsed(self._monotonic())
-            report.queue = self.queue.stats()
+            report.queue = queue
+            report.finished_at = finished
+            report.status = RUN_DONE
+            self._live = None
             self.runs += 1
-            log.event(
-                "run_end",
-                run=report.id,
-                jobs=len(report.jobs),
-                calls=report.calls,
-                tokens=report.tokens,
-                stopped_by=report.stopped_by,
-            )
-            return report
-        finally:
-            self._run_lock.release()
+            while len(self._runs) > KEPT_RUNS:  # the oldest finished runs go
+                del self._runs[next(iter(self._runs))]
+        log.event(
+            "run_end",
+            run=report.id,
+            jobs=len(report.jobs),
+            calls=report.calls,
+            tokens=report.tokens,
+            stopped_by=report.stopped_by,
+        )
 
     # ------------------------------------------------------------------ one job
 

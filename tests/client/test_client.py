@@ -81,6 +81,8 @@ def test_async_client_round_trip(app: FastAPI) -> None:
             assert restored["archived"] is False
             patched = await memory.patch_fact(fact_id, detach=True, pinned=False)
             assert patched["node_id"] is None and patched["pinned"] is False
+            shared = await memory.patch_fact(fact_id, scopes=["user:alice", "user:alice/x:y"])
+            assert shared["scopes"] == ["user:alice", "user:alice/x:y"]
             gone = await memory.forget(other["node"]["id"])
             assert gone["removed"]["nodes"] == 1
             stats = await memory.stats()
@@ -137,6 +139,9 @@ def test_sync_client_round_trip_over_loopback(live: LiveService) -> None:
         assert memory.archive(written["fact"]["id"])["archived"] is True
         assert memory.recall("réponses courtes")["items"] == []
         assert memory.restore(written["fact"]["id"])["archived"] is False
+        moved = memory.patch_fact(written["fact"]["id"], scopes=["user:sync/mode:a"], detach=True)
+        assert moved["scopes"] == ["user:sync/mode:a"] and moved["node_id"] is None
+        assert memory.recall("réponses courtes")["items"] == []  # user:sync no longer sees it
 
 
 def test_sync_client_from_env_and_url_forms(live: LiveService) -> None:

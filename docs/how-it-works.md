@@ -125,8 +125,10 @@ curl -s -H "$H" -H "$J" -X PUT localhost:8765/v1/background -d '{"mode": "paused
 - When your own turn starts, a harness may call `POST /v1/background/yield`:
   the call in flight finishes, and no other starts until
   `POST /v1/background/resume` or a timeout.
-- `GET /v1/health` shows the queue depth, the oldest pending item and the
-  mode, so a paused queue never fills in silence.
+- `GET /v1/health` shows the queue depth, the oldest pending item, the
+  mode and the run in progress (who started it, its budget, how far it got),
+  so a paused queue never fills in silence and every client sees a run it
+  did not start.
 
 The model client speaks the OpenAI chat and embeddings APIs. It names the
 model on every request, contacts only the hosts you configure, and ignores

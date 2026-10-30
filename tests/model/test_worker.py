@@ -19,6 +19,7 @@ from iifa.ingest.jobs import HANDLERS, MODEL_NOOP, NOOP
 from iifa.ingest.queue import DONE, FAILED, PENDING, RUNNING, Job, Queue
 from iifa.ingest.worker import (
     AUTO,
+    KEPT_RUNS,
     ON_DEMAND,
     PAUSED,
     STATE_MODE,
@@ -312,13 +313,108 @@ def test_run_budgets_tokens_seconds_and_jobs(
 
 def test_run_is_refused_while_another_run_is_in_progress(harness: Harness) -> None:
     harness.worker.set_mode(ON_DEMAND)
-    assert harness.worker._run_lock.acquire(blocking=False)
-    try:
-        with pytest.raises(RunRefused, match="busy"):
-            harness.worker.run()
-    finally:
-        harness.worker._run_lock.release()
+    held: list[Any] = []
+    harness.worker._spawn = held.append
+    first = harness.worker.start_run()
+    assert harness.worker.status()["run_in_progress"] is True
+    with pytest.raises(RunRefused, match="busy") as refused:
+        harness.worker.run()
+    assert refused.value.run_id == first.id
+    held[0]()
     assert harness.worker.status()["run_in_progress"] is False
+
+
+def test_a_run_that_cannot_be_recorded_leaves_no_run_behind(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+    real_now = harness.store.now
+    harness.store.now = lambda: (_ for _ in ()).throw(RuntimeError("closed"))  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        harness.worker.run()
+    harness.store.now = real_now  # type: ignore[method-assign]
+    assert harness.worker.status()["run"] is None
+    assert harness.worker.run().stopped_by == "queue_empty"
+
+
+def test_a_run_ends_even_when_its_closing_read_fails(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+    real_stats = harness.queue.stats
+    calls = {"n": 0}
+
+    def stats_once_broken() -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("closed")
+        return real_stats()
+
+    harness.queue.stats = stats_once_broken  # type: ignore[method-assign]
+    report = harness.worker.run()
+    assert report.status == "done" and report.queue == {} and report.finished_at is None
+    assert harness.worker.status()["run"] is None
+    assert harness.worker.run().stopped_by == "queue_empty"
+
+
+def test_a_shutdown_while_a_run_waits_at_the_gate_says_shutdown(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+    worker = harness.worker
+
+    def stopped_then_calls(job: Job, ctx: JobContext) -> None:
+        worker.stop()  # closes the gate: the next call cannot start
+        ctx.models.chat([{"role": "user", "content": "x"}], max_tokens=1)
+
+    worker.handlers["stop_then_call"] = stopped_then_calls
+    job = harness.enqueue("stop_then_call")
+    report = worker.run()
+    assert report.stopped_by == "shutdown" and report.counts["released"] == 1
+    assert harness.status_of(job) == PENDING and harness.fake.calls == []
+
+
+def test_an_async_run_stops_at_shutdown_and_ends_cleanly(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+    job = harness.enqueue()
+    held: list[Any] = []
+    harness.worker._spawn = held.append
+    report = harness.worker.start_run(started_by="host")
+    assert harness.worker.status()["run"]["run_id"] == report.id
+    harness.worker.stop()
+    held[0]()  # the run's thread, after the stop
+    assert report.stopped_by == "shutdown" and report.status == "done" and report.jobs == []
+    assert harness.status_of(job) == PENDING and harness.fake.calls == []
+    assert harness.worker.status()["run"] is None
+    assert harness.worker.status()["run_in_progress"] is False
+
+
+def test_an_async_run_runs_in_its_own_thread(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+    job = harness.enqueue(NOOP)
+    report = harness.worker.start_run()
+    thread = harness.worker._run_thread
+    assert thread is not None and thread.name == "iifa-run"
+    thread.join(timeout=30)
+    assert report.status == "done" and report.stopped_by == "queue_empty"
+    assert harness.status_of(job) == DONE
+
+
+def test_a_run_whose_thread_cannot_start_is_ended(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+
+    def broken(work: Any) -> None:
+        raise RuntimeError("can't start new thread")
+
+    harness.worker._spawn = broken
+    with pytest.raises(RuntimeError):
+        harness.worker.start_run()
+    assert harness.worker.status()["run"] is None
+    assert harness.worker.run().stopped_by == "queue_empty"  # the lock was released
+
+
+def test_finished_runs_kept_in_memory_are_bounded(harness: Harness) -> None:
+    harness.worker.set_mode(ON_DEMAND)
+    reports = [harness.worker.run() for _ in range(KEPT_RUNS + 2)]
+    assert harness.worker.run_report(reports[0].id) is None
+    assert harness.worker.run_report(reports[1].id) is None
+    kept = harness.worker.run_report(reports[2].id)
+    assert kept is not None and kept["status"] == "done"
+    assert harness.worker.run_report(reports[-1].id) is not None
 
 
 def test_transient_failures_retry_later_and_give_up_after_max_attempts(

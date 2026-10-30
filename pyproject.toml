@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "iifa"
-version = "0.1.0a1"
+version = "0.1.0a2"
 description = "Rich long-term memory for your agent, delivered under a token budget you set - never more."
 readme = "README.md"
 license = "Apache-2.0"

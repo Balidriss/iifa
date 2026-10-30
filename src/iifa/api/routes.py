@@ -3,9 +3,10 @@ route resolves a view and a budget before touching the store."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from iifa import __version__, calibration, log, vectors
 from iifa.api import auth
@@ -106,8 +107,9 @@ def health(
     principal: Annotated[auth.Principal, auth.declare("GET", "/v1/health", auth.ANY)],
 ) -> dict[str, Any]:
     """Tier, configured backends, the queue (depth and oldest pending item, so a
-    paused queue never fills in silence, P11) and the background mode. Answering
-    makes no model call."""
+    paused queue never fills in silence, P11), the background mode and the run in
+    progress (ids and counts, so every client sees a run it did not start).
+    Answering makes no model call."""
     status = _worker(request).status()
     vectors_status = _vectors_status(request)
     return {
@@ -121,6 +123,7 @@ def health(
             "yielded": status["yielded"],
             "concurrency": status["concurrency"],
             "worker": status["worker"],
+            "run": status["run"],
         },
         "stale_vectors": vectors_status["stale"] if vectors_status else 0,
         "vectors": vectors_status,
@@ -463,6 +466,18 @@ def link(
     }
 
 
+def _require_rescope(
+    principal: auth.Principal, current: Sequence[str], wanted: Sequence[str]
+) -> None:
+    """SPEC 4.6: a token grants and takes away only scopes it owns - every scope
+    added and every scope removed is at or below one of its bound scopes."""
+    changed = sorted(set(current) ^ set(wanted))
+    if changed and not principal.may_write(changed):
+        raise HTTPException(
+            403, "a re-scope may add or remove only scopes inside the token's scopes"
+        )
+
+
 def _touchable(store: Store, principal: auth.Principal, record_id: str) -> tuple[str, ...]:
     try:
         scopes = store.scopes_of(record_id)
@@ -539,6 +554,9 @@ def patch_fact(
             fact = store.get_fact(fact_id)
         except NotFound as exc:
             raise HTTPException(404, "no such record") from exc
+        if body.scopes is not None:
+            _require_rescope(principal, scopes, body.scopes)
+            scopes = tuple(body.scopes)
         node_id = fact.node_id
         if body.detach:
             node_id = None
@@ -547,8 +565,26 @@ def patch_fact(
             if body.node_id not in store.nodes_by_id([body.node_id], view):
                 raise HTTPException(404, "no such node")
             node_id = body.node_id
-        fact = store.attach_fact(fact_id, node_id, pinned=body.pinned)
-    log.event("patch_fact", fact=fact.id, node=fact.node_id, pinned=fact.pinned)
+        elif (
+            body.scopes is not None
+            and node_id is not None
+            and not Visibility.of_scopes(scopes).sees(store.scopes_of(node_id))
+        ):
+            # SPEC 4.6: archiving or forgetting the node reaches the fact, so the
+            # fact may not leave every scope its node is in.
+            raise HTTPException(
+                409,
+                "the fact's node is not visible from the new scopes:"
+                " detach the fact or give a node_id visible from them",
+            )
+        fact = store.attach_fact(fact_id, node_id, pinned=body.pinned, scopes=body.scopes)
+    log.event(
+        "patch_fact",
+        fact=fact.id,
+        node=fact.node_id,
+        pinned=fact.pinned,
+        scopes=len(fact.scopes),
+    )
     return {
         "id": fact.id,
         "kind": "fact",
@@ -946,14 +982,17 @@ def update_background(
     return worker.status()
 
 
-@router.post("/background/run")
+@router.post("/background/run", responses={202: {"description": "Run started (wait: false)"}})
 def run_background(
     request: Request,
+    response: Response,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/background/run", "admin")],
     body: RunRequest | None = None,
 ) -> dict[str, Any]:
     """Process the queue now, under an optional budget (calls, tokens, seconds,
-    jobs); answers with a run id and what it processed. Refused while paused."""
+    jobs); answers with a run id and what it processed. With ``wait: false`` it
+    answers 202 with the run id at once; ``GET /background/run/{run_id}`` follows
+    it. Refused while paused, and while another run is in progress (409, naming it)."""
     body = body or RunRequest()
     limits = body.budget
     budget = Budget(
@@ -961,11 +1000,35 @@ def run_background(
         max_tokens=limits.tokens if limits else None,
         max_seconds=limits.seconds if limits else None,
     )
+    worker = _worker(request)
     try:
-        report = _worker(request).run(budget, max_jobs=body.max_jobs)
+        if not body.wait:
+            started = worker.start_run(budget, max_jobs=body.max_jobs, started_by=principal.name)
+            response.status_code = 202
+            return {"run_id": started.id, "status": "running"}
+        report = worker.run(budget, max_jobs=body.max_jobs, started_by=principal.name)
     except RunRefused as exc:
-        raise HTTPException(409, f"run refused: background is {exc.reason}") from exc
+        detail = f"run refused: background is {exc.reason}"
+        if exc.run_id is not None:
+            detail += f" with {exc.run_id}"
+        raise HTTPException(409, detail) from exc
     return report.as_dict()
+
+
+@router.get("/background/run/{run_id}")
+def background_run(
+    request: Request,
+    run_id: str,
+    principal: Annotated[
+        auth.Principal, auth.declare("GET", "/v1/background/run/{run_id}", "admin")
+    ],
+) -> dict[str, Any]:
+    """A run's report, live while it runs (the current run and the last ones are
+    kept in memory; a restart forgets them)."""
+    report = _worker(request).run_report(run_id) if kind_of(run_id) == "run" else None
+    if report is None:
+        raise HTTPException(404, "no such run")
+    return report
 
 
 @router.post("/background/yield")

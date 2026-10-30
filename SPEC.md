@@ -490,6 +490,24 @@ scopes. A record may be archived, restored, patched or forgotten by a token
 bound to at least one of the record's scopes. (P9 applies, including to the
 graph.)
 
+**Re-scoping a fact.** `PATCH /v1/facts/{id}` with `scopes` replaces a fact's
+scope set — to share a fact learnt in `user:alice/agent:coder` with every
+agent of `user:alice`, or with a chosen few. A token changes only the scopes it
+is bound to: every scope the patch **adds** and every scope it **removes** must
+be at or below one of the token's bound scopes, so a scope the token does not
+own is neither granted nor taken away, and is kept as it is. The new set is
+never empty. The fact stays where its node is: archiving or forgetting a node
+reaches its facts, so a new set from which the fact's node is not visible
+(sharing none of its scopes, the rule for attaching) is refused with 409
+unless the same patch detaches the fact or names a node visible from the new
+set. Otherwise re-scoping moves the fact alone: its source and the facts it
+points to (`conflicts_with`, `superseded_by`, `same_as`) keep their own
+scopes, and the usual rules show them — a reader who sees the fact but not its
+source gets it without the excerpt. The lexical statistics follow the new set at once, so
+the fact counts for the scopes it now belongs to and no longer for the ones it
+left (P9); the revision grows (§4.4), so a dream that read the fact before
+the change applies nothing on it.
+
 **Owners.** The operator may declare, per scope, who the memory belongs to:
 `owners = {"user:alice": {name = "Alice", aliases = ["Алиса"]}}`. A
 declaration holds for the scope and every scope below it, like a language
@@ -1477,7 +1495,10 @@ mode, export/import, stats). A token handed to an agent normally holds
 (list archived items, under budget), `POST /v1/forget` (node, fact, edge or
 source — hard delete, `forget` permission, P5; returns what was removed, by
 count), `PATCH` on nodes and facts — including `PATCH /v1/facts/{id}` to
-attach a free-standing fact to a node (`node_id`), detach it, or pin it.
+attach a free-standing fact to a node (`node_id`), detach it, pin it, or
+replace its scope set (`scopes`, §4.6). With `scopes`, the fact's node — the
+current one, or the `node_id` given — must be visible from the new set (409
+for the current one: detach it or name another).
 `POST /v1/proposals/{id}` with `decision: accept | reject` (§4.4b; `write`,
 by a token bound to one of the proposal's scopes; a decided proposal is not
 decided again; a `fact` proposal also needs `review`, and its acceptance
@@ -1492,9 +1513,17 @@ external (P6).
 ### 8.4 Operations
 `GET/PUT /v1/background` (mode `auto` | `paused` | `on_demand`, concurrency
 per endpoint — P11), `POST /v1/background/run` (process now, with an optional
-budget; answers with a run id and what it processed), `POST /v1/background/yield`
-and `POST /v1/background/resume` (a foreground turn starts / ends).
-`GET /v1/health` (tier, backends reachable, queue depth, stale vectors),
+budget; answers with a run id and what it processed; with `"wait": false` it
+answers 202 with the run id at once and the run goes on in its own thread),
+`GET /v1/background/run/{run_id}` (a run's report, live while it runs; the
+current run and the last 20 are kept in memory: a restart interrupts a run and
+forgets them), `POST /v1/background/yield` and `POST /v1/background/resume` (a
+foreground turn starts / ends). At most one run at a time; a second is refused
+with the current run's id.
+`GET /v1/health` (tier, backends reachable, queue depth, stale vectors, and the
+run in progress as counts and ids — its id, the name of the token that started
+it, when, its budget, jobs done and left, whether the background is yielded — so
+every client sees a run it did not start),
 `GET /v1/stats` (counts only, never content), `POST /v1/export` and
 `POST /v1/import` (a documented JSONL format, encrypted export optional; each
 imported record may carry an `external_id`, §4.6).
@@ -1958,6 +1987,10 @@ Each box is ticked only with the test that proves it, named beside it
 - [x] Scope isolation, including P9's statistical leak.
   - `tests/security/test_p9_scope_isolation.py::test_p9_tokens_cannot_read_outside_their_scopes`
   - `tests/security/test_p9_scope_isolation.py::test_p9_invisible_corpus_changes_no_score_and_no_statistic`
+- [x] A re-scope never grants nor takes away a scope the token does not own, never leaves the fact under a node of a scope it left, and a re-scoped fact leaves no statistic behind in the scopes it left.
+  - `tests/security/test_p9_scope_isolation.py::test_p9_a_rescope_never_grants_or_takes_away_a_scope_the_token_does_not_own`
+  - `tests/security/test_p9_scope_isolation.py::test_p9_a_rescope_never_leaves_a_fact_under_a_node_of_the_scope_it_left`
+  - `tests/security/test_p9_scope_isolation.py::test_p9_a_rescoped_fact_moves_its_statistics_with_it`
 - [x] Injected content is labelled as data; an instruction-like memory does not change the wrapper.
   - `tests/unit/test_recalled.py::test_content_never_changes_the_wrapper`
   - `tests/mcp/test_tools.py::test_recall_returns_handles_wrapped_as_data`

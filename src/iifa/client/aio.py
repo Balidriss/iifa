@@ -329,9 +329,12 @@ class AsyncIifaClient:
         node_id: str | None = None,
         detach: bool = False,
         pinned: bool | None = None,
+        scopes: Sequence[str] | None = None,
     ) -> dict[str, Any]:
+        """Attach, detach or pin a fact, or replace its scope set (``scopes``): the
+        token must own every scope added and every scope removed (SPEC 4.6)."""
         result: dict[str, Any] = await self._send(
-            b.patch_fact_call(fact_id, node_id=node_id, detach=detach, pinned=pinned)
+            b.patch_fact_call(fact_id, node_id=node_id, detach=detach, pinned=pinned, scopes=scopes)
         )
         return result
 
@@ -463,11 +466,19 @@ class AsyncIifaClient:
         tokens: int | None = None,
         seconds: float | None = None,
         max_jobs: int | None = None,
+        wait: bool = True,
     ) -> dict[str, Any]:
-        """Process the queue now under a budget; returns the run report (admin)."""
+        """Process the queue now under a budget; returns the run report (admin).
+        With ``wait=False`` it returns the run id at once: follow it with
+        ``background_run``."""
         result: dict[str, Any] = await self._send(
-            b.run_call(calls=calls, tokens=tokens, seconds=seconds, max_jobs=max_jobs)
+            b.run_call(calls=calls, tokens=tokens, seconds=seconds, max_jobs=max_jobs, wait=wait)
         )
+        return result
+
+    async def background_run(self, run_id: str) -> dict[str, Any]:
+        """A run's report, live while it runs (admin)."""
+        result: dict[str, Any] = await self._send(b.background_run_call(run_id))
         return result
 
     async def yield_background(self, *, timeout_seconds: float | None = None) -> dict[str, Any]:

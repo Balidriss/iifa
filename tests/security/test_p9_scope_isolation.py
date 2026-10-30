@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,7 +11,8 @@ from iifa.recall.lexical import bm25
 from iifa.recall.tokenizer import tokenize
 from iifa.scopes import Visibility
 from iifa.store.repo import Store
-from tests.api.conftest import auth, remember
+from tests.api.conftest import KEY, auth, remember
+from tests.conftest import FakeClock
 
 pytestmark = pytest.mark.security
 
@@ -239,3 +242,108 @@ def test_p9_tokens_cannot_read_outside_their_scopes(client: TestClient) -> None:
         client.post("/v1/archive", json={"id": fact}, headers=auth("alice-coder")).status_code
         == 403
     )  # but not writable
+
+
+def test_p9_a_rescope_never_grants_or_takes_away_a_scope_the_token_does_not_own(
+    client: TestClient,
+) -> None:
+    """SPEC 4.6: every scope a re-scope adds and every scope it removes must be the
+    token's own; a scope it does not own is kept exactly as it was."""
+    coder = remember(client, "Coder note on palettes", scope="user:alice/agent:coder")["fact"]
+    widen = client.patch(
+        f"/v1/facts/{coder['id']}", json={"scopes": ["user:alice"]}, headers=auth("alice-coder")
+    )
+    assert widen.status_code == 403  # bound below user:alice: cannot open it to the parent
+
+    shared = remember(client, "Shared note", scopes=["user:alice", "user:bob"])["fact"]
+
+    def patch(scopes: list[str], token: str) -> int:
+        response = client.patch(
+            f"/v1/facts/{shared['id']}", json={"scopes": scopes}, headers=auth(token)
+        )
+        return response.status_code
+
+    assert patch(["user:alice"], "alice") == 403  # would take bob's scope away
+    assert patch(["user:alice", "user:bob", "user:carol"], "alice") == 403  # would grant carol
+    assert client.app.state.store.scopes_of(shared["id"]) == ("user:alice", "user:bob")
+    assert patch(["user:alice/agent:coder", "user:bob"], "alice") == 200  # bob's kept as is
+    assert client.app.state.store.scopes_of(shared["id"]) == ("user:alice/agent:coder", "user:bob")
+
+    alice_only = remember(client, "Alice private note", scope="user:alice")["fact"]
+    stolen = client.patch(
+        f"/v1/facts/{alice_only['id']}", json={"scopes": ["user:bob"]}, headers=auth("bob")
+    )
+    assert stolen.status_code == 403  # bob does not own the record at all
+    assert client.app.state.store.scopes_of(alice_only["id"]) == ("user:alice",)
+
+
+def test_p9_a_rescope_never_leaves_a_fact_under_a_node_of_the_scope_it_left(
+    client: TestClient,
+) -> None:
+    """SPEC 4.6: archiving or forgetting a node reaches its facts, so a fact never
+    moves away from its node. A token of the scope the fact left cannot hide or
+    delete it through the node."""
+    coder, writer = "user:alice/agent:coder", "user:alice/agent:writer"
+    written = remember(client, "Mira paints with cold palettes", scope=coder, node={"name": "Mira"})
+    fact, node = written["fact"]["id"], written["node"]["id"]
+
+    def move(**extra: object) -> int:
+        body = {"scopes": [writer], **extra}
+        return client.patch(f"/v1/facts/{fact}", json=body, headers=auth("alice")).status_code
+
+    assert move() == 409  # the node would stay in coder, out of the fact's sight
+    assert move(detach=True) == 200
+
+    def recalled() -> list[str]:
+        body = client.post(
+            "/v1/recall", json={"scope": writer, "query": "cold palettes"}, headers=auth("alice")
+        ).json()
+        return [item["id"] for item in body["items"]]
+
+    assert recalled() == [fact]
+    archive = client.post("/v1/archive", json={"id": node}, headers=auth("alice-coder"))
+    assert archive.status_code == 200
+    assert recalled() == [fact]
+    gone = client.post("/v1/forget", json={"id": node}, headers=auth("forget")).json()
+    assert gone["removed"]["facts"] == 0
+    assert recalled() == [fact]
+
+
+def test_p9_a_rescoped_fact_moves_its_statistics_with_it(
+    store: Store, tmp_path: Path, clock: FakeClock
+) -> None:
+    """After a re-scope, every score and statistic is the one of a store where the
+    fact was written in its new scope from the start: the scope it left keeps no
+    trace of it (no document count, no length, no posting)."""
+
+    def fill(target: Store) -> None:
+        for i in range(10):
+            target.add_fact(
+                scopes=["user:alice"], statement=f"alice solar note {i}", origin="explicit"
+            )
+            target.add_fact(
+                scopes=["user:bob"],
+                statement=f"bob solar budget {i} " + "x " * i,
+                origin="explicit",
+            )
+
+    fill(store)
+    moved = store.add_fact(
+        scopes=["user:bob"], statement="solar solar budget budget review", origin="explicit"
+    )
+    store.attach_fact(moved.id, None, scopes=["user:alice"])
+
+    with Store(tmp_path / "reference.db", KEY, clock=clock) as reference:
+        fill(reference)
+        reference.add_fact(
+            scopes=["user:alice"], statement="solar solar budget budget review", origin="explicit"
+        )
+        for view in (ALICE, Visibility.of_scope("user:bob")):
+            assert store.corpus_stats(view) == reference.corpus_stats(view)
+            assert len(store.postings(["budget"], view)) == len(
+                reference.postings(["budget"], view)
+            )
+        assert [s for _, s in _scores(store)] == [s for _, s in _scores(reference)]
+    assert moved.id not in {
+        p.doc_id for p in store.postings(["review"], Visibility.of_scope("user:bob"))
+    }

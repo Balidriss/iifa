@@ -7,7 +7,22 @@ pre-releases (0.1.0a1).
 
 ## Unreleased
 
+## 0.1.0a2 — 2026-10-30
+
+### Added
+- `PATCH /v1/facts/{id}` takes `scopes` to share a fact with a parent scope or
+  with a chosen list of scopes (also `patch_fact(..., scopes=...)` in the
+  Python client); a token adds or removes only scopes it owns, and a fact
+  never leaves the scopes of its node (detach it in the same call).
+- `GET /v1/health` shows the background run in progress, whoever started it:
+  its id, the token that started it, when, its budget, jobs done and left,
+  and whether it is yielded.
+- `POST /v1/background/run` takes `"wait": false` to answer 202 with the run
+  id at once, and `GET /v1/background/run/{id}` follows the run (also
+  `run_background(wait=False)` and `background_run(id)` in the Python client).
+
 ### Changed
+- A background run refused because another is in progress names that run.
 - Accepting a merge proposal through `POST /v1/proposals/{id}` answers 409
   with a message that says how a merge is applied (a dream's `merge_nodes`,
   approved in review).
