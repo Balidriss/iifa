@@ -58,6 +58,19 @@ def test_migration_11_drops_summaries_from_the_lexical_index(tmp_path: Path) -> 
         # the document as versions 1-10 wrote it
         store._unindex(node.id)
         store._index(node.id, "node", "Karim Kar An electrician in Lyon", ["user:fixture"])
+        store._conn.execute("ALTER TABLE facts DROP COLUMN value_norm")  # version 13's
+        store._conn.execute("DROP INDEX dream_runs_created")  # version 16's
+        store._conn.execute("ALTER TABLE dream_runs DROP COLUMN started_by")
+        for trigger in ("edges_rev", "record_scopes_rev_insert", "record_scopes_rev_delete"):
+            store._conn.execute(f"DROP TRIGGER {trigger}")  # replayed by version 16
+        store._conn.execute("ALTER TABLE edges DROP COLUMN decision_rev")
+        for table in ("facts", "session_facts"):  # version 17's
+            for column in ("part_kind", "part_ref", "read_at"):
+                store._conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        store._conn.execute("ALTER TABLE facts DROP COLUMN observed_at")  # version 18's
+        store._conn.execute("ALTER TABLE sources DROP COLUMN external")  # version 19's
+        for table in ("fact_activities", "session_activities"):  # version 19's too
+            store._conn.execute(f"DROP TABLE {table}")
         store._conn.execute("PRAGMA user_version = 10")
         assert [p.doc_id for p in store.postings(["electrician"], view)] == [node.id]
     with Store(path, "k") as store:

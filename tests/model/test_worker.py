@@ -368,6 +368,38 @@ def test_a_shutdown_while_a_run_waits_at_the_gate_says_shutdown(harness: Harness
     assert harness.status_of(job) == PENDING and harness.fake.calls == []
 
 
+def test_a_cancel_puts_the_job_in_flight_back_at_its_next_model_call(harness: Harness) -> None:
+    """As at a budget limit: the call already made counts, the next one is never
+    made, the job goes back untouched for a later run."""
+    harness.worker.set_mode(ON_DEMAND)
+    worker = harness.worker
+
+    def call_cancel_call(job: Job, ctx: JobContext) -> None:
+        ctx.models.chat([{"role": "user", "content": "one"}], max_tokens=1)
+        run = worker.status()["run"]
+        assert worker.cancel_run(run["run_id"]) == "cancelling"
+        ctx.models.chat([{"role": "user", "content": "two"}], max_tokens=1)
+
+    worker.handlers["call_cancel_call"] = call_cancel_call
+    job = harness.enqueue("call_cancel_call")
+    later = harness.enqueue()
+    report = worker.run()
+    assert report.stopped_by == "cancelled" and report.cancel_requested is True
+    assert report.counts["released"] == 1 and report.calls == 1
+    assert len(harness.fake.chat_calls) == 1
+    released = harness.queue.get(job.id)
+    assert released.status == PENDING and released.attempts == 0
+    assert harness.status_of(later) == PENDING
+    assert worker.mode == ON_DEMAND
+    assert worker.cancel_run(report.id) == "done"
+    assert worker.cancel_run("run_" + "0" * 26) is None
+
+
+def test_a_cancelled_budget_is_spent_before_any_other_limit() -> None:
+    budget = Budget(max_calls=0, cancelled=True)
+    assert budget.exhausted(0.0) == "cancelled"
+
+
 def test_an_async_run_stops_at_shutdown_and_ends_cleanly(harness: Harness) -> None:
     harness.worker.set_mode(ON_DEMAND)
     job = harness.enqueue()

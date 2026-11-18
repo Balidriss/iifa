@@ -178,16 +178,35 @@ def test_node_index_and_history_queries(store: Store, clock: FakeClock) -> None:
     assert [f.id for f in store.facts_known_at(karim.id, ALICE, t1)] == [first.id]
     assert [f.id for f in store.facts_known_at(karim.id, ALICE, t2)] == [second.id]
     assert store.facts_known_at(karim.id, ALICE, "2020-01-01") == []
-    history = store.fact_history(ALICE, node_id=None, since=None, until=None, limit=10)
-    assert [f.id for f in history] == [second.id, first.id]  # archived and invisible ones excluded
-    assert hidden.id not in {f.id for f in history}
-    ranged = store.fact_history(ALICE, node_id=karim.id, since=t2, until=t2, limit=10)
-    assert [f.id for f in ranged] == [second.id, first.id]  # first was still open at t2's start
-    later = store.fact_history(ALICE, node_id=karim.id, since=store.now(), until=None, limit=10)
-    assert [f.id for f in later] == [second.id]
-    assert store.fact_history(ALICE, node_id=karim.id, since=None, until=None, limit=1) == [second]
-    assert store.fact_history(ALICE, node_id=karim.id, since=None, until=None, limit=0) == []
-    assert store.fact_history(Visibility(), node_id=None, since=None, until=None, limit=5) == []
+
+    def changes(
+        node_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        before: tuple[str, str, str] | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, str]]:
+        found = store.fact_changes(
+            ALICE, node_id=node_id, since=since, until=until, before=before, limit=limit
+        )
+        return [(fact_id, change) for _, fact_id, change in found]
+
+    every = [(second.id, "recorded"), (first.id, "closed"), (first.id, "recorded")]
+    assert changes() == every  # archived and invisible ones excluded
+    assert hidden.id not in {i for i, _ in changes()}
+    assert changes(node_id=karim.id, since=t2, until=t2) == every[:2]
+    assert changes(node_id=karim.id, since=store.now()) == []
+    assert changes(node_id=karim.id, limit=1) == every[:1]
+    assert changes(node_id=karim.id, limit=0) == []
+    # a keyset position resumes strictly after it, in the same order
+    at, fact_id, change = store.fact_changes(
+        ALICE, node_id=None, since=None, until=None, before=None, limit=1
+    )[0]
+    assert changes(before=(at, fact_id, change)) == every[1:]
+    assert (
+        store.fact_changes(Visibility(), node_id=None, since=None, until=None, before=None, limit=5)
+        == []
+    )
     assert store.node_index(Visibility()) == []
 
 

@@ -70,7 +70,7 @@ def test_two_undetermined_statements_in_one_script_still_supersede(
     result = ingest(client, app, "Karim lives in Lyon.")
     assert result["facts"]["superseded"] == 1
     assert app.state.store.get_fact(old).superseded_by == newest(app).id
-    assert newest(app).language is None  # D5: no borrowed language
+    assert newest(app).language is None  # no borrowed language
 
 
 def test_undetermined_against_another_script_takes_the_path_across_languages(

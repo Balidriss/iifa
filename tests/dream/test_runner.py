@@ -204,7 +204,22 @@ def test_the_plan_is_paginated_under_budget(
         f"/v1/dream/{run['run_id']}/plan",
         params={"after": first["next"], "budget_tokens": 16000},
     ).json()
-    assert len(rest["items"]) == 1 and rest["next"] is None
+    assert len(rest["items"]) == 1 and rest["next"] is None and rest["next_cursor"] is None
+    by_cursor = dream_client.get(
+        f"/v1/dream/{run['run_id']}/plan",
+        params={"cursor": first["next_cursor"], "budget_tokens": 16000},
+    ).json()
+    assert by_cursor["items"] == rest["items"]
+    both = dream_client.get(
+        f"/v1/dream/{run['run_id']}/plan",
+        params={"cursor": first["next_cursor"], "after": first["next"]},
+    )
+    assert both.status_code == 422
+    other = dream(dream_client, dry_run=True)  # a plan cursor is bound to its run
+    foreign = dream_client.get(
+        f"/v1/dream/{other['run_id']}/plan", params={"cursor": first["next_cursor"]}
+    )
+    assert foreign.status_code == 400
     tight = dream_client.get(f"/v1/dream/{run['run_id']}/plan", params={"budget_tokens": 1}).json()
     assert tight["items"] == [] and tight["used_tokens"] <= 1
 
@@ -272,6 +287,28 @@ def test_the_dream_counts_against_the_budget_of_the_run_it_runs_in(
     report = run_queue(dream_client, calls=1)
     assert report["calls"] == 1
     assert dream_report(dream_client, run_id)["report"]["stopped_by"] == "calls"
+
+
+def test_a_cancelled_background_run_stops_its_dream_as_at_a_budget_limit(
+    dream_client: TestClient, dream_app: FastAPI, fake_openai: FakeOpenAIServer, memory: Memory
+) -> None:
+    """The background run is cancelled during the dream's first unit: the dream
+    makes no other call and finishes (it is not a cancelled dream)."""
+    worker = dream_app.state.worker
+
+    def cancel_the_run(unit: dict[str, Any]) -> list[dict[str, Any]]:
+        run = worker.status()["run"]
+        assert worker.cancel_run(run["run_id"]) == "cancelling"
+        return []
+
+    fake_openai.set_default(chat=dream_model(cancel_the_run))
+    run_id = start_dream(dream_client)
+    report = run_queue(dream_client)
+    assert report["stopped_by"] == "cancelled" and report["calls"] == 1
+    dreamed = dream_report(dream_client, run_id)
+    assert dreamed["status"] == "finished"
+    assert dreamed["report"]["stopped_by"] == "run_cancelled"
+    assert dreamed["report"]["units"] == 1 and len(fake_openai.chat_calls) == 1
 
 
 # --------------------------------------------------------------------------- one at a time, cancel
@@ -379,6 +416,7 @@ def test_without_a_dream_model_only_service_operations_run(
         "refresh_summary",
         "propose_edge",
         "create_theme",
+        "group_activities",
         "consolidate_facts",
         "merge_nodes",
         "supersede_fact",

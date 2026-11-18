@@ -254,6 +254,43 @@ def test_consolidate_closes_and_references_and_undo_reopens(
     assert store.revisions([new.id]) == {}  # what the operation created is gone
 
 
+@pytest.mark.parametrize(
+    ("statement", "status", "language"),
+    [
+        # English, detected: not the required language
+        ("Karim drinks a cup of green tea with his breakfast every morning.", "dropped", None),
+        ("Karim boit du thé vert chaque matin.", "applied", "fr"),
+        # undetermined: not judged within one script, and it borrows neither
+        # the forced language nor the originals' (which is not the required one)
+        ("Karim drinks green tea every morning.", "applied", None),
+    ],
+)
+def test_a_consolidation_is_written_in_the_scopes_forced_language(
+    store: Store,
+    journal: Journal,
+    memory: Memory,
+    statement: str,
+    status: str,
+    language: str | None,
+) -> None:
+    """SPEC 5.6 rule 13: a forced language wins over the originals' own (here
+    English facts kept from before the scope forced French)."""
+    applier = Applier(store, journal, forced_language=lambda scopes: "fr")
+    entry = submit(
+        store,
+        applier,
+        new_run(journal, policy=MEDIUM_AUTO),
+        _consolidate(memory, [memory.tea.id, memory.green_tea.id], statement),
+    )
+    into = store.get_fact(memory.tea.id).consolidated_into
+    if status == "dropped":
+        assert _status(entry) == ("dropped", "language_mismatch")
+        assert into is None
+    else:
+        assert _status(entry) == ("applied", None)
+        assert store.get_fact(into or "").language == language
+
+
 def test_consolidations_and_themes_go_to_review_by_default(
     store: Store, applier: Applier, journal: Journal, memory: Memory
 ) -> None:
@@ -299,6 +336,31 @@ def test_consolidate_keeps_a_key_and_value_every_original_shares(
     new = store.get_fact(store.get_fact(memory.home.id).consolidated_into or "")
     assert entry.status == "applied"
     assert (new.attribute, new.value) == ("home", "Lyon")
+
+
+@pytest.mark.parametrize("both", [True, False])
+def test_a_consolidation_keeps_the_activity_every_original_shares(
+    store: Store, applier: Applier, journal: Journal, memory: Memory, both: bool
+) -> None:
+    """SPEC 4.2, 5.6: the activity a rule was learnt during survives its
+    consolidation only when every original was learnt during it."""
+    task = store.create_node(scopes=[SCOPE], name="brewing tea", kind="task")
+    linked = [memory.tea.id, memory.green_tea.id] if both else [memory.tea.id]
+    for fact_id in linked:
+        store.execute(
+            "INSERT INTO fact_activities (fact_id, activity_id) VALUES (?, ?)", (fact_id, task.id)
+        )
+    entry = submit(
+        store,
+        applier,
+        new_run(journal, policy=MEDIUM_AUTO),
+        _consolidate(
+            memory, [memory.tea.id, memory.green_tea.id], "Karim drinks green tea every morning."
+        ),
+    )
+    assert entry.status == "applied"
+    new = store.get_fact(store.get_fact(memory.tea.id).consolidated_into or "")
+    assert store.fact_activities([new.id]).get(new.id, []) == ([task.id] if both else [])
 
 
 @pytest.mark.parametrize(
@@ -429,6 +491,7 @@ def test_one_same_as_group_counts_as_one_value_in_rule_14() -> None:
         ("pinned", "pinned"),
         ("conflict", "conflict"),
         ("same_as", "same_as"),
+        ("same_as_head", "same_as"),
         ("languages", "language"),
         ("other_node", "wrong_node"),
         ("closed", "not_live"),
@@ -471,6 +534,9 @@ def test_consolidate_drops_what_it_may_not_touch(
         facts = [memory.tea.id, extra(flags=["conflict"])]
     elif case == "same_as":
         facts = [memory.tea.id, extra(same_as=memory.green_tea.id)]
+    elif case == "same_as_head":
+        # green tea carries no same_as itself; its French equivalent points at it
+        extra(statement="Karim boit du thé vert.", language="fr", same_as=memory.green_tea.id)
     elif case == "languages":
         facts = [memory.tea.id, extra(statement="Karim aime le thé vert.", language="fr")]
     elif case == "other_node":
@@ -663,6 +729,7 @@ def test_supersede_fact_closes_and_undo_reopens(
         ("explicit", "explicit"),
         ("same_value", "same_value"),
         ("several", "several"),
+        ("set", "several"),
         ("key", "key"),
         ("earlier", "earlier"),
         ("external", "external"),
@@ -703,6 +770,25 @@ def test_supersede_fact_the_write_path_would_not_make_is_downgraded_to_a_conflic
             statement="Karim is a photographer.",
             attribute="role",
             value="photographer",
+        )
+    elif case == "set":  # SPEC 5.4: two elements of a set, a free-form key
+        old = store.add_fact(
+            scopes=[SCOPE],
+            node_id=memory.karim.id,
+            statement="Karim speaks Portuguese.",
+            origin="extracted",
+            attribute="languages_spoken",
+            value="Portuguese",
+            language="en",
+            flags=["many"],
+        ).id
+        by = _paris(
+            store,
+            memory,
+            statement="Karim speaks Japanese.",
+            attribute="languages_spoken",
+            value="Japanese",
+            flags=["many"],
         )
     elif case == "key":
         by = _paris(store, memory, attribute="workplace")
@@ -879,3 +965,92 @@ def test_the_journal_keeps_the_models_reason_and_the_records(
     assert stored.reason_given == "two drinks"
     assert set(stored.records) >= {memory.tea.id, memory.green_tea.id}
     assert stored.risk == "low"
+
+
+@pytest.mark.parametrize(
+    ("second_ref", "kept"),
+    [
+        ("example.com", ("external", "web", "example.com", "2026-09-12")),
+        ("other.org", ("external", None, None, "2026-09-12")),  # two pages: no one ref
+    ],
+)
+def test_a_consolidation_keeps_where_its_facts_came_from_when_they_share_it(
+    store: Store,
+    applier: Applier,
+    journal: Journal,
+    memory: Memory,
+    second_ref: str,
+    kept: tuple[str | None, ...],
+) -> None:
+    """SPEC 4.2: the part's kind and ref stay when every original shares them,
+    with the latest day read."""
+    read = [
+        store.add_fact(
+            scopes=[SCOPE],
+            node_id=memory.karim.id,
+            statement=statement,
+            origin="extracted",
+            attribute="office",
+            value="office 12",
+            language="en",
+            provenance="external",
+            part_kind="web",
+            part_ref=ref,
+            read_at=day,
+        )
+        for statement, ref, day in (
+            ("Karim's office is office 12.", "example.com", "2026-09-10"),
+            ("Karim works in office 12.", second_ref, "2026-09-12"),
+        )
+    ]
+    submit(
+        store,
+        applier,
+        new_run(journal, policy=MEDIUM_AUTO),
+        _consolidate(memory, [f.id for f in read], "Karim's office is office 12."),
+    )
+    new = store.get_fact(store.get_fact(read[0].id).consolidated_into or "")
+    assert (new.provenance, new.part_kind, new.part_ref, new.read_at) == kept
+
+
+@pytest.mark.parametrize(
+    ("second_day", "kept"),
+    [
+        ("2026-09-12", ("2026-09-12", True)),  # both observed: the latest day
+        (None, (None, False)),  # one lasting: the consolidation is lasting
+    ],
+)
+def test_a_consolidation_of_observations_is_one_as_of_their_latest_day(
+    store: Store,
+    applier: Applier,
+    journal: Journal,
+    memory: Memory,
+    second_day: str | None,
+    kept: tuple[str | None, bool],
+) -> None:
+    """SPEC 4.2: observed when every original is, as of the latest day."""
+    seen = [
+        store.add_fact(
+            scopes=[SCOPE],
+            node_id=memory.karim.id,
+            statement=statement,
+            origin="extracted",
+            attribute="office",
+            value="office 12",
+            language="en",
+            flags=["observed"] if day else [],
+            observed_at=day,
+        )
+        for statement, day in (
+            ("Karim's office is office 12.", "2026-09-10"),
+            ("Karim works in office 12.", second_day),
+        )
+    ]
+    submit(
+        store,
+        applier,
+        new_run(journal, policy=MEDIUM_AUTO),
+        _consolidate(memory, [f.id for f in seen], "Karim's office is office 12."),
+    )
+    new = store.get_fact(store.get_fact(seen[0].id).consolidated_into or "")
+    assert (new.observed_at, "observed" in new.flags) == kept

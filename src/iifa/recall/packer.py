@@ -39,3 +39,25 @@ def pack(costs: Sequence[int], budget_tokens: int, *, reserved_tokens: int = 0) 
     if not chosen:
         return PackResult(omitted=len(costs), reason="budget_too_small")
     return PackResult(tuple(chosen), used + reserved_tokens, len(costs) - len(chosen), None)
+
+
+def pack_prefix(costs: Sequence[int], budget_tokens: int) -> PackResult:
+    """The longest prefix of ``costs`` whose sum never exceeds ``budget_tokens``:
+    what a page of a list takes (SPEC 8), where skipping an item would lose it
+    between two pages. The first item that does not fit ends the page."""
+    if budget_tokens < 0:
+        raise ValueError("budget_tokens must be non-negative")
+    if not costs:
+        return PackResult(reason="no_items")
+    used = 0
+    count = 0
+    for cost in costs:
+        if cost < 0:
+            raise ValueError("item costs must be non-negative")
+        if used + cost > budget_tokens:
+            break
+        used += cost
+        count += 1
+    if not count:
+        return PackResult(omitted=len(costs), reason="budget_too_small")
+    return PackResult(tuple(range(count)), used, len(costs) - count, None)

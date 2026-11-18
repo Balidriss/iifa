@@ -19,7 +19,11 @@ from typing import Any
 
 from iifa.language import is_code
 from iifa.llm import RESERVED_REQUEST_KEYS
-from iifa.scopes import ROOT_SCOPE, ScopeError, validate_scope
+from iifa.names import plain_name
+from iifa.scopes import ROOT_SCOPE, ScopeError, validate_scope, within
+
+# the labels the service writes in front of the parts of a source (P6)
+SERVICE_LABELS = frozenset({"user", "tool", "web", "document", "external"})
 
 PERMISSIONS: frozenset[str] = frozenset({"read", "write", "forget", "dream", "review", "admin"})
 DEFAULT_HOST = "127.0.0.1"
@@ -66,6 +70,8 @@ class Settings:
     checkpoint_interval: float = 0.5
     recall_candidates: int = 200
     graph_neighbour_facts: int = 3
+    # SPEC 4.2: an observed fact's recall score halves every this many days (0: off)
+    observed_half_life_days: float = 7.0
     mcp_http: bool = True
     mcp_expose_forget: bool = False
     mcp_default_scope: str | None = None
@@ -94,6 +100,9 @@ class Settings:
     merge_threshold: float | None = None
     link_threshold: float | None = None
     key_threshold: float | None = None  # SPEC 5.4: attribute keys aligned by embeddings
+    # SPEC 5.5: the cosine at which a request matches an activity by vectors;
+    # None (the default): only words match, until measured
+    activity_threshold: float | None = None
     embed_batch: int = 32
     extraction_chunk_chars: int = 12000
     confirm_after_sources: int = 2
@@ -104,8 +113,24 @@ class Settings:
     # SPEC 5.4: role, team and preferences asked "replaces, or both true?" - on
     # by default (measured on qwen3.5:9b with the source's quotes)
     replacement_question: bool = True
+    # SPEC 5.4: within one language, a change whose values share words asked
+    # "the same value told again?" - only "same" changes anything
+    restatement_question: bool = True
+    # SPEC 5.4: ask each value's comparison form - off by default
+    value_norm: bool = False
+    # SPEC 4.2 and 5.8: intent before content (frame, modality, duration) and the
+    # minutes after which a session nobody ended is closed (0: never)
+    extraction_intent: bool = True
+    session_idle_minutes: float = 120.0
     # SPEC 4.6: (scope, name, aliases) - who the memory of a scope belongs to
     owners: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    # SPEC 4.6: (scope, name) - the name of the assistant answering in a scope
+    assistants: tuple[tuple[str, str], ...] = ()
+    # SPEC 4.6: (scope, name, aliases) - the agent whose own memory a scope also is
+    selves: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    # SPEC 4.2: a self's commitments and preferences wait in review before they
+    # are written
+    review_self_rules: bool = False
     # SPEC 5.6: the dream's own model (rule 10), its probe tolerance (rule 9), the
     # merge candidates adjudicated per unit (0: none), the prompt budget of one
     # call (counted with ``tokenizer``) and the review policy per
@@ -126,6 +151,8 @@ class Settings:
         self._validate_models()
         self._validate_extraction()
         self._validate_owners()
+        self._validate_assistants()
+        self._validate_selves()
         self._validate_embeddings()
         self._validate_dream()
         if not self.db_key and not self.plaintext_database_for_tests:
@@ -180,10 +207,14 @@ class Settings:
             raise ConfigError("confirm_after_sources must be at least 1")
         if self.edge_half_life_days <= 0:
             raise ConfigError("edge_half_life_days must be a positive number of days")
+        if self.observed_half_life_days < 0:
+            raise ConfigError("observed_half_life_days must be 0 (no decay) or more")
         if not (0 <= self.edge_prune_below < 1):
             raise ConfigError("edge_prune_below must be within 0..1")
         if self.summary_nodes_per_session < 0:
             raise ConfigError("summary_nodes_per_session must be 0 or more")
+        if self.session_idle_minutes < 0:
+            raise ConfigError("session_idle_minutes must be 0 (never) or more")
         for scope, code in self.language_overrides:
             if scope != ROOT_SCOPE:
                 try:
@@ -198,20 +229,99 @@ class Settings:
     def _validate_owners(self) -> None:
         """SPEC 4.6: who the memory of a scope belongs to, by name."""
         for scope, name, aliases in self.owners:
+            if scope == ROOT_SCOPE:
+                raise ConfigError(
+                    "owner: '*' is refused - one person would speak in every scope, "
+                    "shared ones included; declare the owner of each scope"
+                )
+            try:
+                validate_scope(scope)
+            except ScopeError as exc:
+                raise ConfigError(f"owner: {exc}") from exc
+            if not name.strip() or any(not a.strip() for a in aliases):
+                raise ConfigError(f"owner of {scope!r}: a name (and aliases) must not be empty")
+            if any(plain_name(n) != " ".join(n.split()) for n in (name, *aliases)):
+                raise ConfigError(  # SPEC 5.1: what the store would refuse or rewrite
+                    f"owner of {scope!r}: a name is plain text with balanced brackets"
+                )
+
+    def _validate_assistants(self) -> None:
+        """SPEC 4.6: the assistant's name labels its part of a source, so it is
+        plain text and never a label of the service's own nor the name or an
+        alias of an owner of that scope - a quote's label must tell whose
+        words it is."""
+        for scope, name in self.assistants:
             if scope != ROOT_SCOPE:
                 try:
                     validate_scope(scope)
                 except ScopeError as exc:
-                    raise ConfigError(f"owner: {exc}") from exc
-            if not name.strip() or any(not a.strip() for a in aliases):
-                raise ConfigError(f"owner of {scope!r}: a name (and aliases) must not be empty")
+                    raise ConfigError(f"assistant: {exc}") from exc
+            if not name.strip():
+                raise ConfigError(f"assistant of {scope!r}: a name must not be empty")
+            if plain_name(name) != " ".join(name.split()):
+                raise ConfigError(
+                    f"assistant of {scope!r}: a name is plain text with balanced brackets"
+                )
+            if name.casefold() in SERVICE_LABELS:
+                raise ConfigError(
+                    f"assistant of {scope!r}: {name!r} is one of the service's own labels"
+                )
+            for owner_scope, owner, aliases in self.owners:
+                related = within(scope, owner_scope) or within(owner_scope, scope)
+                if related and name.casefold() in {n.casefold() for n in (owner, *aliases)}:
+                    raise ConfigError(
+                        f"assistant of {scope!r}: {name!r} is the name of the owner of"
+                        f" {owner_scope!r}"
+                    )
+
+    def _validate_selves(self) -> None:
+        """SPEC 4.6: a self is the assistant of its scope, so its name and its
+        aliases obey the assistant's rules; never on ``*`` (one agent would own
+        every scope's memory), never against an assistant of another name
+        declared on the same scope."""
+        for scope, name, aliases in self.selves:
+            if scope == ROOT_SCOPE:
+                raise ConfigError(
+                    "self: '*' is refused - declare the self of each scope whose memory "
+                    "is the agent's own"
+                )
+            try:
+                validate_scope(scope)
+            except ScopeError as exc:
+                raise ConfigError(f"self: {exc}") from exc
+            names = (name, *aliases)
+            if any(not n.strip() for n in names):
+                raise ConfigError(f"self of {scope!r}: a name (and aliases) must not be empty")
+            if any(plain_name(n) != " ".join(n.split()) for n in names):
+                raise ConfigError(f"self of {scope!r}: a name is plain text with balanced brackets")
+            folded = {n.casefold() for n in names}
+            if folded & SERVICE_LABELS:
+                raise ConfigError(f"self of {scope!r}: a name is one of the service's own labels")
+            for owner_scope, owner, owner_aliases in self.owners:
+                related = within(scope, owner_scope) or within(owner_scope, scope)
+                if related and folded & {n.casefold() for n in (owner, *owner_aliases)}:
+                    raise ConfigError(
+                        f"self of {scope!r}: a name is the name of the owner of {owner_scope!r}"
+                    )
+            for assistant_scope, assistant in self.assistants:
+                if assistant_scope == scope and assistant != name:
+                    raise ConfigError(
+                        f"self of {scope!r}: the assistant of that scope is declared as "
+                        f"{assistant!r}; a self is the assistant of its scope"
+                    )
 
     def _validate_embeddings(self) -> None:
         """SPEC 6.1: the thresholds are cosines in 0..1; a merge proposal must be
         stricter than a resolution candidate."""
         if self.query_timeout <= 0:
             raise ConfigError("embeddings query_timeout must be a positive number of seconds")
-        for name in ("resolve_threshold", "merge_threshold", "link_threshold", "key_threshold"):
+        for name in (
+            "resolve_threshold",
+            "merge_threshold",
+            "link_threshold",
+            "key_threshold",
+            "activity_threshold",
+        ):
             value = getattr(self, name)
             if value is not None and not (0 < float(value) <= 1):
                 raise ConfigError(f"embeddings {name} must be within 0..1")
@@ -356,6 +466,7 @@ def load_settings(
             env.get("IIFA_DEFAULT_BUDGET_TOKENS") or recall.get("default_budget_tokens") or 400
         ),
         max_budget_tokens=int(recall.get("max_budget_tokens") or 16000),
+        observed_half_life_days=float(recall.get("observed_half_life_days", 7.0)),
         retain_sources=bool(store.get("retain_sources", True)),
         checkpoint_interval=float(store.get("checkpoint_interval", 0.5)),
         mcp_http=_flag(env.get("IIFA_MCP_HTTP"), mcp.get("http", True)),
@@ -399,6 +510,9 @@ def load_settings(
         merge_threshold=_optional_float(embeddings.get("merge_threshold")),
         link_threshold=_optional_float(embeddings.get("link_threshold")),
         key_threshold=_optional_float(embeddings.get("key_threshold")),
+        activity_threshold=_optional_float(
+            env.get("IIFA_ACTIVITY_THRESHOLD") or embeddings.get("activity_threshold")
+        ),
         embed_batch=int(embeddings.get("batch", 32)),
         extraction_chunk_chars=int(extraction.get("chunk_chars", 12000)),
         confirm_after_sources=int(extraction.get("confirm_after_sources", 2)),
@@ -409,8 +523,21 @@ def load_settings(
             env.get("IIFA_LANGUAGE_OVERRIDES"), extraction.get("language_overrides", {})
         ),
         owners=_owners(env.get("IIFA_OWNERS"), extraction.get("owners", {})),
+        assistants=_assistants(env.get("IIFA_ASSISTANTS"), extraction.get("assistants", {})),
+        selves=_owners(env.get("IIFA_SELVES"), extraction.get("selves", {}), what="self"),
+        review_self_rules=_flag(
+            env.get("IIFA_REVIEW_SELF_RULES"), extraction.get("review_self_rules", False)
+        ),
         replacement_question=_flag(
             env.get("IIFA_REPLACEMENT_QUESTION"), extraction.get("replacement_question", True)
+        ),
+        restatement_question=_flag(
+            env.get("IIFA_RESTATEMENT_QUESTION"), extraction.get("restatement_question", True)
+        ),
+        value_norm=_flag(env.get("IIFA_VALUE_NORM"), extraction.get("value_norm", False)),
+        extraction_intent=_flag(env.get("IIFA_EXTRACTION_INTENT"), extraction.get("intent", True)),
+        session_idle_minutes=float(
+            env.get("IIFA_SESSION_IDLE_MINUTES") or extraction.get("session_idle_minutes", 120.0)
         ),
         dream_url=_optional(env.get("IIFA_DREAM_URL") or dream.get("url")),
         dream_model=_optional(env.get("IIFA_DREAM_MODEL") or dream.get("model")),
@@ -449,19 +576,20 @@ def _overrides(env_value: str | None, file_value: object) -> tuple[tuple[str, st
 
 
 def _owners(
-    env_value: str | None, file_value: object
+    env_value: str | None, file_value: object, *, what: str = "owner"
 ) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
     """``{"user:alice": {"name": "Alice", "aliases": ["Алиса"]}}`` (or just a
     name) from the environment (JSON) or the file (a table): who the memory of a
-    scope belongs to (SPEC 4.6)."""
+    scope belongs to, or the self whose own memory it also is (SPEC 4.6)."""
+    plural = "selves" if what == "self" else f"{what}s"
     raw: object = file_value
     if env_value is not None and env_value.strip():
         try:
             raw = json.loads(env_value)
         except ValueError as exc:
-            raise ConfigError(f"owners: not JSON: {exc}") from exc
+            raise ConfigError(f"{plural}: not JSON: {exc}") from exc
     if not isinstance(raw, Mapping):
-        raise ConfigError("owners must be a mapping of scope to a name or {name, aliases}")
+        raise ConfigError(f"{plural} must be a mapping of scope to a name or {{name, aliases}}")
     out: list[tuple[str, str, tuple[str, ...]]] = []
     for scope, entry in raw.items():
         name: object
@@ -471,10 +599,30 @@ def _owners(
         elif isinstance(entry, Mapping):
             name, aliases = entry.get("name"), entry.get("aliases", [])
         else:
-            raise ConfigError(f"owner of {scope!r}: a name or {{name, aliases}}")
+            raise ConfigError(f"{what} of {scope!r}: a name or {{name, aliases}}")
         if not isinstance(name, str) or not isinstance(aliases, list):
-            raise ConfigError(f"owner of {scope!r}: a name and a list of aliases")
+            raise ConfigError(f"{what} of {scope!r}: a name and a list of aliases")
         out.append((str(scope), name.strip(), tuple(str(a).strip() for a in aliases)))
+    return tuple(out)
+
+
+def _assistants(env_value: str | None, file_value: object) -> tuple[tuple[str, str], ...]:
+    """``{"user:alice": "NOVA"}`` (or ``{"name": "NOVA"}``) from the environment
+    (JSON) or the file (a table): the assistant answering in a scope (SPEC 4.6)."""
+    raw: object = file_value
+    if env_value is not None and env_value.strip():
+        try:
+            raw = json.loads(env_value)
+        except ValueError as exc:
+            raise ConfigError(f"assistants: not JSON: {exc}") from exc
+    if not isinstance(raw, Mapping):
+        raise ConfigError("assistants must be a mapping of scope to a name or {name}")
+    out: list[tuple[str, str]] = []
+    for scope, entry in raw.items():
+        name = entry.get("name") if isinstance(entry, Mapping) else entry
+        if not isinstance(name, str):
+            raise ConfigError(f"assistant of {scope!r}: a name or {{name}}")
+        out.append((str(scope), name.strip()))
     return tuple(out)
 
 

@@ -93,3 +93,14 @@ def test_foreground_ends_even_when_the_call_fails() -> None:
     with pytest.raises(RuntimeError), gate.foreground():
         raise RuntimeError("the query embedding failed")
     assert gate.foreground_active() == 0 and gate.acquire("chat", timeout=0)
+
+
+def test_an_activity_matches_by_vectors_only_when_a_threshold_is_set(tmp_path: Path) -> None:
+    """SPEC 5.5: off by default (words only), until measured for a model."""
+    assert load_settings(ENV).activity_threshold is None
+    config = tmp_path / "iifa.toml"
+    config.write_text("[embeddings]\nactivity_threshold = 0.6\n", encoding="utf-8")
+    assert load_settings(ENV, config).activity_threshold == 0.6
+    assert load_settings({**ENV, "IIFA_ACTIVITY_THRESHOLD": "0.7"}).activity_threshold == 0.7
+    with pytest.raises(ConfigError, match="activity_threshold"):
+        load_settings({**ENV, "IIFA_ACTIVITY_THRESHOLD": "1.5"})

@@ -97,7 +97,8 @@ class IifaClient:
         scopes: Sequence[str] | None = None,
         subtree: str | None = None,
     ) -> dict[str, Any]:
-        """Handles under budget (P1, P2): id, title, one line, why, age, expand_tokens."""
+        """Handles under budget (P1, P2): id, title, one line, why, age, expand_tokens,
+        and ``from`` when a fact is not the owner's own words (P6)."""
         result: dict[str, Any] = self._send(
             b.recall_call(
                 query,
@@ -168,13 +169,49 @@ class IifaClient:
         self,
         *,
         budget_tokens: int | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
         scope: str | None = None,
         scopes: Sequence[str] | None = None,
         subtree: str | None = None,
     ) -> dict[str, Any]:
+        """Archived records, most recently archived first; pass ``next_cursor``
+        back as ``cursor`` for the next page."""
         result: dict[str, Any] = self._send(
             b.archived_call(
-                view_fields=self._view(scope, scopes, subtree), budget_tokens=budget_tokens
+                view_fields=self._view(scope, scopes, subtree),
+                budget_tokens=budget_tokens,
+                cursor=cursor,
+                limit=limit,
+            )
+        )
+        return result
+
+    def nodes(
+        self,
+        *,
+        prefix: str | None = None,
+        sort: str | None = None,
+        include_archived: bool = False,
+        cursor: str | None = None,
+        limit: int | None = None,
+        budget_tokens: int | None = None,
+        scope: str | None = None,
+        scopes: Sequence[str] | None = None,
+        subtree: str | None = None,
+    ) -> dict[str, Any]:
+        """The nodes the view sees, a page at a time: ``sort`` is ``name`` (the
+        default) or ``changed``; ``prefix`` matches a name or an alias. Pass
+        ``next_cursor`` back as ``cursor`` for the next page."""
+        result: dict[str, Any] = self._send(
+            b.nodes_call(
+                view_fields=self._view(scope, scopes, subtree),
+                budget_tokens=budget_tokens,
+                prefix=prefix,
+                sort=sort,
+                include_archived=include_archived,
+                cursor=cursor,
+                limit=limit,
             )
         )
         return result
@@ -187,11 +224,13 @@ class IifaClient:
         until: str | None = None,
         limit: int | None = None,
         budget_tokens: int | None = None,
+        cursor: str | None = None,
         scope: str | None = None,
         scopes: Sequence[str] | None = None,
         subtree: str | None = None,
     ) -> dict[str, Any]:
-        """Fact changes of a node (or of the view) inside a date range, newest first."""
+        """Fact changes of a node (or of the view) inside a date range, newest
+        first; pass ``next_cursor`` back as ``cursor`` for the next page."""
         result: dict[str, Any] = self._send(
             b.timeline_call(
                 view_fields=self._view(scope, scopes, subtree),
@@ -200,6 +239,7 @@ class IifaClient:
                 since=since,
                 until=until,
                 limit=limit,
+                cursor=cursor,
             )
         )
         return result
@@ -264,9 +304,11 @@ class IifaClient:
         source_reference: str | None = None,
         scope: str | None = None,
         scopes: Sequence[str] | None = None,
+        about_self: bool = False,
     ) -> dict[str, Any]:
         """An explicit fact (P6), optionally about a node given by name (created on
-        first mention) or by id."""
+        first mention) or by id; with ``about_self``, a fact about the self of
+        the target scopes (SPEC 8.3)."""
         result: dict[str, Any] = self._send(
             b.remember_call(
                 statement,
@@ -281,6 +323,7 @@ class IifaClient:
                 pinned=pinned,
                 external_id=external_id,
                 source_reference=source_reference,
+                about_self=about_self,
             )
         )
         return result
@@ -336,6 +379,58 @@ class IifaClient:
         result: dict[str, Any] = self._send(
             b.patch_fact_call(fact_id, node_id=node_id, detach=detach, pinned=pinned, scopes=scopes)
         )
+        return result
+
+    def patch_node(
+        self,
+        node_id: str,
+        *,
+        name: str | None = None,
+        keep_old_name: bool = True,
+        kind: str | None = None,
+        add_aliases: Sequence[str] = (),
+        remove_aliases: Sequence[str] = (),
+        rev: int | None = None,
+    ) -> dict[str, Any]:
+        """A person's correction of a node (SPEC 5.7): rename it (the old name stays
+        an alias unless ``keep_old_name`` is false), change its kind, add and
+        remove aliases. ``rev`` is the revision you read (409 when it moved).
+        The answer carries ``correction_id``, for ``undo_correction``."""
+        result: dict[str, Any] = self._send(
+            b.patch_node_call(
+                node_id,
+                name=name,
+                keep_old_name=keep_old_name,
+                kind=kind,
+                add_aliases=add_aliases,
+                remove_aliases=remove_aliases,
+                rev=rev,
+            )
+        )
+        return result
+
+    def merge_nodes(
+        self, keep: str, absorb: str, *, revs: Mapping[str, int] | None = None
+    ) -> dict[str, Any]:
+        """Merge two nodes you know are one (SPEC 5.7); needs the ``review``
+        permission. ``revs`` (node id -> rev) are the revisions you read."""
+        result: dict[str, Any] = self._send(b.merge_nodes_call(keep, absorb, revs=revs))
+        return result
+
+    def decide_edge(self, edge_id: str, decision: str, *, rev: int | None = None) -> dict[str, Any]:
+        """A person's decision on a proposed edge (SPEC 5.7): ``confirm`` or
+        ``reject`` (it is archived). The answer carries ``correction_id``."""
+        result: dict[str, Any] = self._send(b.decide_edge_call(edge_id, decision, rev=rev))
+        return result
+
+    def correction(self, correction_id: str) -> dict[str, Any]:
+        """One entry of the corrections journal: what changed, by which token, when."""
+        result: dict[str, Any] = self._send(b.correction_call(correction_id))
+        return result
+
+    def undo_correction(self, correction_id: str) -> dict[str, Any]:
+        """Revert one correction exactly; 409 when a later write depends on it."""
+        result: dict[str, Any] = self._send(b.undo_correction_call(correction_id))
         return result
 
     # ------------------------------------------------------------------ lifecycle (SPEC 8.1)
@@ -479,6 +574,11 @@ class IifaClient:
     def background_run(self, run_id: str) -> dict[str, Any]:
         """A run's report, live while it runs (admin)."""
         result: dict[str, Any] = self._send(b.background_run_call(run_id))
+        return result
+
+    def cancel_background_run(self, run_id: str) -> dict[str, Any]:
+        """Stop a run early, as at a budget limit (admin)."""
+        result: dict[str, Any] = self._send(b.cancel_run_call(run_id))
         return result
 
     def yield_background(self, *, timeout_seconds: float | None = None) -> dict[str, Any]:

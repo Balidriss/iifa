@@ -73,7 +73,8 @@ Text stored in memory can come from a web page or a hostile message.
   [Who said it](how-it-works.md#3-who-said-it).
 - **Merges always go to a person.** A dream model can be talked into "these
   two are the same person" by a fact planted in memory. A merge is never
-  applied without a reviewer.
+  applied without a reviewer, and only a `review` token merges two nodes by
+  hand: no route an agent holds, and no MCP tool, merges anything.
 
 ## Network
 

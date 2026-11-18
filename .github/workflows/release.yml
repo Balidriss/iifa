@@ -1,0 +1,72 @@
+name: release
+
+# A pushed version tag becomes a GitHub release: notes from CHANGELOG.md,
+# the wheel attached. Started by hand, it publishes a tag that already exists.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish, e.g. v0.1.0a3"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUTF8: "1"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the tag against the package version
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
+            echo "not a version tag: $TAG" >&2
+            exit 1
+          fi
+          version="${TAG#v}"
+          if ! grep -qx "version = \"$version\"" pyproject.toml; then
+            echo "pyproject.toml does not carry $version" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Release notes from the changelog
+        run: |
+          python - "$VERSION" > notes.md <<'PY'
+          import re
+          import sys
+
+          version = sys.argv[1]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          section = re.search(
+              rf"^## {re.escape(version)}(?: — [^\n]*)?\n(.*?)(?=^## |\Z)", text, re.M | re.S
+          )
+          if section is None or not section.group(1).strip():
+              sys.exit(f"CHANGELOG.md has no notes for {version}")
+          sys.stdout.buffer.write(section.group(1).strip().encode("utf-8"))
+          PY
+      - name: Build the wheel
+        run: python -m pip wheel --no-deps -w dist .
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=()
+          if [[ "$VERSION" =~ (a|b|rc)[0-9]+$ ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$TAG" dist/iifa-"$VERSION"-*.whl --verify-tag \
+            --title "$TAG" --notes-file notes.md "${prerelease[@]}"

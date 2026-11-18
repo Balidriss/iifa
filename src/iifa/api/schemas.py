@@ -14,7 +14,11 @@ from pydantic import (
     model_validator,
 )
 
+from iifa.api.paging import MAX_CURSOR_CHARS
+from iifa.names import require_name
 from iifa.scopes import ScopeError, validate_scope
+from iifa.store.corrections import KIND_MAX_CHARS
+from iifa.store.repo import NAME_MAX_CHARS
 
 Scope = Field(min_length=1, max_length=512)
 
@@ -100,12 +104,25 @@ class ExpandRequest(ViewMixin, BudgetMixin):
     cursor: str | None = None
 
 
+NameText = Annotated[str, StringConstraints(min_length=1, max_length=NAME_MAX_CHARS)]
+
+
 class NodeRef(Strict):
-    name: str = Field(min_length=1, max_length=300)
-    kind: str = Field(default="other", min_length=1, max_length=40)
-    aliases: list[str] = Field(default_factory=list, max_length=50)
+    name: NameText
+    kind: str = Field(default="other", min_length=1, max_length=KIND_MAX_CHARS)
+    aliases: list[NameText] = Field(default_factory=list, max_length=50)
     summary: str = Field(default="", max_length=1000)
     external_id: str | None = Field(default=None, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def _plain_name(cls, value: str) -> str:
+        return require_name(value)  # SPEC 5.1: Markdown stripped, debris a 422
+
+    @field_validator("aliases")
+    @classmethod
+    def _plain_aliases(cls, value: list[str]) -> list[str]:
+        return [require_name(alias) for alias in value if alias.strip()]
 
 
 class RememberRequest(WriteScopes):
@@ -120,6 +137,10 @@ class RememberRequest(WriteScopes):
     pinned: bool = False
     external_id: str | None = Field(default=None, max_length=200)
     source_reference: str | None = Field(default=None, max_length=500)
+    about_self: bool = Field(
+        default=False,
+        description="A fact about the self of the target scopes (SPEC 8.3, agent perspective).",
+    )
 
 
 class LinkRequest(WriteScopes):
@@ -160,6 +181,47 @@ class ProposalDecision(Strict):
     decision: Literal["accept", "reject"]
 
 
+class EdgeDecision(Strict):
+    """A person's decision on a proposed edge (SPEC 5.7); ``rev`` is the edge's
+    revision the author read."""
+
+    decision: Literal["confirm", "reject"]
+    rev: int | None = Field(default=None, ge=0)
+
+
+class NodePatch(Strict):
+    """A person's correction of a node (SPEC 5.7): rename it, change its kind,
+    add and remove aliases; ``rev`` is the revision the author read."""
+
+    name: NameText | None = None
+    keep_old_name: bool = Field(
+        default=True, description="A rename keeps the old name as an alias unless false."
+    )
+    kind: str | None = Field(default=None, min_length=1, max_length=KIND_MAX_CHARS)
+    add_aliases: list[NameText] = Field(default_factory=list, max_length=50)
+    remove_aliases: list[NameText] = Field(default_factory=list, max_length=50)
+    rev: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _changes_something(self) -> NodePatch:
+        if (
+            self.name is None
+            and self.kind is None
+            and not (self.add_aliases or self.remove_aliases)
+        ):
+            raise ValueError("give name, kind, add_aliases or remove_aliases")
+        return self
+
+
+class NodeMerge(Strict):
+    """Two nodes a person knows are one (SPEC 5.7): ``absorb`` is merged into
+    ``keep``; ``revs`` (node id -> rev) are the revisions the author read."""
+
+    keep: str = Field(min_length=1, max_length=64)
+    absorb: str = Field(min_length=1, max_length=64)
+    revs: dict[str, int] | None = Field(default=None, max_length=2)
+
+
 class ProbeIn(Strict):
     query: str = Field(min_length=1, max_length=2000)
     expected: list[Annotated[str, StringConstraints(min_length=1, max_length=64)]] = Field(
@@ -193,6 +255,8 @@ class RememberResponse(BaseModel):
     node: dict[str, Any] | None
     source_id: str | None
     created_node: bool
+    # SPEC 8.3: about the self, the same thing said again: nothing was written
+    echo: bool = False
 
 
 # --------------------------------------------------------------------------- lifecycle (SPEC 8.1)
@@ -216,6 +280,11 @@ class ExternalPart(Strict):
     kind: Literal["tool", "web", "document", "other"] = "other"
     text: str = Field(max_length=TURN_TEXT_CHARS)
     ref: str | None = Field(default=None, max_length=2000)
+    vouched: bool = Field(
+        default=False,
+        description="The host's statement that the owner gave this content or asked for it:"
+        " the agent perspective may learn from it (SPEC 4.2). Never covers the owner's facts.",
+    )
 
 
 class TurnRequest(WriteScopes):
@@ -230,6 +299,9 @@ class TurnRequest(WriteScopes):
     external: list[ExternalPart] = Field(default_factory=list, max_length=20)
     occurred_at: str | None = Field(default=None, max_length=40)
     external_id: str | None = Field(default=None, max_length=200)
+    # SPEC 8.1: the host's statement that this turn is not to be remembered (a
+    # test started inside a real session): nothing of it is written, not even queued
+    record: bool = True
 
     @model_validator(mode="after")
     def _something_to_record(self) -> TurnRequest:
@@ -314,6 +386,7 @@ class TimelineRequest(ViewMixin, BudgetMixin):
     since: DateText | None = None
     until: DateText | None = None
     limit: int = Field(default=200, ge=1, le=1000)
+    cursor: str | None = Field(default=None, max_length=MAX_CURSOR_CHARS)
 
 
 class AtRequest(ViewMixin, BudgetMixin):
@@ -383,3 +456,9 @@ class DreamUndo(Strict):
 
 class ReviewDecision(Strict):
     decision: Literal["accept", "reject"]
+    keep: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Accepting a merge proposal: the node to keep (default: the one with"
+        " more live facts, else the older; required when the two kinds differ).",
+    )

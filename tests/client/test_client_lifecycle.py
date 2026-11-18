@@ -11,7 +11,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from iifa.client import AsyncIifaClient, AuthError, IifaClient, InvalidRequest
+from iifa.client import AsyncIifaClient, AuthError, IifaClient, IifaHTTPError, InvalidRequest
 from tests.fakes.live_service import LiveService
 from tests.helpers import TOKENS
 
@@ -61,6 +61,16 @@ def test_async_lifecycle_and_operations(app: FastAPI) -> None:
             held[0]()
             report = await memory.background_run(started["run_id"])
             assert report["status"] == "done" and report["stopped_by"] == "queue_empty"
+            await memory.turn("one more")
+            stopping = await memory.run_background(wait=False)
+            cancelled = await memory.cancel_background_run(stopping["run_id"])
+            assert cancelled == {"run_id": stopping["run_id"], "status": "cancelling"}
+            held[1]()
+            report = await memory.background_run(stopping["run_id"])
+            assert report["stopped_by"] == "cancelled" and report["jobs"] == []
+            with pytest.raises(IifaHTTPError) as finished:
+                await memory.cancel_background_run(stopping["run_id"])
+            assert finished.value.status == 409
             changed = await memory.set_background(mode="auto", chat_concurrency=2)
             assert changed["mode"] == "auto" and changed["concurrency"]["chat"] == 2
             with pytest.raises(InvalidRequest):
@@ -98,3 +108,6 @@ def test_blocking_client_over_a_socket(live: LiveService) -> None:
         assert memory.resume_background()["yielded"] is False
         ran = memory.run_background(max_jobs=1)
         assert memory.background_run(ran["run_id"])["status"] == "done"
+        with pytest.raises(IifaHTTPError) as finished:
+            memory.cancel_background_run(ran["run_id"])
+        assert finished.value.status == 409

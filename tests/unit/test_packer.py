@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from iifa.recall.packer import PackResult, pack
+from iifa.recall.packer import PackResult, pack, pack_prefix
 
 pytestmark = pytest.mark.security
 
@@ -77,3 +77,32 @@ def test_p1_negative_inputs_are_rejected() -> None:
         pack([1], 5, reserved_tokens=-1)
     with pytest.raises(ValueError, match="non-negative"):
         pack([-3], 5)
+
+
+@given(costs=costs_strategy, budget=st.integers(min_value=0, max_value=20000))
+@settings(max_examples=300, deadline=None)
+def test_p1_a_page_is_the_longest_prefix_that_fits(costs: list[int], budget: int) -> None:
+    """A list page (SPEC 8) never skips an item: it is a prefix, at or under the
+    budget, and the first item left out would have overflowed it."""
+    result = pack_prefix(costs, budget)
+    count = len(result.chosen)
+    assert result.chosen == tuple(range(count))
+    assert result.used_tokens == sum(costs[:count]) <= budget
+    assert result.omitted == len(costs) - count
+    if count < len(costs):
+        assert result.used_tokens + costs[count] > budget
+    if not costs:
+        assert result.reason == "no_items"
+    elif not count:
+        assert result.reason == "budget_too_small"
+    else:
+        assert result.reason is None
+
+
+def test_p1_a_page_stops_at_the_first_item_that_does_not_fit() -> None:
+    assert pack_prefix([10, 500, 20], 40) == PackResult(chosen=(0,), used_tokens=10, omitted=2)
+    assert pack_prefix([50, 1], 40) == PackResult(omitted=2, reason="budget_too_small")
+    with pytest.raises(ValueError, match="non-negative"):
+        pack_prefix([1], -1)
+    with pytest.raises(ValueError, match="non-negative"):
+        pack_prefix([-3], 5)

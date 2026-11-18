@@ -14,15 +14,20 @@ aliases mentioned in the text become co-occurrence edges (SPEC 6).
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from iifa import log, vectors
 from iifa.calibration import Thresholds, key_threshold_for, thresholds_for
-from iifa.ingest import schema
+from iifa.ingest import intent as intent_reading
+from iifa.ingest import schema, sets
+from iifa.ingest import sessions as session_state
+from iifa.ingest.activity import grounded_activity
 from iifa.ingest.checks import (
     cooccurring,
     grounded,
@@ -33,31 +38,39 @@ from iifa.ingest.checks import (
     scripts_in,
     shares_script,
     source_spelling,
+    unspaced_chars,
 )
 from iifa.ingest.keys import (
+    RULE_FAMILIES,
     canonical_key,
     family_of,
     is_free_form,
     key_text,
-    multi_valued,
+    replacement_asked,
+    rule_topic,
     same_key,
     single_valued,
     supersedable,
 )
-from iifa.ingest.parts import EXTERNAL, OWNER, Part, SourceText
+from iifa.ingest.parts import ASSISTANT, EXTERNAL, OWNER, Part, SourceText
 from iifa.ingest.prompts import (
     adjudication_messages,
     extraction_messages,
     replacement_adjudication_messages,
+    restatement_adjudication_messages,
+    rule_adjudication_messages,
     value_adjudication_messages,
 )
 from iifa.ingest.resolve import (
     ADJUDICATED,
     AMBIGUOUS,
+    EXACT,
+    FUZZY,
     NEW,
     Candidate,
     Resolution,
     Resolver,
+    form_duplicate,
     similarity,
 )
 from iifa.ingest.schema import Answer, ProposedEdge, ProposedFact, Rejections, parse_answer
@@ -68,8 +81,10 @@ from iifa.ingest.values import (
     UNKNOWN,
     compare_values,
     near_form,
+    precision,
     same_name,
     same_spelling,
+    shares_words,
     transliterate,
 )
 from iifa.language import (
@@ -82,10 +97,20 @@ from iifa.language import (
     writing_mismatch,
 )
 from iifa.llm import TRUNCATED, ModelError
+from iifa.names import plain_name
 from iifa.recall.tokenizer import normalize, tokenize
-from iifa.scopes import Visibility, ancestors
+from iifa.scopes import ROOT_SCOPE, Visibility, ancestors
 from iifa.store.models import Edge, Fact, Node
-from iifa.store.repo import CONFIRMED, NAME, PROPOSED, Store
+from iifa.store.repo import (
+    CONFIRMED,
+    MERGE,
+    NAME,
+    PENDING,
+    PROPOSED,
+    REJECTED,
+    SELF_RULE,
+    Store,
+)
 from iifa.tokens import ConservativeTokenizer
 
 if TYPE_CHECKING:
@@ -94,11 +119,21 @@ if TYPE_CHECKING:
 EXTRACTED = "extracted"
 CONFLICT, LANGUAGE_MISMATCH = "conflict", "language_mismatch"
 SPEAKER = "speaker"  # a free-standing fact about the person speaking (SPEC 4.2)
+OBSERVED = intent_reading.OBSERVED  # SPEC 4.2: the duration word is also the flag
+TOOL = "tool"  # SPEC 4.2: an external part whose facts are observations
 SEMANTIC_CANDIDATES = 5  # near nodes offered to the adjudication per mention
+RULE_CANDIDATES = 5  # SPEC 4.2: known rules a rule of the self is compared with
+RULE_GROUP = "rule:"  # prefix of a rule comparison's group in ``_Plan.adjudicated``
 KEYS_PER_SUBJECT = 8  # attribute keys listed per known subject in the prompt
 PAIR_QUOTE_CHARS = 300  # SPEC 5.4: the source's words given with each fact of a pair
 INCOMPLETE, UNNAMED, CROSS_SCRIPT = "incomplete", "unnamed", "cross_script"  # fragment causes
 MIXED_SCRIPT = "mixed_script"  # a word mixing two spaced scripts (SPEC 4.2)
+METHOD = "method"  # SPEC 4.2, agent perspective: the key of a rule of method
+TASK_KIND = "task"  # SPEC 4.2: the kind of an activity's node
+SELF_OUTSIDE = "self:outside"  # SPEC 4.2: why a self-side fact is only proposed
+# SPEC 4.4: the external content a source held; the flag of a self-side fact
+# learnt from a source whose external parts were all vouched (SPEC 4.2)
+NONE, VOUCHED, UNVOUCHED = "none", "vouched", "unvouched"
 # words as ``tokenize`` splits them (letters and digits), spelt as written
 _WORD = re.compile(r"[^\W_]+")
 
@@ -160,13 +195,26 @@ class PipelineConfig:
     fuzzy_threshold: float = 0.86
     language_overrides: tuple[tuple[str, str], ...] = ()
     owners: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    assistants: tuple[tuple[str, str], ...] = ()  # SPEC 4.6: (scope, name)
+    # SPEC 4.6: (scope, name, aliases) - the agent perspective's self
+    selves: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    review_self_rules: bool = False  # SPEC 4.2: a self's rules wait in review
     replacement_question: bool = True  # SPEC 5.4: on by default (measured)
+    restatement_question: bool = True  # SPEC 5.4: a value told again in other words
+    value_norm: bool = False  # SPEC 5.4: ask and compare each value's comparison form
+    # SPEC 4.2: intent before content (frame, modality, duration) and the session
+    # state it needs (SPEC 5.8); a session nobody ends closes after this idle time
+    intent: bool = True
+    session_idle_minutes: float = 120.0
+    session_facts_in_prompt: int = 20
 
     def __post_init__(self) -> None:
         if not (0 < self.answer_base_tokens <= self.answer_max_tokens):
             raise ValueError("answer_base_tokens must be within 1..answer_max_tokens")
         if self.answer_tokens_per_source_token < 0:
             raise ValueError("answer_tokens_per_source_token must be 0 or more")
+        if self.session_idle_minutes < 0:
+            raise ValueError("session_idle_minutes must be 0 (never) or more")
 
     def answer_cap(self, source: str) -> int:
         """``max_tokens`` for an extraction call over ``source`` (SPEC 7.4b): a base
@@ -197,10 +245,11 @@ class PipelineConfig:
         return key_threshold_for(model, configured=self.key_threshold)
 
     def forced_language(self, scopes: Iterable[str]) -> str | None:
-        """The language a scope (or one of its ancestors) forces, if any (P12)."""
+        """The language a scope (or one of its ancestors, ``*`` last) forces, if
+        any (P12)."""
         table = dict(self.language_overrides)
         for scope in scopes:
-            for candidate in ancestors(scope):
+            for candidate in (*ancestors(scope), ROOT_SCOPE):
                 if candidate in table:
                     return table[candidate]
         return None
@@ -210,13 +259,38 @@ class PipelineConfig:
         nearest declaration of each scope, and only when they all agree - a
         source split between two owners, or with a scope that has none, has no
         owner (who speaks cannot be told)."""
-        table = {scope: Owner(scope, name, tuple(aliases)) for scope, name, aliases in self.owners}
-        found: set[Owner | None] = set()
-        for scope in scopes:
-            found.add(next((table[c] for c in ancestors(scope) if c in table), None))
-        if len(found) != 1:
-            return None
-        return found.pop()
+        return _declared(self.owners, scopes)
+
+    def agent(self, scopes: Iterable[str]) -> Owner | None:
+        """The self whose own memory a source written into ``scopes`` also is
+        (SPEC 4.2, 4.6), by the owner's rule; None: the user perspective."""
+        return _declared(self.selves, scopes)
+
+    def assistant(self, scopes: Iterable[str]) -> str | None:
+        """The assistant's declared name for a source written into ``scopes``
+        (SPEC 4.6), by the same rule as the owner, a declaration on ``*`` holding
+        everywhere; a self is the assistant of its scope, the nearer of the two
+        declarations winning; None: ``Assistant``."""
+        table = dict(self.assistants)
+        table.update({scope: name for scope, name, _aliases in self.selves})
+        found = {
+            next((table[c] for c in (*ancestors(s), ROOT_SCOPE) if c in table), None)
+            for s in scopes
+        }
+        return found.pop() if len(found) == 1 else None
+
+
+def _declared(
+    declarations: Iterable[tuple[str, str, tuple[str, ...]]], scopes: Iterable[str]
+) -> Owner | None:
+    """The nearest declaration of each scope, when they all agree (SPEC 4.6)."""
+    table = {scope: Owner(scope, name, tuple(aliases)) for scope, name, aliases in declarations}
+    found: set[Owner | None] = set()
+    for scope in scopes:
+        found.add(next((table[c] for c in ancestors(scope) if c in table), None))
+    if len(found) != 1:
+        return None
+    return found.pop()
 
 
 def write_view(scopes: Sequence[str]) -> Visibility:
@@ -249,8 +323,9 @@ class ExtractionReport:
     facts_written: int = 0
     facts_duplicate: int = 0
     facts_superseded: int = 0
-    values_same: int = 0  # SPEC 5.4: proved the same value in another form, linked
+    values_same: int = 0  # SPEC 5.4: proved the same value in another form
     values_different: int = 0  # SPEC 5.4: proved different across languages, superseded
+    values_norm: int = 0  # SPEC 5.4: linked across languages by their comparison forms
     values_adjudicated: dict[str, int] = field(
         default_factory=lambda: {"same": 0, "different": 0, "unsure": 0}
     )
@@ -258,6 +333,11 @@ class ExtractionReport:
     values_replacement: dict[str, int] = field(
         default_factory=lambda: {"same": 0, "replaces": 0, "both": 0, "unsure": 0}
     )
+    # SPEC 5.4: within one language, "the same value told again?"
+    values_restatement: dict[str, int] = field(
+        default_factory=lambda: {"same": 0, "different": 0, "unsure": 0}
+    )
+    facts_kept_same: int = 0  # SPEC 5.4: the same value told again, the fact held kept
     facts_conflict: int = 0
     facts_language_mismatch: int = 0
     facts_incomplete: int = 0
@@ -265,19 +345,53 @@ class ExtractionReport:
     facts_mixed_script: int = 0
     facts_speaker_owner: int = 0  # SPEC 4.2: about the speaker, attached to the owner
     facts_speaker_free: int = 0  # SPEC 4.2: about the speaker, no owner declared
-    facts_proposed: int = 0  # P6: about the owner, not in the owner's words
+    facts_proposed: int = 0  # P6 and SPEC 5.1: fact proposals, whatever the cause
+    facts_neighbour: int = 0  # SPEC 5.1: proposed, the source shows another subject
+    facts_unnamed: int = 0  # SPEC 5.1: proposed, a known subject neither source nor session names
+    facts_observed: int = 0  # SPEC 4.2: observed facts written, true at a date
+    facts_observed_by_tool: int = 0  # ...of which the provenance rule made so (a tool part)
+    facts_observed_again: int = 0  # SPEC 4.2: held observations whose day moved
+    # SPEC 4.2, agent perspective: written about the self, rules of method
+    # written, self-side facts proposed, and the self's own facts said again
+    facts_self: int = 0
+    facts_method: int = 0
+    facts_self_proposed: int = 0
+    facts_self_echo: int = 0
+    # SPEC 4.2: a rule of the self against the known ones - "the same rule?"
+    rules_compared: dict[str, int] = field(
+        default_factory=lambda: {"same": 0, "different": 0, "unsure": 0}
+    )
+    # SPEC 4.2, agent perspective: an activity checked and set by the source, the
+    # session's current one used, activities refused, rules linked to one
+    activity_named: int = 0
+    activity_carried: int = 0
+    activity_refused: int = 0
+    activity_linked: int = 0
     empty_answers: int = 0  # SPEC 4.2: chunks the model found nothing durable in
     aliases_kept: int = 0
     aliases_proposed: int = 0
     aliases_invented: int = 0
-    aliases_descriptive: int = 0  # SPEC 5.1: a description, proposed rather than kept
+    aliases_descriptive: int = 0  # SPEC 5.1: a description: proposed if grounded, else dropped
     aliases_near: int = 0  # SPEC 5.1: a near form of the node's name, proposed rather than kept
+    aliases_unknown: int = 0  # SPEC 5.1: null, a name the source does not give
+    aliases_malformed: int = 0  # SPEC 5.1: no name once Markdown is stripped, or unbalanced
     keys_renamed: int = 0  # SPEC 5.4 step 3: a synonym or a variant made canonical
     keys_matched: int = 0  # SPEC 5.4 step 4: a near existing key, by embeddings
+    # SPEC 5.4 (sets): elements added, removed by ``removes``, removals naming
+    # no element, and values left in conflict by an unsure cardinality
+    elements: dict[str, int] = field(
+        default_factory=lambda: {"added": 0, "removed": 0, "unmatched": 0, "unsure": 0}
+    )
     edges_proposed: int = 0
     edges_evidenced: int = 0
     edges_confirmed: int = 0
+    # SPEC 5.1: a new node paired with a known one in another form, for review
+    duplicates_merge_proposed: int = 0
+    # SPEC 5.4: a known duplicate's stale value flagged by a supersession
+    duplicates_flagged: int = 0
     rejected: Rejections = field(default_factory=Rejections)
+    # SPEC 4.2: what the intent reading did (None: not read - off, or tier 0)
+    intent: intent_reading.IntentReport | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -302,6 +416,7 @@ class ExtractionReport:
                 "written": self.facts_written,
                 "duplicate": self.facts_duplicate,
                 "superseded": self.facts_superseded,
+                "kept_same": self.facts_kept_same,
                 "conflict": self.facts_conflict,
                 "language_mismatch": self.facts_language_mismatch,
                 "incomplete": self.facts_incomplete,
@@ -310,6 +425,23 @@ class ExtractionReport:
                 "speaker_owner": self.facts_speaker_owner,
                 "speaker_free": self.facts_speaker_free,
                 "proposed": self.facts_proposed,
+                "neighbour": self.facts_neighbour,
+                "unnamed": self.facts_unnamed,
+                "observed": self.facts_observed,
+                "observed_by_tool": self.facts_observed_by_tool,
+                "observed_again": self.facts_observed_again,
+                "self": self.facts_self,
+                "method": self.facts_method,
+                "self_proposed": self.facts_self_proposed,
+                "self_echo": self.facts_self_echo,
+            },
+            # SPEC 4.2: a rule of the self against the known ones
+            "self_rules": {"compared": dict(self.rules_compared)},
+            "activity": {
+                "named": self.activity_named,
+                "carried": self.activity_carried,
+                "refused": self.activity_refused,
+                "linked": self.activity_linked,
             },
             "aliases": {
                 "kept": self.aliases_kept,
@@ -317,20 +449,33 @@ class ExtractionReport:
                 "invented": self.aliases_invented,
                 "descriptive": self.aliases_descriptive,
                 "near": self.aliases_near,
+                "unknown": self.aliases_unknown,
+                "malformed": self.aliases_malformed,
             },
             "keys": {"renamed": self.keys_renamed, "matched": self.keys_matched},
+            "elements": dict(self.elements),
             "values": {
                 "same": self.values_same,
                 "different": self.values_different,
+                "norm": self.values_norm,
                 "adjudicated": dict(self.values_adjudicated),
                 "replacement": dict(self.values_replacement),
+                "restatement": dict(self.values_restatement),
             },
             "edges": {
                 "proposed": self.edges_proposed,
                 "evidenced": self.edges_evidenced,
                 "confirmed": self.edges_confirmed,
             },
+            "duplicates": {
+                "merge_proposed": self.duplicates_merge_proposed,
+                "flagged": self.duplicates_flagged,
+            },
             "rejected": self.rejected.as_dict(),
+            "intent": self.intent.as_dict() if self.intent is not None else None,
+            "dropped_by_intent": self.intent.dropped()
+            if self.intent is not None
+            else {"frame": {}, "modality": {}},
         }
 
 
@@ -421,6 +566,10 @@ class Extractor:
         self.report = ExtractionReport()
         self.source = SourceText("")
         self._part_tokens: dict[str, list[list[str]]] = {}  # provenance -> tokens per part
+        self._read_at: str | None = None  # the day the source was read (P6)
+        # P6, SPEC 4.4: the external content the source held, when its parts
+        # are not all known (a session's close); None: read from the parts
+        self._external: str | None = None
         # SPEC 4.6: who speaks, and the owner's node when it exists already
         self.owner = self.config.owner(self.scopes)
         self.owner_node: Node | None = None
@@ -428,6 +577,32 @@ class Extractor:
             self.owner_node = self.store.find_node(
                 self.owner.name, Visibility.of_scope(self.owner.scope)
             )
+        # SPEC 4.2, 4.6: the agent perspective's self, and its node when it exists
+        self.agent = self.config.agent(self.scopes)
+        self.agent_node: Node | None = None
+        if self.agent is not None:
+            self.agent_node = self.store.find_node(
+                self.agent.name, Visibility.of_scope(self.agent.scope)
+            )
+        # SPEC 5.8: what the session's state shows the extraction calls
+        self._session_block: str | None = None
+        # SPEC 4.2, agent perspective: the activity this source names (its name,
+        # and its node when one exists), the session's current one, and the
+        # node the source's activity was written as
+        self._activity: tuple[str, Node | None] | None = None
+        self._carried: Node | None = None
+        self._activity_written: str | None = None
+        # SPEC 5.8: at a close, every activity of the session (the episode's links)
+        self._episode_activities: list[str] = []
+        # SPEC 4.2: an answer was read in a frame other than sincere
+        self._unmeant = False
+        # SPEC 5.1, a known subject the source does not name: the session's
+        # earlier sources, read once, and the verdict per known node
+        self._session_id: str | None = None
+        self._session_cache: list[str] | None = None
+        self._named: dict[str, bool] = {}
+        # a test seam between the model calls and the write; never set in service
+        self._before_write: Callable[[], None] | None = None
 
     # ------------------------------------------------------------------ entry point
 
@@ -450,6 +625,8 @@ class Extractor:
             text, tuple(parts) if parts is not None else (Part(0, len(text), OWNER),)
         )
         self._part_tokens = {}
+        self._read_at = day_read(reference, self.store.now())
+        self._session_id = session_id
         forced = self.config.forced_language(self.scopes)
         languages = languages_present(text)
         report.languages = [forced] if forced else languages
@@ -457,13 +634,27 @@ class Extractor:
         report.tier = 2 if self.ctx.models.has_chat else 0
 
         answers: list[tuple[int, Answer]] = []
+        reading: _IntentOutcome | None = None
+        state: session_state.SessionState | None = None
+        if report.tier == 2 and self.config.intent:
+            # SPEC 4.2 and 5.8: the session's open frame and work in progress
+            state = session_state.load(self.store, session_id, self.scopes)
+            self._session_block = session_state.render(state, self.config.session_facts_in_prompt)
+            self._carried = self._current_activity(state)
         if report.tier == 2:
             answers = self._extract_all(text, languages, forced)
+            given = answers  # the intent reading keeps content only
+            if state is not None:
+                reading = self._read_intent(answers, state, reference)
+                answers = reading.kept
+            self._activity = self._activity_of(given, text)
         else:
             report.chunks = len(chunks(text, self.config.chunk_chars, limit=self.config.max_chunks))
 
         # every model call is done (extraction, then adjudication): now write once
         plan = self._plan(text, answers, forced)
+        if self._before_write is not None:
+            self._before_write()
         with self.store.lock, self.store.transaction():
             source = self.store.add_source(
                 scopes=self.scopes,
@@ -473,9 +664,12 @@ class Extractor:
                 external_id=external_id,
                 session_id=session_id,
                 language=source_language,
+                external=self._source_external(),
             )
             report.source_id = source.id
             self._write(source.id, text, plan)
+            if reading is not None and state is not None:
+                self._write_intent(source.id, text, reading, state, forced, session_id)
         log.event(
             "extracted",
             source=report.source_id,
@@ -547,7 +741,13 @@ class Extractor:
                     known_keys=known_keys,
                     retry_note=note,
                     owner=self.owner.name if self.owner is not None else None,
+                    assistant=self.config.assistant(self.scopes),
                     external=any(p.provenance == EXTERNAL for p in self.source.parts),
+                    value_norm=self.config.value_norm,
+                    intent=self.config.intent,
+                    session=self._session_block,
+                    agent=self.agent.name if self.agent is not None else None,
+                    activity=self._carried.name if self._carried is not None else None,
                 ),
                 cap,
             )
@@ -710,6 +910,9 @@ class Extractor:
         spelling = source_spelling(written, text)
         if spelling is None or not names_subject(fact.statement, [written]):
             return None
+        spelling = plain_name(spelling)  # SPEC 5.1: the source's span, without debris
+        if spelling is None:
+            return None
         wanted, own_name = normalize(written), normalize(subject)
         for node in answer.nodes:
             if normalize(node.name) == own_name:
@@ -757,13 +960,16 @@ class Extractor:
     def _plan(self, text: str, answers: list[tuple[int, Answer]], forced: str | None) -> _Plan:
         plan = _Plan()
         self._register_owner(plan)
+        self._register_agent(plan)
+        self._register_activity(plan)
         self._plan_nodes(plan, answers, text)
         replaced = self._source_forms(answers, text)
         mentions: list[str] = []
         for _, answer in answers:
             mentions.extend(f.subject for f in answer.facts if f.subject)
             mentions.extend(m for e in answer.edges for m in (e.src, e.dst))
-        self._resolve_mentions(plan, list(dict.fromkeys(mentions)), text)
+        quotes = {f.subject: f.quote for _, a in answers for f in a.facts if f.subject and f.quote}
+        self._resolve_mentions(plan, list(dict.fromkeys(mentions)), text, quotes)
         _drop_unused(plan, replaced)
         # SPEC 4.2: a valid subject_as_written becomes a source-anchored alias
         for _, answer in answers:
@@ -771,6 +977,11 @@ class Extractor:
                 spelling = self._as_written(fact, answer, text)
                 subject_key = plan.mention_keys.get(fact.subject or "")
                 if spelling is None or subject_key is None:
+                    continue
+                if (fact.subject or "") in plan.unnamed:
+                    # SPEC 5.1: a subject the source does not name and the
+                    # adjudication did not attach takes no alias; a reviewer decides
+                    plan.doubtful.append((subject_key, fact.subject or "", spelling))
                     continue
                 names = [fact.subject or "", *self.stored_names(subject_key)]
                 if subject_key in plan.proposals:
@@ -780,19 +991,31 @@ class Extractor:
                     continue
                 plan.aliases.setdefault(subject_key, []).append(spelling)
         for offset, answer in answers:
-            for fact in answer.facts:
+            for proposed in answer.facts:
+                fact = self._as_planned(proposed)
                 plan.facts.append((offset, fact))
                 plan.fates.append(self._fate(plan, offset, fact))
             for edge in answer.edges:
                 plan.edges.append(edge)
         # tier-0 mention detection: known names in the text join the co-occurrence set
-        for node_id in mentioned_nodes(text, self.store.node_index(self.view)):
-            plan.order(node_id)
+        if not self._unmeant:  # SPEC 4.2: nothing of a non-sincere frame's content
+            for node_id in mentioned_nodes(text, self.store.node_index(self.view)):
+                plan.order(node_id)
+        self._neighbours(plan, text)
+        self._unnamed(plan)
         self._align_keys(plan)
         self._adjudicate_values(plan)
+        self._adjudicate_rules(plan)
         plan.forced = forced
         self.report.nodes_mixed_script += len(plan.mixed_names)
         return plan
+
+    def _as_planned(self, fact: ProposedFact) -> ProposedFact:
+        """SPEC 4.2, agent perspective: a rule of method is an element of a set,
+        whatever the answer says."""
+        if self.agent is not None and canonical_key(fact.attribute) == METHOD:
+            return fact.model_copy(update={"cardinality": sets.MANY})
+        return fact
 
     def _plan_nodes(self, plan: _Plan, answers: list[tuple[int, Answer]], text: str) -> None:
         """The nodes the answers propose, resolvable by the facts and edges that
@@ -803,6 +1026,8 @@ class Extractor:
         decided = self._adjudicate_names(nodes, text)
         forms = _AnswerForms(self, [a for _, a in answers], text)
         for index, proposal in enumerate(nodes):
+            self.report.aliases_unknown += proposal.unknown_aliases
+            self.report.aliases_malformed += proposal.malformed_aliases
             if is_speaker(proposal.name):
                 continue
             if mixed_script_words(proposal.name):
@@ -820,6 +1045,18 @@ class Extractor:
                 # edges that follow ("Mimi" for Émilie)
                 candidates.insert(0, proposal.name)
             kept, doubtful = forms.split(index, proposal.name, own, candidates)
+            if (
+                own is not None
+                and existing.method in (EXACT, FUZZY)
+                and self._unnamed_match(plan, own, text)
+            ):
+                # SPEC 5.1: a known subject the source does not name is not this
+                # answer's node; its facts go to the adjudication, its aliases
+                # are proposals
+                known = {normalize(n) for n in (proposal.name, *self.stored_names(own))}
+                offered = [a for a in (*doubtful, *kept) if normalize(a) not in known]
+                plan.note_aliases(own, proposal.name, [], offered)
+                continue
             if own is not None:
                 plan.note_aliases(own, proposal.name, kept, doubtful)
                 resolver.propose(own, proposal.name, proposal.kind, kept)
@@ -879,20 +1116,293 @@ class Extractor:
         self.resolver.propose(key, owner.name, "person", owner.aliases)
         plan.owner_key = key
 
+    def _register_agent(self, plan: _Plan) -> None:
+        """SPEC 4.6: the self's node, resolvable like the owner's: the existing
+        one, or one to create in the declared scope if a fact or a proposal needs it."""
+        agent = self.agent
+        if agent is None:
+            return
+        if self.agent_node is not None:
+            key = self.agent_node.id
+        else:
+            key = f"new:{len(plan.proposals)}"
+            plan.proposals[key] = schema.ProposedNode(
+                name=agent.name, kind="other", aliases=list(agent.aliases)
+            )
+            plan.node_scopes[key] = [agent.scope]
+        self.resolver.propose(key, agent.name, "other", agent.aliases)
+        plan.agent_key = key
+
+    # ------------------------------------------------------------ the activity (SPEC 4.2)
+
+    def _current_activity(self, state: session_state.SessionState) -> Node | None:
+        """The session's current activity, while its node is a live, visible task
+        (agent perspective, a session the host named)."""
+        if not state.key:
+            return None
+        return self._activity_node(state.activity_id)
+
+    def _activity_node(self, node_id: str | None) -> Node | None:
+        """A current activity's node, while it is a live, visible task (agent
+        perspective)."""
+        if self.agent is None or node_id is None:
+            return None
+        node = self.store.nodes_by_id([node_id], self.view).get(node_id)
+        if node is None or node.kind != TASK_KIND or node.archived_at is not None:
+            return None
+        return node
+
+    def _activity_of(
+        self, answers: list[tuple[int, Answer]], text: str
+    ) -> tuple[str, Node | None] | None:
+        """SPEC 4.2: the activity the source asks for - the first one the answers
+        give that passes the checks - with its node when one holds its name. In
+        the user perspective the key is unknown: refused and counted."""
+        report = self.report
+        if self.agent is None:
+            # a malformed one was counted by the schema already
+            report.rejected.keys += sum(1 for _, a in answers if a.activity_given)
+            return None
+        for offset, answer in answers:
+            if answer.activity is None:
+                continue
+            activity = answer.activity
+            found = self._checked_activity(offset, activity.name, activity.quote, text)
+            if found is not None:
+                report.activity_named += 1
+                return found
+            report.activity_refused += 1
+        return None
+
+    def _checked_activity(
+        self, offset: int, name: str, quote: str, text: str
+    ) -> tuple[str, Node | None] | None:
+        """The checks of SPEC 4.2 on one activity: a sincere frame, the quote in
+        an owner part, a word of the name written whole in it, and a name that
+        is a new task or exactly one known task node (never a node of another
+        kind, nor a near or containing name)."""
+        if self._unmeant:
+            return None
+        span = locate(text, quote, hint=offset)
+        part = self.source.part_of(span)
+        if span is None or part is None or part.provenance != OWNER:
+            return None
+        if (
+            not grounded_activity(name, text[span[0] : span[1]])
+            or is_speaker(name)  # SPEC 4.2, 5.1: never a node under such a name
+            or mixed_script_words(name)
+        ):
+            return None
+        held = [r["id"] for r in self.store.lookup_name(name, self.view)]
+        if not held:
+            return name, None
+        nodes = self.store.nodes_by_id(held, self.view)
+        if len(held) != 1 or held[0] not in nodes or nodes[held[0]].kind != TASK_KIND:
+            return None  # when we cannot tell, nothing attaches
+        return name, nodes[held[0]]
+
+    def _register_activity(self, plan: _Plan) -> None:
+        """SPEC 4.2: the source's activity (else the session's current one) is
+        resolvable like the owner's node; a new one is created with the source."""
+        if self._activity is not None:
+            name, node = self._activity
+            if node is not None:
+                key = node.id
+                self.resolver.propose(key, node.name, TASK_KIND, list(node.aliases))
+            else:
+                key = f"new:{len(plan.proposals)}"
+                plan.proposals[key] = schema.ProposedNode(name=name, kind="task")
+                self.resolver.propose(key, name, TASK_KIND, [])
+            plan.order(key)
+            plan.activity_key, plan.activity_named = key, True
+        elif self._carried is not None:
+            node = self._carried
+            self.resolver.propose(node.id, node.name, TASK_KIND, list(node.aliases))
+            plan.activity_key = node.id
+
     def _fate(self, plan: _Plan, offset: int, fact: ProposedFact) -> _Fate:
         """Whose words the fact's quote is (P6), whether the fact is about the
         owner (SPEC 4.2), and so whether it may be written or only proposed: a
         fact about the owner is written from the owner's own words only, and not
-        when its value comes from outside the conversation alone."""
+        when its value comes from outside the conversation alone. In the agent
+        perspective, a self-side fact (SPEC 4.2) follows its own rule."""
         span = locate(self.source.text, fact.quote, hint=offset)
-        provenance = self.source.provenance_of(span)
+        part = self.source.part_of(span)
+        provenance = part.provenance if part is not None else None
         subject = fact.subject or ""
         speaker = is_speaker(subject)
         about_owner = (speaker and self.owner is None) or (
             plan.owner_key is not None and plan.mention_keys.get(subject) == plan.owner_key
         )
         propose = about_owner and (provenance != OWNER or self._value_from_outside(fact.value))
-        return _Fate(span, provenance, about_owner, speaker and self.owner is None, propose)
+        speaker_free = speaker and self.owner is None
+        about_agent = (
+            plan.agent_key is not None and plan.mention_keys.get(subject) == plan.agent_key
+        )
+        method = self.agent is not None and canonical_key(fact.attribute) == METHOD
+        self_side = (about_agent or method) and not about_owner
+        outside = self_side and not self._self_written(fact, provenance)
+        # SPEC 4.2: a rule of the self waits for a reviewer when the operator
+        # asks for it; what came from outside keeps its own, stronger reason
+        rule = (
+            self.config.review_self_rules
+            and about_agent
+            and not about_owner
+            and not outside
+            and family_of(canonical_key(fact.attribute)) in RULE_FAMILIES
+        )
+        return _Fate(
+            span,
+            provenance,
+            about_owner,
+            speaker_free,
+            propose or outside or rule,
+            part=part,
+            about_agent=about_agent and not about_owner,
+            method=method,
+            self_side=self_side,
+            self_outside=outside,
+            self_rule=rule,
+        )
+
+    def _rule_known(
+        self,
+        node_id: str | None,
+        fact: ProposedFact,
+        known: list[tuple[str | None, str | None, str]] | None = None,
+    ) -> bool:
+        """SPEC 4.2: is this rule of the self already held, waiting or refused?
+        A live fact of the node, or a pending or rejected proposal about it,
+        that says the same statement, or gives the same value to the same key
+        or to the same topic of the other rule family (the model files one
+        rule as a commitment in one turn and as a preference in the next).
+        The agent states its rules again in most replies: without this the
+        review queue would fill with what the reviewer already decided."""
+        if node_id is None:
+            return False
+        key, value, said = (
+            canonical_key(fact.attribute),
+            normalize(fact.value or ""),
+            fold(fact.statement),
+        )
+        topic = rule_topic(key)
+
+        def same(attribute: str | None, held: str | None, statement: str) -> bool:
+            if fold(statement) == said:
+                return True
+            if not value or normalize(held or "") != value:
+                return False
+            other = canonical_key(attribute)
+            return other == key or (topic is not None and rule_topic(other) == topic)
+
+        return any(same(*held) for held in (known or self._rules_known(node_id)))
+
+    def _rules_known(self, node_id: str) -> list[tuple[str | None, str | None, str]]:
+        """SPEC 4.2: what a rule of the self is compared with, as (key, value,
+        statement): the live facts of the node, then the pending and the
+        rejected fact proposals about it, each read through the write's view (P9)."""
+        held: list[tuple[str | None, str | None, str]] = [
+            (f.attribute, f.value, f.statement) for f in self.store.facts([node_id], self.view)
+        ]
+        held.extend(
+            (p.payload.get("attribute"), p.payload.get("value"), p.value)
+            for status in (PENDING, REJECTED)
+            for p in self.store.proposals([node_id], self.view, status=status)
+            if p.kind == "fact"
+        )
+        return held
+
+    def _adjudicate_rules(self, plan: _Plan) -> None:
+        """SPEC 4.2: a rule of the self that restates no known rule word for word
+        may still be one said again in other words - the model that extracts
+        words a rule differently from one turn to the next. Each such rule goes
+        to the chat model with the known rules nearest to it, in one batched
+        call before the write transaction ("the same rule?"). Only ``same``
+        changes anything: the rule is then an echo. ``different``, ``unsure``,
+        an invalid answer or a truncated one leave it asked about."""
+        if not self.ctx.models.has_chat:
+            return
+        batch: _Pairs = ([], [])
+        known: dict[str, list[tuple[str | None, str | None, str]]] = {}
+        for index, (_offset, fact) in enumerate(plan.facts):
+            fate = plan.fates[index]
+            node_id = plan.mention_keys.get(fact.subject or "")
+            if not fate.self_rule or node_id is None or node_id.startswith("new:"):
+                continue
+            if node_id not in known:
+                known[node_id] = self._rules_known(node_id)
+            if self._rule_known(node_id, fact, known[node_id]):
+                continue  # word for word: no question needed
+            rules = list(
+                dict.fromkeys(
+                    statement
+                    for key, _value, statement in known[node_id]
+                    if family_of(canonical_key(key)) in RULE_FAMILIES
+                )
+            )
+            for rank, held in enumerate(self._nearest_rules(fact.statement, rules)):
+                sides: tuple[dict[str, Any], dict[str, Any]] = (
+                    {"statement": held},
+                    {"statement": fact.statement},
+                )
+                if (said := self._new_quote(fate)) is not None:
+                    sides[1]["quote"] = said
+                self._pair(batch, (index, f"{RULE_GROUP}{rank}"), node_id, None, sides)
+        self._ask(
+            plan,
+            batch,
+            rule_adjudication_messages,
+            schema.parse_rule_verdicts,
+            self.report.rules_compared,
+        )
+
+    def _nearest_rules(self, statement: str, rules: list[str]) -> list[str]:
+        """At most RULE_CANDIDATES of ``rules`` to compare ``statement`` with.
+        Embeddings only RANK them (no threshold: the chat model decides).
+        With no embeddings endpoint, or one that fails (a ranking is not worth
+        a failed turn), the first ones in the order ``_rules_known`` gives:
+        the rules held, then those waiting, then those refused - a held rule
+        is the one a restatement must not miss."""
+        if len(rules) <= RULE_CANDIDATES:
+            return rules
+        models = self.ctx.models
+        if not models.has_embeddings:
+            return rules[:RULE_CANDIDATES]
+        try:
+            result = models.embed([statement, *rules])
+            self.report.calls += 1
+            mine, *others = (vectors.normalise(v) for v in result.vectors)
+        except (ModelError, ValueError):
+            return rules[:RULE_CANDIDATES]
+        scored = sorted(
+            (
+                (sum(a * b for a, b in zip(mine, other, strict=True)), -i)
+                for i, other in enumerate(others)
+            ),
+            reverse=True,
+        )
+        return [rules[-i] for _score, i in scored[:RULE_CANDIDATES]]
+
+    def _source_external(self) -> str:
+        """P6, SPEC 4.4: the content from outside the conversation the source
+        held: none, only parts the host vouched for, or one it did not."""
+        if self._external is not None:
+            return self._external
+        outside = [p for p in self.source.parts if p.provenance == EXTERNAL]
+        if not outside:
+            return NONE
+        return VOUCHED if all(p.vouched for p in outside) else UNVOUCHED
+
+    def _self_written(self, fact: ProposedFact, provenance: str | None) -> bool:
+        """SPEC 4.2 and P6, agent perspective: may a self-side fact be written? From
+        the owner's words when its value does not come from outside alone; from
+        the assistant part, or a vouched part, of a source whose external parts
+        were all vouched (or none). The parts and the host decide, never the
+        words, so a paraphrased page does not pass."""
+        if provenance == OWNER:
+            return not self._value_from_outside(fact.value)
+        # every external part vouched (or none): the reply and those parts
+        return provenance in (ASSISTANT, EXTERNAL) and self._source_external() != UNVOUCHED
 
     def _value_from_outside(self, value: str | None) -> bool:
         """Does ``value`` appear (whole words, folded) in an external part and in
@@ -908,6 +1418,141 @@ class Extractor:
 
         return holds(EXTERNAL) and not holds(OWNER)
 
+    def _outside_part(self, value: str | None) -> Part | None:
+        """The first external part that holds ``value`` (whole words, folded)."""
+        wanted = tokenize(value or "")
+        for part in self.source.parts:
+            if part.provenance == EXTERNAL and _contains(
+                tokenize(self.source.text[part.start : part.end]), wanted
+            ):
+                return part
+        return None
+
+    def _part_fields(self, provenance: str | None, part: Part | None) -> PartFields:
+        """P6: an external fact keeps its part's kind, the short form of its ref
+        and the day the source was read; an assistant's fact its declared name
+        (SPEC 4.6); the owner's facts keep none of them."""
+        if provenance == ASSISTANT:  # SPEC 4.6: the assistant's declared name
+            named = part.ref if part is not None and part.provenance == ASSISTANT else None
+            return PartFields(part_kind=None, part_ref=named, read_at=None)
+        if provenance != EXTERNAL:
+            return PartFields(part_kind=None, part_ref=None, read_at=None)
+        external = part if part is not None and part.provenance == EXTERNAL else None
+        return PartFields(
+            part_kind=external.kind if external else None,
+            part_ref=external.ref if external else None,
+            read_at=self._read_at,
+        )
+
+    # ------------------------------------------------------------ neighbouring subjects (SPEC 5.1)
+
+    def _neighbours(self, plan: _Plan, text: str) -> None:
+        """SPEC 5.1, neighbouring subjects: when the source has two subjects or
+        more, a fact whose quote names another of them and not its own, or whose
+        value names its own subject and another one, is not attached on its own:
+        it becomes a fact proposal (counted ``facts.neighbour``)."""
+        forms = self._subject_forms(plan)
+        if len(forms) < 2:
+            return
+        words = {key: {w for name in names for w in tokenize(name)} for key, names in forms.items()}
+        distinctive = _distinctive(forms)
+        linked = {
+            frozenset((a, b))
+            for edge in plan.edges
+            if (a := plan.mention_keys.get(edge.src)) and (b := plan.mention_keys.get(edge.dst))
+        }
+        for index, (_offset, fact) in enumerate(plan.facts):
+            fate = plan.fates[index]
+            own = plan.mention_keys.get(fact.subject or "")
+            if own is None or own not in forms or fate.propose:
+                continue
+            foreign = set().union(*(w for key, w in words.items() if key != own))
+            # a form made of other subjects' words only ("PDF" beside report.pdf)
+            # names none of them in particular: it never names the subject here
+            own_forms = [f for f in forms[own] if not set(tokenize(f)) <= foreign]
+            # a subject an edge of the answer links to this one is its object
+            others = {
+                key: names
+                for key, names in forms.items()
+                if key != own and frozenset((own, key)) not in linked
+            }
+            quoted = (
+                fate.span is not None
+                and not (fate.about_owner or fate.speaker_free or fate.about_agent)
+                and quote_names_other(
+                    text[fate.span[0] : fate.span[1]],
+                    own_forms,
+                    others,
+                    objects=f"{fact.statement} {fact.value or ''}",
+                )
+            )
+            if quoted or value_merges(fact.value, own, distinctive, forms):
+                plan.fates[index] = dataclasses.replace(fate, propose=True, neighbour=True)
+
+    # ------------------------------------------------- a known subject not named (SPEC 5.1)
+
+    def _unnamed(self, plan: _Plan) -> None:
+        """SPEC 5.1, a known subject the source does not name: a fact whose subject
+        the adjudication did not attach (``plan.unnamed``) is a fact proposal on
+        the known node, counted ``facts.unnamed``."""
+        for index, (_offset, fact) in enumerate(plan.facts):
+            fate = plan.fates[index]
+            if fate.propose or fate.about_owner or fate.speaker_free or fate.about_agent:
+                continue
+            if (fact.subject or "") in plan.unnamed:
+                plan.fates[index] = dataclasses.replace(fate, propose=True, unnamed=True)
+
+    def _unnamed_match(self, plan: _Plan, key: str, text: str) -> bool:
+        """SPEC 5.1: is the stored node ``key``, matched on its own (exact or
+        contained), a subject neither the source nor its session names?
+        True when none of the node's names or aliases is written there (whole
+        words, the same spelling in another script, or as letters in a script
+        written without spaces): a word of the name ("Karim" of "Karim Benali",
+        "report" of "Nadia's annual report") is not enough. The owner is named by the label
+        of their part, never here."""
+        if key.startswith("new:") or key in (plan.owner_key, plan.agent_key, plan.activity_key):
+            return False
+        if key in self._episode_activities:  # SPEC 5.8: set from the owner's words
+            return False
+        named = self._named.get(key)
+        if named is None:
+            named = self._names(text, self.stored_names(key))
+            self._named[key] = named
+        return not named
+
+    def _names(self, text: str, names: Sequence[str]) -> bool:
+        """Does ``text`` or an earlier source of the session write one of ``names``?"""
+        return any(_written_in(t, names) for t in (text, *self._session_texts()))
+
+    def _session_texts(self) -> list[str]:
+        """The session's earlier sources this writer sees (none outside a
+        session), read once."""
+        if self._session_cache is None:
+            self._session_cache = (
+                self.store.session_texts(self._session_id, self.view) if self._session_id else []
+            )
+        return self._session_cache
+
+    def _subject_forms(self, plan: _Plan) -> dict[str, list[str]]:
+        """The subjects of the source, by key: the nodes the answers propose, the
+        nodes their facts and edges resolve to, the known nodes the text names;
+        each with its names, its aliases and the mentions that resolved to it.
+        A speaker word is no name (SPEC 4.2)."""
+        forms: dict[str, list[str]] = {}
+        for key in plan.ordered:
+            proposal = plan.proposals.get(key)
+            if key.startswith("new:"):
+                names = [proposal.name, *proposal.aliases] if proposal is not None else []
+            else:
+                names = self.stored_names(key)
+            if key == plan.owner_key and self.owner is not None:
+                names = [*names, self.owner.name, *self.owner.aliases]
+            forms[key] = [*names, *plan.aliases.get(key, [])]
+        for mention, key in plan.mention_keys.items():
+            if key in forms and not is_speaker(mention):
+                forms[key].append(mention)
+        return {key: [n for n in names if n] for key, names in forms.items()}
+
     # ------------------------------------------------------------------ attribute keys (SPEC 5.4)
 
     def _adjudicate_values(self, plan: _Plan) -> None:
@@ -915,10 +1560,13 @@ class Extractor:
         languages - the new fact later, no explicit fact - go to the chat model
         before the write transaction: single-valued keys in one batched call ("the
         same thing?"), role, team and preferences in another ("replaces, or both
-        true?"). ``unsure``, an invalid answer or a truncated one changes nothing."""
+        true?"). Within one language, a change whose values share words may be the
+        same value told again: asked in a third call ("the same value?"), where only
+        ``same`` changes anything. ``unsure``, an invalid answer or a truncated one
+        changes nothing."""
         if not self.ctx.models.has_chat:
             return
-        values, replacements = self._unknown_pairs(plan)
+        values, replacements, restatements = self._unknown_pairs(plan)
         self._ask(
             plan,
             values,
@@ -933,68 +1581,109 @@ class Extractor:
             schema.parse_replacement_verdicts,
             self.report.values_replacement,
         )
+        self._ask(
+            plan,
+            restatements,
+            restatement_adjudication_messages,
+            schema.parse_restatement_verdicts,
+            self.report.values_restatement,
+        )
 
-    def _unknown_pairs(self, plan: _Plan) -> tuple[_Pairs, _Pairs]:
-        """The pairs left ``unknown`` across languages, by question: single-valued
-        keys, and role, team and preferences."""
+    def _unknown_pairs(self, plan: _Plan) -> tuple[_Pairs, _Pairs, _Pairs]:
+        """The pairs left ``unknown``, by question: single-valued keys across
+        languages; role, team, preferences and free-form keys of one value, in one
+        language too; and the other changes within one language that may restate
+        the value held (SPEC 5.4)."""
         values: _Pairs = ([], [])
         replacements: _Pairs = ([], [])
+        restatements: _Pairs = ([], [])
+        lives: dict[str, list[Fact]] = {}  # node id -> its live facts, read once
         for index, (_offset, fact) in enumerate(plan.facts):
             node_id = plan.mention_keys.get(fact.subject or "")
             key = canonical_key(fact.attribute)
             fate = plan.fates[index]
             if node_id is None or node_id.startswith("new:") or not fact.value or fate.propose:
                 continue
-            asked = self.config.replacement_question and multi_valued(key)
+            if not supersedable(key):
+                continue
+            asked = self.config.replacement_question and replacement_asked(key)
             batch = values if single_valued(key) else replacements if asked else None
-            if batch is None:
+            if batch is None and not self.config.restatement_question:
                 continue
             language = detect(fact.statement)
-            live = self.store.facts([node_id], self.view)
-            if any(fold(old.statement) == fold(fact.statement) for old in live):
+            if node_id not in lives:
+                lives[node_id] = self.store.facts([node_id], self.view)
+            live = lives[node_id]
+            if any(fold(old.statement) == fold(fact.statement) for old in live) or (
+                # an element of a set, or an unsure key: it closes nothing
+                sets.cardinality(fact.attribute, fact.cardinality, live) in (sets.MANY, sets.UNSURE)
+            ):
                 continue
+            norms = self._norms(live) if fact.value_norm else {}
+            # SPEC 5.4: what a new observation decides needs no question; its own
+            # source is not stored yet, so no held fact comes from it
+            observed = (self._read_at, "") if self._observation(fact, fate)[0] else None
             for root, members in _groups(live, key):
                 if any(m.value and normalize(m.value) == normalize(fact.value) for m in members):
                     continue
-                external = fate.provenance == EXTERNAL
                 verdict = _decide(
                     members,
                     fact,
                     language,
                     None,
-                    external=external,
+                    external=fate.provenance == EXTERNAL,
                     several=self.config.replacement_question,
+                    norms=norms,
+                    observed=observed,
+                    bound=fate.provenance if fate.self_side else None,
                 )
-                if verdict[1] != UNKNOWN:
-                    continue
-                first = members[0]
-                old: dict[str, Any] = {
-                    "value": first.value,
-                    "statement": first.statement,
-                    "language": _language_of(first),
-                }
-                new: dict[str, Any] = {
-                    "value": fact.value,
-                    "statement": fact.statement,
-                    "language": language,
-                }
-                if batch is replacements:
-                    # SPEC 5.4: the statements may have lost "now" or "also"
-                    if (said := self._stored_quote(first)) is not None:
-                        old["quote"] = said
-                    if (said := self._new_quote(fate)) is not None:
-                        new["quote"] = said
-                batch[0].append(
-                    {
-                        "pair": len(batch[0]),
-                        "subject": self.store.get_node(node_id).name,
-                        "key": key,
-                        "a": old,
-                        "b": new,
-                    }
-                )
-                batch[1].append((index, root))
-        return values, replacements
+                target = (index, root)
+                if verdict == (SUPERSEDE, "same_language"):
+                    held = _restated(members, fact, language)
+                    if self.config.restatement_question and held is not None:
+                        self._pair(restatements, target, node_id, key, _sides(held, fact))
+                elif verdict[1] == UNKNOWN and batch is not None:
+                    sides = _sides(members[0], fact, language)
+                    if batch is replacements:
+                        self._quote(sides, members[0], fate)
+                    self._pair(batch, target, node_id, key, sides)
+        return values, replacements, restatements
+
+    def _quote(
+        self, sides: tuple[dict[str, Any], dict[str, Any]], first: Fact, fate: _Fate
+    ) -> None:
+        """SPEC 5.4: the statements may have lost "now" or "also"; the quotes keep them."""
+        if (said := self._stored_quote(first)) is not None:
+            sides[0]["quote"] = said
+        if (said := self._new_quote(fate)) is not None:
+            sides[1]["quote"] = said
+
+    def _pair(
+        self,
+        batch: _Pairs,
+        target: tuple[int, str],
+        node_id: str,
+        key: str | None,
+        sides: tuple[dict[str, Any], dict[str, Any]],
+    ) -> None:
+        """One pair of a batched question, and the (fact, group) its verdict is for."""
+        batch[0].append(
+            {
+                "pair": len(batch[0]),
+                "subject": self.store.get_node(node_id).name,
+                "key": key,
+                "a": sides[0],
+                "b": sides[1],
+            }
+        )
+        batch[1].append(target)
+
+    def _norms(self, live: Sequence[Fact]) -> dict[str, str]:
+        """The comparison forms of the live facts a new one is compared with
+        (SPEC 5.4); none when the switch is off."""
+        if not self.config.value_norm:
+            return {}
+        return self.store.value_norms([f.id for f in live])
 
     def _stored_quote(self, fact: Fact) -> str | None:
         """The exact words of a stored fact's source, read through the write's view
@@ -1046,9 +1735,19 @@ class Extractor:
 
     def _known_keys(self) -> list[tuple[str, list[str]]]:
         """The canonical keys of the known subjects' live facts, for the prompt; a
-        bare family key is never offered for reuse (it never supersedes)."""
+        bare family key is never offered for reuse (it never supersedes). A set
+        shows its live elements (SPEC 5.4), so that a removal can name one."""
         nodes = self.resolver.known_nodes(self.config.known_names_in_prompt)
-        stored = self.store.attribute_keys([node_id for node_id, _ in nodes], self.view)
+        ids = [node_id for node_id, _ in nodes]
+        stored = self.store.attribute_keys(ids, self.view)
+        elements: dict[tuple[str, str], list[str]] = {}
+        shown = sets.ELEMENTS_LOADED
+        for element in self.store.flagged_facts(ids, self.view, flag=sets.MANY, limit=shown):
+            key = canonical_key(element.attribute)
+            if key and element.value and element.node_id:
+                values = elements.setdefault((element.node_id, key), [])
+                if element.value not in values:
+                    values.append(element.value)
         out: list[tuple[str, list[str]]] = []
         for node_id, name in nodes:
             keys = list(
@@ -1057,7 +1756,18 @@ class Extractor:
                 )
             )
             if keys:
-                out.append((name, [k for k in keys if k][:KEYS_PER_SUBJECT]))
+                out.append(
+                    (
+                        name,
+                        [
+                            sets.set_label(k, elements[node_id, k])
+                            if (node_id, k) in elements
+                            else k
+                            for k in keys[:KEYS_PER_SUBJECT]
+                            if k
+                        ],
+                    )
+                )
         return out
 
     def _align_keys(self, plan: _Plan) -> None:
@@ -1171,7 +1881,13 @@ class Extractor:
         self._adjudicate(ambiguous, text)
         return {r.mention: r.key for r in ambiguous}
 
-    def _resolve_mentions(self, plan: _Plan, mentions: list[str], text: str) -> None:
+    def _resolve_mentions(
+        self,
+        plan: _Plan,
+        mentions: list[str],
+        text: str,
+        quotes: Mapping[str, str] | None = None,
+    ) -> None:
         """Steps 1-2 for every mention, one batched step 4 for what stays ambiguous
         (tier 2), a new node for what is still unresolved."""
         resolver = self.resolver
@@ -1183,13 +1899,31 @@ class Extractor:
             if plan.owner_key is not None:
                 plan.mention_keys[mention] = plan.owner_key
                 plan.order(plan.owner_key)
+        for mention in mentions:
+            # SPEC 5.1, a known subject the source does not name: a candidate only
+            found = resolver.resolve(mention)
+            if (
+                found.method in (EXACT, FUZZY)
+                and found.key is not None
+                and self._unnamed_match(plan, found.key, text)
+            ):
+                plan.unnamed[mention] = found.key
+                resolver.contest(mention, [found.key])
         ambiguous = [r for r in map(resolver.resolve, mentions) if r.method == AMBIGUOUS]
         if ambiguous and self.ctx.models.has_chat:
-            self._adjudicate(ambiguous, text)
+            self._adjudicate(ambiguous, text, quotes)
         for mention in mentions:
             resolution = resolver.resolve(mention)
             if resolution.method == AMBIGUOUS:
                 resolver.decide(resolution, None)
+            known = plan.unnamed.get(mention)
+            if known is not None:
+                if resolution.key is None:
+                    # not attached, and no new node under a name memory already
+                    # holds: its facts are proposals on the known node
+                    plan.mention_keys[mention] = known
+                    continue
+                del plan.unnamed[mention]  # the adjudication attached it
             if resolution.key is None:
                 key = f"new:{len(plan.proposals)}"
                 plan.proposals[key] = schema.ProposedNode(name=mention)
@@ -1199,10 +1933,19 @@ class Extractor:
             plan.mention_keys[mention] = resolution.key
             plan.order(resolution.key)
 
-    def _adjudicate(self, ambiguous: list[Any], text: str) -> None:
+    def _adjudicate(
+        self, ambiguous: list[Any], text: str, quotes: Mapping[str, str] | None = None
+    ) -> None:
+        """Step 4, one batched call. A mention the source does not write (SPEC
+        5.1, a known subject the source does not name) is shown with the
+        sentence its fact quotes, or the start of the source."""
         batch = []
         for resolution in ambiguous:
             snippet = _context(text, resolution.mention)
+            if not snippet:
+                quote = (quotes or {}).get(resolution.mention, "")
+                located = _context(text, quote, width=40) if quote else ""
+                snippet = located or " ".join(text[:CONTEXT_HEAD].split())
             batch.append(
                 (
                     resolution.mention,
@@ -1245,6 +1988,7 @@ class Extractor:
     def _write(self, source_id: str, text: str, plan: _Plan) -> None:
         store, report = self.store, self.report
         ids: dict[str, str] = {}  # key -> node id
+        created: list[Node] = []  # SPEC 5.1: a source may name both forms itself
         for key in plan.ordered:
             if key.startswith("new:"):
                 proposal = plan.proposals[key]
@@ -1269,33 +2013,93 @@ class Extractor:
                 report.aliases_kept += len(node.aliases)
                 # a later answer of the same job may have named it once more
                 self._add_aliases(node, plan.aliases.get(key, []))
+                self._propose_form_merges(node, source_id, created)
+                created.append(node)
             else:
                 ids[key] = key
                 report.nodes_matched += 1
                 self._add_aliases(store.get_node(key), plan.aliases.get(key, []))
         self._propose_aliases(source_id, text, plan, ids)
+        activity = self._activity_id(plan, ids)
 
         touched: list[str] = []
         seen_statements: set[tuple[str | None, str]] = set()
         for index, (offset, fact) in enumerate(plan.facts):
             node_id = ids.get(plan.mention_keys.get(fact.subject or "", ""))
+            if node_id is None and plan.fates[index].unnamed:
+                node_id = plan.unnamed.get(fact.subject or "")  # SPEC 5.1: a known node
             signature = (node_id, fold(fact.statement))
             if signature in seen_statements:
                 report.facts_duplicate += 1
                 continue
             seen_statements.add(signature)
             fate = plan.fates[index]
+            # SPEC 4.2, 5.8: a rule, or the close's episode, beside its subject
+            linked = self._links(fact, fate, activity)
             if fate.propose:
-                self._propose_fact(source_id, text, fact, node_id, fate, plan.forced)
+                if fate.self_rule and (_rule_same(plan, index) or self._rule_known(node_id, fact)):
+                    report.facts_self_echo += 1  # SPEC 4.2: said again, asked once
+                    continue
+                why = SELF_OUTSIDE if fate.self_outside else SELF_RULE if fate.self_rule else None
+                self._propose_fact(
+                    source_id, text, fact, node_id, fate, plan.forced, why, activities=linked
+                )
                 continue
             verdicts = {g: v for (i, g), v in plan.adjudicated.items() if i == index}
             written = self._write_fact(
-                source_id, text, offset, fact, node_id, plan.forced, verdicts, fate
+                source_id,
+                text,
+                offset,
+                fact,
+                node_id,
+                plan.forced,
+                verdicts,
+                fate,
+                activities=linked,
             )
             if written is not None and node_id is not None and node_id not in touched:
                 touched.append(node_id)
 
         self._write_edges(source_id, text, plan, ids, touched)
+
+    def _links(self, fact: ProposedFact, fate: _Fate, activity: str | None) -> list[str]:
+        """SPEC 4.2, 5.8: a rule is linked to the activity it was learnt during, a
+        close's episode to every activity of its session."""
+        if fact.episode and self._episode_activities:
+            return list(self._episode_activities)
+        return [activity] if activity is not None and fate.method else []
+
+    def _activity_id(self, plan: _Plan, ids: Mapping[str, str]) -> str | None:
+        """SPEC 4.2: the node of the activity the source's rules are linked to,
+        kept for the session when the source named it."""
+        key = plan.activity_key
+        # a known node no fact names is not among the nodes written: its id is its key
+        activity = None if key is None else ids.get(key, None if key.startswith("new:") else key)
+        if plan.activity_named:
+            self._activity_written = activity
+        elif activity is not None:
+            self.report.activity_carried += 1
+        return activity
+
+    def _propose_form_merges(self, node: Node, source_id: str, created: Sequence[Node]) -> None:
+        """SPEC 5.1, one subject in two forms: a new node a known one - or one
+        this same write created - may name in another form (a slug or a file
+        name and a title) is paired with it by a merge proposal, for the review
+        queue and the dream; never merged here. Only nodes of the same scope set
+        (dream rule 12: never widen visibility)."""
+        store = self.store
+        siblings = [n.id for n in created if form_duplicate(node.name, node.kind, n.name, n.kind)]
+        for other_id in [*self.resolver.form_nodes(node.name, node.kind), *siblings]:
+            if set(store.scopes_of(other_id)) != set(node.scopes):
+                continue
+            store.add_proposal(
+                scopes=node.scopes,
+                kind=MERGE,
+                node_id=node.id,
+                value=other_id,
+                source_id=source_id,
+            )
+            self.report.duplicates_merge_proposed += 1
 
     def _add_aliases(self, node: Node, aliases: Iterable[str]) -> None:
         """Add the grounded aliases a node does not carry yet, and count them."""
@@ -1342,57 +2146,75 @@ class Extractor:
         forced: str | None,
         verdicts: dict[str, str] | None = None,
         fate: _Fate | None = None,
+        *,
+        activities: Sequence[str] = (),
     ) -> Fact | None:
         store, report = self.store, self.report
         fate = fate or _Fate(locate(text, fact.quote, hint=offset), None, False, False, False)
         span = fate.span
         language = detect(fact.statement)
         flags = self._flags(fact, text, span, forced, fate)
-        conflicts_with: str | None = None
-        same_as: str | None = None
-        superseded: list[Fact] = []
+        observed, by_tool = self._observation(fact, fate)
+        if observed:
+            flags.append(OBSERVED)
         live = self._live(node_id, fate)
+        echo = fate.self_side and fate.provenance == ASSISTANT  # SPEC 4.2: not evidence
         for old in live:
             if fold(old.statement) == fold(fact.statement):
                 report.facts_duplicate += 1
+                report.facts_self_echo += echo
+                if observed and not echo:
+                    self._seen_again(live, old.same_as or old.id)
                 return None
         # SPEC 5.4: a bare family key ("preference" without a topic) never drives a
         # supersession or a conflict; when we cannot tell, we do not supersede
         speaking = fate.speaker_free
-        duplicate_of: str | None = None
+        # SPEC 5.4 (sets): None for a vocabulary key, else one / many / unsure
+        kind = (
+            sets.cardinality(fact.attribute, fact.cardinality, live)
+            if node_id or speaking
+            else None
+        )
+        removed_by: list[Fact] = []
+        fact, removed, refused = self._elements(live, fact, kind, fate, flags, removed_by)
+        judged = _Judgement()
         if (node_id or speaking) and fact.value and supersedable(canonical_key(fact.attribute)):
-            for root, members in _groups(live, fact.attribute):
-                if any(m.value and normalize(m.value) == normalize(fact.value) for m in members):
-                    # a duplicate of this group; the other groups are still decided
-                    duplicate_of = duplicate_of or root
-                    continue
-                decision, why = _decide(
-                    members,
-                    fact,
-                    language,
-                    (verdicts or {}).get(root),
-                    external=fate.provenance == EXTERNAL,
-                    never_close=speaking,
-                    several=self.config.replacement_question,
-                )
-                if decision == LINK:
-                    same_as = same_as or root
-                    report.values_same += why == SAME
-                elif decision == SUPERSEDE:
-                    superseded.extend(members)  # the whole group states the outdated value
-                    report.values_different += why == DIFFERENT
-                elif decision == BOTH:
-                    pass  # both values hold at once: neither closed nor in conflict
-                else:
-                    if CONFLICT not in flags:
-                        flags.append(CONFLICT)
-                    conflicts_with = conflicts_with or root
-        if duplicate_of is not None:
+            judged = self._judge(
+                live,
+                fact,
+                language,
+                verdicts or {},
+                fate,
+                kind,
+                removed,
+                observed=(self._read_at, source_id) if observed else None,
+            )
+        judged.superseded[:0] = removed_by
+        if echo and self._echoed(judged):
+            return None
+        if judged.duplicate_of is not None:
             # nothing new is written, but what the new evidence closes is closed,
             # by the fact that already states the same value
             report.facts_duplicate += 1
-            self._close(superseded, fact.valid_from, duplicate_of)
+            if observed:
+                self._seen_again(live, judged.duplicate_of)
+            self._close(judged.superseded, fact.valid_from, judged.duplicate_of)
+            self._flag_refused(judged.duplicate_of, refused)
+            self._reach_duplicates(node_id, fact, language, fate, judged.duplicate_of)
             return None
+        if judged.kept is not None:
+            # SPEC 5.4: the fact held stays as it is; groups the new value proves
+            # outdated on their own are closed by it, as for a duplicate
+            report.facts_kept_same += 1
+            if observed:
+                self._seen_again(live, judged.kept)
+            self._close(judged.superseded, fact.valid_from, judged.kept)
+            self._flag_refused(judged.kept, refused)
+            self._reach_duplicates(node_id, fact, language, fate, judged.kept)
+            return None
+        conflicts_with = refused or judged.conflicts_with
+        if conflicts_with is not None and CONFLICT not in flags:
+            flags.append(CONFLICT)
         written = store.add_fact(
             scopes=self.scopes,
             statement=fact.statement,
@@ -1408,17 +2230,209 @@ class Extractor:
             flags=flags,
             language=None if language == UNDETERMINED else language,
             conflicts_with=conflicts_with,
-            same_as=same_as,
+            same_as=judged.same_as,
             provenance=fate.provenance,
+            **self._part_fields(fate.provenance, fate.part),
+            value_norm=fact.value_norm if self.config.value_norm and fact.value else None,
+            observed_at=self._read_at if observed else None,
+            activities=activities,
         )
         self._count_written(fate, conflicts_with)
-        self._close(superseded, fact.valid_from, written.id)
+        report.activity_linked += bool(activities)
+        report.facts_observed += observed
+        report.facts_observed_by_tool += by_tool
+        self.report.elements["added"] += sets.MANY in flags
+        self._close(judged.superseded, fact.valid_from, written.id)
+        self._reach_duplicates(node_id, fact, language, fate, written.id)
         return written
+
+    def _echoed(self, judged: _Judgement) -> bool:
+        """SPEC 4.2: the self's own fact said again (the same value of the same
+        key, or the value held told in other words) writes, closes and moves
+        nothing; counted."""
+        if judged.duplicate_of is None and judged.kept is None:
+            return False
+        report = self.report
+        report.facts_duplicate += judged.duplicate_of is not None
+        report.facts_kept_same += judged.duplicate_of is None
+        report.facts_self_echo += 1
+        return True
+
+    def _judge(
+        self,
+        live: Sequence[Fact],
+        fact: ProposedFact,
+        language: str,
+        verdicts: Mapping[str, str],
+        fate: _Fate,
+        kind: str | None = None,
+        removed: set[str] | frozenset[str] = frozenset(),
+        observed: tuple[str | None, str] | None = None,
+    ) -> _Judgement:
+        """What a new value does to each equivalence group of its key (SPEC 5.4);
+        a group ``removes`` named is left to the removal, and an element of a set
+        is decided by the set's rule (SPEC 5.4, sets). ``observed``: the day and
+        the source of a new observation (SPEC 5.4, observations)."""
+        judged, value = _Judgement(), normalize(fact.value or "")
+        norms = self._norms(live) if fact.value_norm else {}
+        for root, members in _groups(live, fact.attribute):
+            if root in removed:
+                continue  # the element this fact removes or corrects
+            if any(m.value and normalize(m.value) == value for m in members):
+                # a duplicate of this group; the other groups are still decided
+                judged.duplicate_of = judged.duplicate_of or root
+                continue
+            element = sets.decide(members, fact.value or "", kind)  # None: not a set's question
+            self.report.elements[sets.UNSURE] += element == (KEEP_CONFLICT, sets.UNSURE)
+            decision, why = element or _decide(
+                members,
+                fact,
+                language,
+                verdicts.get(root),
+                external=fate.provenance == EXTERNAL,
+                never_close=fate.speaker_free,
+                several=self.config.replacement_question,
+                norms=norms,
+                observed=observed,
+                bound=fate.provenance if fate.self_side else None,
+            )
+            self.report.values_same += why == SAME
+            if decision == KEEP:
+                judged.kept = judged.kept or root
+            elif decision == LINK:
+                judged.same_as = judged.same_as or root
+                self.report.values_norm += why == NORM
+            elif decision == SUPERSEDE:
+                judged.superseded.extend(members)  # the whole group states the outdated value
+                self.report.values_different += why == DIFFERENT
+            elif decision == KEEP_CONFLICT:
+                judged.conflicts_with = judged.conflicts_with or root
+            # BOTH: both values hold at once, neither closed nor in conflict
+        return judged
+
+    def _elements(
+        self,
+        live: Sequence[Fact],
+        fact: ProposedFact,
+        kind: str | None,
+        fate: _Fate,
+        flags: list[str],
+        superseded: list[Fact],
+    ) -> tuple[ProposedFact, set[str], str | None]:
+        """SPEC 5.4 (sets): an element of a set is flagged ``many``; ``removes``
+        closes only the elements of a set it names, where the guards allow a
+        close (added to ``superseded``), else flags the conflict. Returns the
+        fact to write (a removal without a value loses its key: a change, not an
+        element), the groups it named, and the element it conflicts with."""
+        fact, removed, conflicts_with = self._remove_elements(live, fact, kind, fate, superseded)
+        if conflicts_with is not None:
+            flags.append(CONFLICT)  # a removal that names no element, or may not close it
+        if kind == sets.MANY and fact.attribute and fact.value:
+            flags.append(sets.MANY)
+        return fact, removed, conflicts_with
+
+    def _flag_refused(self, held: str, conflicts_with: str | None) -> None:
+        """A correction onto an element already held writes nothing; a removal it
+        could not make stays visible on that element (SPEC 5.4)."""
+        if conflicts_with is not None:
+            self.store.flag_fact(held, CONFLICT, conflicts_with=conflicts_with)
+
+    def _remove_elements(
+        self,
+        live: Sequence[Fact],
+        fact: ProposedFact,
+        kind: str | None,
+        fate: _Fate,
+        superseded: list[Fact],
+    ) -> tuple[ProposedFact, set[str], str | None]:
+        """What ``removes`` closes, and the element it conflicts with: the first
+        one it may not close, or the set's first when it names none."""
+        if kind != sets.MANY or not fact.removes:
+            return fact, set(), None
+        groups = _groups(live, fact.attribute)
+        found = sets.matching(groups, fact.removes)
+        if not fact.value:
+            fact = fact.model_copy(update={"attribute": None})
+        if not found:
+            self.report.elements["unmatched"] += 1
+            return fact, set(), groups[0][0] if groups else None
+        conflicts_with: str | None = None
+        members_of = dict(groups)
+        for root in found:
+            members = members_of[root]
+            if sets.closable(
+                members,
+                fact.valid_from,
+                external=fate.provenance == EXTERNAL,
+                never_close=fate.speaker_free
+                or (fate.self_side and any(m.provenance != fate.provenance for m in members)),
+            ):
+                superseded.extend(members)  # the whole group states the removed element
+                self.report.elements["removed"] += 1
+            else:
+                conflicts_with = conflicts_with or root
+        return fact, set(found), conflicts_with
+
+    def _observation(self, fact: ProposedFact, fate: _Fate) -> tuple[bool, bool]:
+        """SPEC 4.2: is the fact observed, and is it so by the provenance rule
+        alone? The model's ``observed`` (read only with the intent reading on),
+        or a fact whose quote lies in an external part of kind ``tool``."""
+        said = self.config.intent and fact.duration == intent_reading.OBSERVED
+        tool = (
+            fate.provenance == EXTERNAL
+            and fate.part is not None
+            and fate.part.provenance == EXTERNAL
+            and fate.part.kind == TOOL
+        )
+        return said or tool, tool and not said
+
+    def _seen_again(self, live: Sequence[Fact], root: str) -> None:
+        """SPEC 4.2: a held value observed again - every observed fact of its
+        group takes the source's day."""
+        if self._read_at is None:
+            return
+        for held in live:
+            if (held.same_as or held.id) == root and held.observed_at is not None:
+                self.report.facts_observed_again += self.store.observe_again(held.id, self._read_at)
 
     def _close(self, superseded: Sequence[Fact], valid_to: str | None, by: str) -> None:
         for old in superseded:
             self.store.close_fact(old.id, valid_to=valid_to, superseded_by=by)
             self.report.facts_superseded += 1
+
+    def _reach_duplicates(
+        self, node_id: str | None, fact: ProposedFact, language: str, fate: _Fate, by: str
+    ) -> None:
+        """SPEC 5.4: a new value reaches a known duplicate (a pending merge
+        proposal pairs the two nodes). A live fact there that the new one would
+        close or contradict on one node - same key, another value - is flagged
+        ``conflict`` against ``by``, never closed: until the merge is decided we
+        cannot tell the two nodes are one subject."""
+        if node_id is None or not fact.value or not supersedable(canonical_key(fact.attribute)):
+            return
+        store = self.store
+        for other_id in store.merge_candidates(node_id, self.view):
+            held = store.facts([other_id], self.view)
+            kind = sets.cardinality(fact.attribute, fact.cardinality, held)
+            for _root, members in _groups(held, fact.attribute):
+                if any(m.value and normalize(m.value) == normalize(fact.value) for m in members):
+                    continue  # the duplicate already holds the new value
+                if sets.decide(members, fact.value, kind) is not None:
+                    continue  # an element of a set, or an unsure key: it closes nothing
+                decision, _why = _decide(
+                    members,
+                    fact,
+                    language,
+                    None,
+                    external=fate.provenance == EXTERNAL,
+                    several=self.config.replacement_question,
+                )
+                if decision not in (SUPERSEDE, KEEP_CONFLICT):
+                    continue  # the same value in another form, or both true at once
+                for member in members:
+                    if CONFLICT not in member.flags:
+                        store.flag_fact(member.id, CONFLICT, conflicts_with=by)
+                        self.report.duplicates_flagged += 1
 
     def _live(self, node_id: str | None, fate: _Fate) -> list[Fact]:
         """The live facts a new one is compared with: its node's, or, for a free
@@ -1437,6 +2451,8 @@ class Extractor:
             report.facts_speaker_free += 1
         elif fate.about_owner:
             report.facts_speaker_owner += 1
+        report.facts_self += fate.about_agent
+        report.facts_method += fate.method
         if conflicts_with:
             report.facts_conflict += 1
 
@@ -1457,6 +2473,10 @@ class Extractor:
             self.report.facts_language_mismatch += 1
         if fate.speaker_free:
             flags.append(SPEAKER)
+        if fate.self_side and not fate.propose and self._source_external() == VOUCHED:
+            flags.append(VOUCHED)  # SPEC 4.2: learnt from what the host vouched for
+        if fact.episode and self.config.intent:
+            flags.append(intent_reading.EPISODE)  # SPEC 4.2: what a frame or a session left
         return flags
 
     def _propose_fact(
@@ -1467,10 +2487,23 @@ class Extractor:
         node_id: str | None,
         fate: _Fate,
         forced: str | None,
+        why: str | None = None,
+        *,
+        activities: Sequence[str] = (),
     ) -> None:
-        """P6: a fact about the owner that is not the owner's own words becomes a
-        fact proposal, decided only by a ``review`` token (SPEC 4.4b)."""
+        """A fact the write path does not write on its own - about the owner, not
+        in the owner's words (P6), shown by its source to be about another
+        subject (SPEC 5.1), or whose intent is in doubt (SPEC 4.2), whoever it is
+        about (``why``) - becomes a fact proposal, decided only by a ``review``
+        token (SPEC 4.4b)."""
         language = detect(fact.statement)
+        flags = self._flags(fact, text, fate.span, forced, fate)
+        observed, _by_tool = self._observation(fact, fate)
+        if observed:
+            flags.append(OBSERVED)
+        kind = sets.cardinality(fact.attribute, fact.cardinality, self._live(node_id, fate))
+        if kind == sets.MANY and fact.value:
+            flags.append(sets.MANY)  # SPEC 5.4: accepted, it is an element of the set
         self.store.add_proposal(
             scopes=self.scopes,
             kind="fact",
@@ -1485,12 +2518,194 @@ class Extractor:
                 "valid_from": fact.valid_from,
                 "valid_to": fact.valid_to,
                 "language": None if language == UNDETERMINED else language,
-                "flags": self._flags(fact, text, fate.span, forced, fate),
+                "flags": flags,
                 "provenance": fate.provenance,
+                **self._part_fields(fate.provenance, fate.part),
+                "observed_at": self._read_at if observed else None,
                 "confidence": fact.confidence,
+                **({"why": why, "subject": fact.subject} if why else {}),
+                **({"activities": list(activities)} if activities else {}),
             },
         )
         self.report.facts_proposed += 1
+        self.report.activity_linked += bool(activities)
+        self.report.facts_neighbour += fate.neighbour
+        self.report.facts_unnamed += fate.unnamed
+        self.report.facts_self_proposed += fate.self_side
+
+    # ------------------------------------------------------------------ intent (SPEC 4.2, 5.8)
+
+    def _about_speaker(self, subject: str | None) -> bool:
+        return bool(subject) and (is_speaker(subject or "") or self._means_owner(subject))
+
+    def _read_intent(
+        self,
+        answers: list[tuple[int, Answer]],
+        state: session_state.SessionState,
+        reference: str | None,
+    ) -> _IntentOutcome:
+        """Each answer read in turn, the frame carried from one to the next and
+        from the session's state: what goes on to the plan, what is proposed,
+        what is kept as session state."""
+        report = self.report.intent = intent_reading.IntentReport()
+        carry = intent_reading.Carry(state.frame, state.frame_episode)
+        outcome = _IntentOutcome()
+        for offset, answer in answers:
+            reading, carry = intent_reading.read(
+                answer,
+                carry,
+                about_speaker=self._about_speaker,
+                report=report,
+                date=reference,
+            )
+            outcome.kept.append((offset, reading.kept))
+            outcome.proposed.extend((offset, f, reading.frame) for f in reading.proposed)
+            outcome.session.extend((offset, f) for f in reading.session)
+            if self._session_id:
+                # SPEC 4.2, 5.8: an observation stays memory, and its note tells
+                # the session's close what was done; the close never keeps it
+                outcome.session.extend(
+                    (offset, f.model_copy(update={"duration": intent_reading.OBSERVED}))
+                    for f in reading.kept.facts
+                    if self._noted_observation(f, offset)
+                )
+            outcome.ended = outcome.ended or reading.ended
+            self._unmeant = self._unmeant or reading.frame != intent_reading.SINCERE
+        outcome.carry = carry
+        return outcome
+
+    def _noted_observation(self, fact: ProposedFact, offset: int) -> bool:
+        """SPEC 4.2: read as observed - by the model, or by the provenance rule
+        for a lasting fact quoted from a ``tool`` part."""
+        if fact.duration == intent_reading.OBSERVED:
+            return True
+        if fact.duration != intent_reading.LASTING:
+            return False
+        part = self.source.part_of(locate(self.source.text, fact.quote, hint=offset))
+        return part is not None and part.provenance == EXTERNAL and part.kind == TOOL
+
+    def _write_intent(
+        self,
+        source_id: str,
+        text: str,
+        outcome: _IntentOutcome,
+        state: session_state.SessionState,
+        forced: str | None,
+        session_id: str | None = None,
+    ) -> None:
+        """Inside the write transaction: the facts whose intent is in doubt
+        become fact proposals on the node their subject already names (none is
+        created for them), the session's state takes the facts of the work in
+        progress, the frame now open and, in a session the host named, the
+        turn's trace when every answer was read as sincere (SPEC 5.8)."""
+        for offset, fact, frame in outcome.proposed:
+            span = locate(text, fact.quote, hint=offset)
+            part = self.source.part_of(span)
+            provenance = part.provenance if part is not None else None
+            speaker = self._about_speaker(fact.subject)
+            node: Node | None = None
+            if speaker:
+                node = self.owner_node
+            elif fact.subject:
+                node = self.store.find_node(fact.subject, self.view)
+            free = speaker and self.owner is None
+            method = self.agent is not None and canonical_key(fact.attribute) == METHOD
+            fate = _Fate(span, provenance, speaker, free, True, part=part, method=method)
+            why = (
+                "intent:episode"
+                if fact.episode
+                else f"intent:frame:{frame}"
+                if frame != intent_reading.SINCERE
+                else f"intent:modality:{fact.modality or intent_reading.UNSURE}"
+            )
+            self._propose_fact(
+                source_id,
+                text,
+                fact,
+                node.id if node else None,
+                fate,
+                forced,
+                why,
+                activities=self._linked_activity() if method else [],
+            )
+        new: list[session_state.NewSessionFact] = []
+        for offset, fact in outcome.session:
+            span = locate(text, fact.quote, hint=offset)
+            # P6 at the close as at the write: a value only an external part
+            # holds is not the speaker's words, whoever quoted it
+            outside = self._value_from_outside(fact.value)
+            part = self._outside_part(fact.value) if outside else self.source.part_of(span)
+            provenance = EXTERNAL if outside else (part.provenance if part else None)
+            new.append(
+                session_state.NewSessionFact(
+                    source_id=source_id,
+                    duration=fact.duration or intent_reading.UNSURE,
+                    fact=fact,
+                    provenance=provenance,
+                    span=span,
+                    **self._part_fields(provenance, part),
+                )
+            )
+        trace: tuple[str, str] | None = None
+        if session_id and outcome.kept and not self._unmeant:
+            excerpt = session_state.trace_of(text, self.source.parts)
+            trace = (source_id, excerpt) if excerpt else None
+        session_state.save(
+            self.store,
+            state,
+            frame=outcome.carry.frame,
+            frame_episode=outcome.carry.episode,
+            ended=outcome.ended,
+            facts=new,
+            trace=trace,
+            activity=self._activity_written if session_id else None,
+        )
+
+    def _linked_activity(self) -> list[str]:
+        """SPEC 4.2: the activity a rule of this source is linked to - the one the
+        source named and wrote, else the session's current one."""
+        if self._activity_written is not None:
+            return [self._activity_written]
+        return [self._carried.id] if self._carried is not None else []
+
+    # ------------------------------------------------------------------ answers already read
+
+    def prepare(
+        self,
+        text: str,
+        parts: Sequence[Part],
+        answers: list[tuple[int, Answer]],
+        *,
+        session_id: str | None = None,
+        read_at: str | None = None,
+        external: str = UNVOUCHED,
+        activities: Sequence[str] = (),
+    ) -> _Plan:
+        """Plan answers that were read already (a session's consolidation, SPEC
+        5.8): no extraction call, the same resolution, contradiction and
+        provenance rules (P6) - only the adjudications the plan needs may call
+        the model. ``external``: what the source held from outside (SPEC 4.4);
+        ``parts`` are only the notes' own; ``activities``: the session's, linked
+        to the episode (SPEC 5.8) - a kept rule is linked to none, since which
+        activity was current at its turn is not kept. Write the plan with
+        ``commit``."""
+        self.source = SourceText(text, tuple(parts))
+        self._external = external
+        # SPEC 4.2: a close names no activity; it keeps the session's current one
+        self._activity, self._carried = None, None
+        nodes = (self._activity_node(a) for a in activities)
+        self._episode_activities = [n.id for n in nodes if n is not None]
+        self._part_tokens = {}
+        self._read_at = read_at
+        self._session_id = session_id
+        self.report.tier = 2 if self.ctx.models.has_chat else 0
+        return self._plan(text, answers, self.config.forced_language(self.scopes))
+
+    def commit(self, source_id: str, text: str, plan: _Plan) -> None:
+        """Write a prepared plan into an existing source; the caller holds the
+        store's lock and transaction."""
+        self.report.source_id = source_id
+        self._write(source_id, text, plan)
 
     def _write_edges(
         self,
@@ -1503,8 +2718,16 @@ class Extractor:
         store, report, config = self.store, self.report, self.config
         involved = list(dict.fromkeys(ids[k] for k in plan.ordered if k in ids))
         existing = {(e.src, e.dst, e.type): e for e in store.edges_between(involved, self.view)}
+        me = ids.get(plan.agent_key) if plan.agent_key is not None else None
 
-        def observe(src: str, dst: str, type_: str, weight: float, confirm_after: int) -> None:
+        def observe(
+            src: str,
+            dst: str,
+            type_: str,
+            weight: float,
+            confirm_after: int,
+            evidence: bool = True,
+        ) -> None:
             edge = existing.get((src, dst, type_))
             if edge is None and type_ == schema.COOCCURRENCE:
                 edge = existing.get((dst, src, type_))
@@ -1522,6 +2745,8 @@ class Extractor:
                 existing[(src, dst, type_)] = created
                 report.edges_proposed += 1
                 return
+            if not evidence:
+                return  # SPEC 4.2: the self's own words never confirm its edges
             count = store.add_evidence(edge.id, source_id)
             report.edges_evidenced += 1
             if edge.status == PROPOSED and count >= confirm_after:
@@ -1529,16 +2754,24 @@ class Extractor:
                 report.edges_confirmed += 1
 
         for proposed in plan.edges:
+            if proposed.src in plan.unnamed or proposed.dst in plan.unnamed:
+                continue  # SPEC 5.1: a known subject the source does not name
             src = ids.get(plan.mention_keys.get(proposed.src, ""))
             dst = ids.get(plan.mention_keys.get(proposed.dst, ""))
             if src is None or dst is None or src == dst:
                 continue
-            observe(src, dst, proposed.type, 1.0, config.confirm_after_sources)
+            evidence = (
+                me not in (src, dst)
+                or self.source.provenance_of(locate(text, proposed.quote)) == OWNER
+            )
+            observe(src, dst, proposed.type, 1.0, config.confirm_after_sources, evidence)
             for node_id in (src, dst):
                 if node_id not in touched:
                     touched.append(node_id)
 
         for a, b in self._cooccurrences(text, plan, ids, involved):
+            if me in (a, b):
+                continue  # SPEC 4.2: the self's label stands before every answer
             src, dst = (a, b) if a < b else (b, a)
             observe(
                 src,
@@ -1580,7 +2813,18 @@ class Extractor:
 
 
 LINK, SUPERSEDE, KEEP_CONFLICT, BOTH = "link", "supersede", "conflict", "both"
+KEEP = "keep"  # SPEC 5.4: the same value told again in one language
+NORM = "norm"  # SPEC 5.4: linked by the comparison forms of the two values
 _Pairs = tuple[list[dict[str, Any]], list[tuple[int, str]]]
+
+
+def _rule_same(plan: _Plan, index: int) -> bool:
+    """SPEC 4.2: did the model say the rule at ``index`` restates a known one?"""
+    return any(
+        verdict == SAME
+        for (fact, group), verdict in plan.adjudicated.items()
+        if fact == index and group.startswith(RULE_GROUP)
+    )
 
 
 def _language_of(fact: Fact) -> str:
@@ -1609,6 +2853,83 @@ def _groups(live: Sequence[Fact], key: str | None) -> list[tuple[str, list[Fact]
     return list(out.items())
 
 
+def _sides(
+    first: Fact, fact: ProposedFact, language: str | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The two facts of a pair: values and statements, and their languages when
+    the question is across languages."""
+    old: dict[str, Any] = {"value": first.value, "statement": first.statement}
+    new: dict[str, Any] = {"value": fact.value, "statement": fact.statement}
+    if language is not None:
+        old["language"], new["language"] = _language_of(first), language
+    return old, new
+
+
+def _restated(members: Sequence[Fact], fact: ProposedFact, language: str) -> Fact | None:
+    """The member whose value the new one may tell again (SPEC 5.4), the one the
+    restatement question is asked about: in the new statement's language, sharing
+    words with it; none when the comparison proves a member different (another
+    number in the same unit) or the new fact says when its value ended."""
+    value = fact.value or ""
+    if fact.valid_to or any(compare_values(m.value or "", value) == DIFFERENT for m in members):
+        return None
+    return next(
+        (
+            m
+            for m in members
+            if m.value
+            and shares_words(m.value, value)
+            and _one_language(language, fact.statement, m)
+        ),
+        None,
+    )
+
+
+def _kept_or_linked(
+    members: Sequence[Fact],
+    fact: ProposedFact,
+    one_language: bool,
+    *,
+    external: bool,
+    never_close: bool,
+) -> str:
+    """A value that is the group's own (SPEC 5.4): within one language the fact
+    held is kept. It is linked instead - written beside it - across languages
+    (P12); when the new value is more precise (a day refining a month) so that
+    recall can prefer it, or contradicts a member (a month and its linked day, a
+    new day); when it ends (``valid_to``); when it would give a group of
+    external facts its first non-external one (P6); and between free speaker
+    facts (several people may speak in one scope)."""
+    value = fact.value or ""
+    if (
+        not one_language
+        or never_close
+        or fact.valid_to
+        or any(compare_values(m.value or "", value) == DIFFERENT for m in members)
+        or precision(value) > max(precision(m.value or "") for m in members)
+        or (not external and all(m.provenance == EXTERNAL for m in members))
+    ):
+        return LINK
+    return KEEP
+
+
+def _same_form(
+    members: Sequence[Fact], fact: ProposedFact, norms: Mapping[str, str] | None
+) -> bool:
+    """SPEC 5.4: is a member's comparison form the new fact's, exactly (case and
+    spaces aside)? Both must carry one; forms that differ prove nothing. No
+    tolerance: forms are already canonical, and one letter tells "painter"
+    from "printer"."""
+    if not norms or not fact.value_norm:
+        return False
+    new = _form(fact.value_norm)
+    return any(m.id in norms and _form(norms[m.id]) == new for m in members)
+
+
+def _form(norm: str) -> str:
+    return " ".join(fold(norm).split())
+
+
 def _later(fact: ProposedFact, members: Sequence[Fact]) -> bool:
     """Is the new fact later than every member (its valid_from not earlier;
     without dates, the later source is the later one)?"""
@@ -1616,7 +2937,7 @@ def _later(fact: ProposedFact, members: Sequence[Fact]) -> bool:
     return not any(new and m.valid_from and new < m.valid_from for m in members)
 
 
-def _decide(  # noqa: PLR0911 - one return per rule of SPEC 5.4
+def _decide(  # noqa: PLR0911, PLR0912 - one return per rule of SPEC 5.4
     members: Sequence[Fact],
     fact: ProposedFact,
     language: str,
@@ -1625,41 +2946,99 @@ def _decide(  # noqa: PLR0911 - one return per rule of SPEC 5.4
     external: bool = False,
     never_close: bool = False,
     several: bool = False,
+    norms: Mapping[str, str] | None = None,
+    observed: tuple[str | None, str] | None = None,
+    bound: str | None = None,
 ) -> tuple[str, str]:
     """What a new value does to one equivalence group of the same key (SPEC 5.4),
     and why: linked when proved the same; never closing an explicit fact (P6),
     a fact that did not come from external content when the new one did (P6),
     nor a free speaker fact (``never_close``: several people may speak in one
-    scope); superseding within one language as before, except for role, team
-    and preferences when the replacement question is on (``several``): they may
-    hold several values and are asked "replaces, or both true?" in one language
-    too; across languages, superseding only a later
-    value proved or adjudicated different; otherwise the conflict stays
-    (``unknown``: what may be adjudicated)."""
+    scope); superseding within one language as before, except for role, team,
+    preferences and free-form keys when the replacement question is on
+    (``several``): they may hold several values, or two unrelated statements
+    under one generic key, and are asked "replaces, or both true?" in one
+    language too - a free-form value proved different (another number in the
+    same form) still supersedes; across languages, superseding only a later
+    value proved or adjudicated different, and linking without a question a
+    value whose comparison form (``norms``, by fact id) compares the same as the
+    new fact's when nothing was proved (``norm``); otherwise the conflict stays
+    (``unknown``: what may be adjudicated). A new observation (``observed``: its
+    day and source) against a group of observations closes it from a later
+    source, without a question; one source's two observations both hold, and an
+    older one arriving late stays in conflict. ``bound``: the provenance of a
+    self-side fact (SPEC 4.2), which closes only facts of that provenance."""
     value = fact.value or ""
-    several = several and multi_valued(canonical_key(fact.attribute))
+    key = canonical_key(fact.attribute)
+    free_form = several and is_free_form(key)
+    several = several and replacement_asked(key)
     verdicts = [compare_values(m.value or "", value) for m in members]
+    one_language = any(_one_language(language, fact.statement, m) for m in members)
+    guards = {"external": external, "never_close": never_close}
     if SAME in verdicts:
-        return LINK, SAME
+        return _kept_or_linked(members, fact, one_language, **guards), SAME
     if any(m.origin == "explicit" for m in members):
         return KEEP_CONFLICT, "explicit"
     if never_close:
         return KEEP_CONFLICT, "speaker"
+    if bound is not None and any(m.provenance != bound for m in members):
+        return KEEP_CONFLICT, "self"  # the owner corrects the agent, or the reverse
     if external and any(m.provenance != EXTERNAL for m in members):
         return KEEP_CONFLICT, "external"
-    if not several and any(_one_language(language, fact.statement, m) for m in members):
+    if observed is not None and (decided := _observations(members, observed)) is not None:
+        return decided
+    if not several and one_language:
+        if adjudicated == "same":  # the restatement question (SPEC 5.4)
+            return _kept_or_linked(members, fact, one_language, **guards), "adjudicated"
         return SUPERSEDE, "same_language"
+    if (
+        not one_language
+        and DIFFERENT not in verdicts
+        # P6 the other way round: an owner's fact never joins external content
+        and (external or all(m.provenance != EXTERNAL for m in members))
+        and _same_form(members, fact, norms)
+    ):
+        return LINK, NORM  # a form only ever links: never a supersession (SPEC 5.4)
     if not _later(fact, members):
         return KEEP_CONFLICT, "earlier"
-    if DIFFERENT in verdicts and not several:  # another number may be an addition
+    # another number may be an addition to a role; a free-form value that differs
+    # only by its number or date is the same aspect
+    if DIFFERENT in verdicts and (free_form or not several):
         return SUPERSEDE, DIFFERENT
     if adjudicated in ("different", "replaces"):
         return SUPERSEDE, "adjudicated"
     if adjudicated == "same":
-        return LINK, "adjudicated"
+        return _kept_or_linked(members, fact, one_language, **guards), "adjudicated"
     if adjudicated == "both":
         return BOTH, "adjudicated"  # role, team, preferences: both are true
     return KEEP_CONFLICT, UNKNOWN
+
+
+def _observations(
+    members: Sequence[Fact], observed: tuple[str | None, str]
+) -> tuple[str, str] | None:
+    """SPEC 5.4: a new observation (its day and source) against a group of
+    observations - closed from a later source, both kept from one source, an
+    older one arriving late in conflict; None when a member is not observed."""
+    if not all(m.observed_at for m in members):
+        return None
+    day, source = observed
+    if any(m.source_id == source for m in members):
+        return BOTH, OBSERVED  # one observation holding both values
+    if day and any((m.observed_at or "") > day for m in members):
+        return KEEP_CONFLICT, "earlier"
+    return SUPERSEDE, OBSERVED
+
+
+@dataclass
+class _Judgement:
+    """What a new value does to the live groups of its key (SPEC 5.4)."""
+
+    duplicate_of: str | None = None  # a group already states this very value
+    kept: str | None = None  # a group states it in other words: kept as held
+    same_as: str | None = None  # linked to this group's first fact
+    superseded: list[Fact] = field(default_factory=list)
+    conflicts_with: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1670,7 +3049,28 @@ class _Fate:
     provenance: str | None  # owner | assistant | external, None: nobody's words
     about_owner: bool
     speaker_free: bool  # about the speaker, no owner declared: no node
-    propose: bool  # about the owner, not in the owner's words: a fact proposal
+    propose: bool  # not written on its own: a fact proposal (P6, SPEC 5.1)
+    neighbour: bool = False  # SPEC 5.1: its source shows another subject rather than its own
+    unnamed: bool = False  # SPEC 5.1: a known subject neither its source nor its session names
+    part: Part | None = None  # the part its quote lies in (P6)
+    # SPEC 4.2, agent perspective: about the self; a rule of method; either of
+    # them (self-side); and proposed by the self-side rule
+    about_agent: bool = False
+    method: bool = False
+    self_side: bool = False
+    self_outside: bool = False
+    self_rule: bool = False  # a rule of the self the operator wants reviewed
+
+
+@dataclass
+class _IntentOutcome:
+    """What the intent reading made of a job's answers (SPEC 4.2)."""
+
+    kept: list[tuple[int, Answer]] = field(default_factory=list)
+    proposed: list[tuple[int, ProposedFact, str]] = field(default_factory=list)  # with frame
+    session: list[tuple[int, ProposedFact]] = field(default_factory=list)
+    carry: intent_reading.Carry = field(default_factory=intent_reading.Carry)
+    ended: bool = False
 
 
 DESCRIPTION_WORDS = 4  # more words than this: a description, not a name (SPEC 5.1)
@@ -1710,9 +3110,15 @@ class _Plan:
     forced: str | None = None
     # SPEC 4.6: the owner's node key, and the scopes of nodes created elsewhere
     owner_key: str | None = None
+    agent_key: str | None = None  # SPEC 4.6: the self's node key
+    # SPEC 4.2: the activity's node key, and whether this source named it
+    activity_key: str | None = None
+    activity_named: bool = False
     node_scopes: dict[str, list[str]] = field(default_factory=dict)
     fates: list[_Fate] = field(default_factory=list)  # one per fact, same order
     mixed_names: set[str] = field(default_factory=set)  # SPEC 4.2: refused as nodes
+    # SPEC 5.1: mention -> the known node it matched, neither named nor attached
+    unnamed: dict[str, str] = field(default_factory=dict)
 
     def order(self, key: str) -> None:
         if key not in self.ordered:
@@ -1770,17 +3176,20 @@ class _AnswerForms:
                 report.aliases_invented += 1  # a script the source lacks, or two in one word
             elif normalize(alias) != normalize(name) and descriptive(alias, name):
                 report.aliases_descriptive += 1  # SPEC 5.1: a description, never kept
-                proposed.append(alias)
+                if grounded(alias, self._text):
+                    proposed.append(alias)  # else the model's own words: no name to propose
             elif (spelling := source_spelling(alias, self._text)) is None or (
                 self._elsewhere(alias, index, name, own)
             ):
                 proposed.append(alias)
+            elif (plain := plain_name(spelling)) is None:
+                report.aliases_malformed += 1  # SPEC 5.1: the source's span is debris
             elif any(near_form(alias, known) for known in names):
                 report.aliases_near += 1  # SPEC 5.1: it would attach a near name on its own
                 proposed.append(alias)
             else:
-                kept.append(spelling)  # the source's spelling, not the model's copy
-                names.append(spelling)
+                kept.append(plain)  # the source's spelling, not the model's copy
+                names.append(plain)
         return kept, proposed
 
     def _elsewhere(self, alias: str, index: int, name: str, own: str | None) -> bool:
@@ -1887,6 +3296,131 @@ def source_form(subject: str, quote: str, threshold: float) -> str | None:
     return best
 
 
+NAME_WORD = 3  # the shortest word of a name that names its subject inside a value
+
+
+def _spans(tokens: Sequence[str], needle: Sequence[str]) -> list[tuple[int, int]]:
+    """Where ``needle`` occurs in ``tokens``, as whole tokens (``_contains``, with
+    the positions)."""
+    size = len(needle)
+    if not size:
+        return []
+    return [
+        (i, i + size)
+        for i in range(len(tokens) - size + 1)
+        if _contains(tokens[i : i + size], needle)
+    ]
+
+
+def _occurrences(tokens: Sequence[str], forms: Iterable[str]) -> list[tuple[int, int]]:
+    return [span for form in forms for span in _spans(tokens, tokenize(form))]
+
+
+def _inside(inner: tuple[int, int], outer: tuple[int, int]) -> bool:
+    """Is ``inner`` a strictly shorter part of ``outer``?"""
+    return outer[0] <= inner[0] and inner[1] <= outer[1] and inner != outer
+
+
+def _names_whole(tokens: Sequence[str], forms: Iterable[str]) -> bool:
+    """Is one of ``forms`` written in ``tokens`` in full, or in another script
+    with the same spelling (``same_spelling``: Иван for Ivan)?"""
+    text = " ".join(tokens)
+    for form in forms:
+        wanted = tokenize(form)
+        if not wanted:
+            continue
+        if _spans(tokens, wanted):
+            return True
+        if any(same_spelling(window, form) for window in word_windows(text, len(wanted))):
+            return True
+    return False
+
+
+def _written_in(text: str, names: Iterable[str]) -> bool:
+    """SPEC 5.1: is one of ``names`` written in ``text`` - whole words, the same
+    spelling in another script, or, for a name in a script written without
+    spaces, its letters (folded)?"""
+    names = [n for n in names if n]
+    if _names_whole(tokenize(text), names):
+        return True
+    unspaced = [n for n in names if unspaced_chars(n)]
+    if not unspaced:
+        return False
+    folded = normalize(text).replace(" ", "")
+    return any(normalize(n).replace(" ", "") in folded for n in unspaced)
+
+
+def quote_names_other(
+    quote: str, own: Sequence[str], others: Mapping[str, Sequence[str]], *, objects: str = ""
+) -> bool:
+    """SPEC 5.1: does ``quote`` name another subject - one of its names or
+    aliases, whole words - and not its own, by one of ``own`` written in full
+    (or in another script, same spelling) once the other subjects' names are
+    set aside? Never a near or inflected form: "Karima" is not Karim. A part
+    of a longer name is that name's ("Karim" inside "Karim Benali"); another
+    subject that ``objects`` (the fact's statement and value) names whole is
+    its object ("Karim leads the solar project", quoted "leads the solar
+    project")."""
+    tokens = tokenize(quote)
+    said = tokenize(objects)
+    own_spans = _occurrences(tokens, own)
+    other_spans = [
+        span
+        for names in others.values()
+        if not any(tokenize(n) and _contains(said, tokenize(n)) for n in names)
+        for span in _occurrences(tokens, names)
+    ]
+    other_spans = [o for o in other_spans if not any(_inside(o, s) for s in own_spans)]
+    if not other_spans:
+        return False
+    if any(not any(_inside(s, o) for o in other_spans) for s in own_spans):
+        return False
+    covered = {i for start, end in other_spans for i in range(start, end)}
+    rest = [token for i, token in enumerate(tokens) if i not in covered]
+    return not _names_whole(rest, own)
+
+
+def _distinctive(forms: Mapping[str, Sequence[str]]) -> dict[str, set[str]]:
+    """The words of each subject's names that no other subject's names hold, of
+    at least three letters and not digits only ("zip" names neither of
+    backup.zip and photos.zip)."""
+    words_by_key = {
+        key: {
+            w for name in names for w in tokenize(name) if len(w) >= NAME_WORD and not w.isdigit()
+        }
+        for key, names in forms.items()
+    }
+    out: dict[str, set[str]] = {}
+    for key, own in words_by_key.items():
+        shared = set().union(*(w for k, w in words_by_key.items() if k != key))
+        out[key] = own - shared
+    return out
+
+
+def value_merges(
+    value: str | None,
+    own: str,
+    distinctive: Mapping[str, set[str]],
+    forms: Mapping[str, Sequence[str]] | None = None,
+) -> bool:
+    """SPEC 5.1: does ``value`` hold a word of its own subject's names and a word
+    of another subject's - a value describing both? A value that names the
+    other subject in full refers to it ("a zip holding report.pdf"): no merge."""
+    if not value:
+        return False
+    tokens = tokenize(value)
+    held = set(tokens)
+    if not held & distinctive.get(own, set()):
+        return False
+    for key, words in distinctive.items():
+        if key == own or not held & words:
+            continue
+        names = (forms or {}).get(key, ())
+        if not any(tokenize(n) and _contains(tokens, tokenize(n)) for n in names):
+            return True
+    return False
+
+
 def names_owner(statement: str, name: str) -> bool:
     """SPEC 4.2: does ``statement`` hold the owner's ``name`` in any form that
     transliterates to it ("Самир" for Samir), counted in as many words as the
@@ -1901,7 +3435,7 @@ def _settled(resolution: Resolution) -> bool:
 def _drop_unused(plan: _Plan, replaced: set[str]) -> None:
     """SPEC 5.1: a new node the answer named only for subjects the source form
     replaced holds no fact and no edge: it is not created."""
-    used = set(plan.mention_keys.values()) | {plan.owner_key}
+    used = set(plan.mention_keys.values()) | {plan.owner_key, plan.activity_key}
     unused = [
         key
         for key, proposal in plan.proposals.items()
@@ -1920,6 +3454,9 @@ def _keys_of(resolution: Resolution) -> list[str]:
     return [c.key for c in resolution.candidates]
 
 
+CONTEXT_HEAD = 160  # characters of a source shown when no mention locates it
+
+
 def _context(text: str, mention: str, width: int = 80) -> str:
     position = text.lower().find(mention.lower())
     if position < 0:
@@ -1927,6 +3464,25 @@ def _context(text: str, mention: str, width: int = 80) -> str:
     start = max(0, position - width)
     end = min(len(text), position + len(mention) + width)
     return " ".join(text[start:end].split())
+
+
+class PartFields(TypedDict):
+    """Where an external fact was read (P6): its part's kind, short ref, day."""
+
+    part_kind: str | None
+    part_ref: str | None
+    read_at: str | None
+
+
+def day_read(reference: str | None, now: str) -> str:
+    """P6: the day a source was read - ``reference`` when it is a date or a
+    timestamp (a turn's ``occurred_at``), else the day of ``now``."""
+    if reference:
+        try:
+            return datetime.fromisoformat(reference.strip()).date().isoformat()
+        except ValueError:
+            pass
+    return now[:10]
 
 
 def extract_text(

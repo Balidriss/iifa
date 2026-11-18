@@ -35,20 +35,26 @@ from iifa.dream.journal import (
     Run,
 )
 from iifa.dream.policy import REVIEW
+from iifa.ingest.activity import shared_by, two_words
 from iifa.ingest.checks import is_complete, mixed_script_words, names_subject
+from iifa.ingest.intent import OBSERVED
 from iifa.ingest.keys import canonical_key, multi_valued, same_key, supersedable
+from iifa.ingest.sets import MANY
+from iifa.ingest.speaker import is_speaker
 from iifa.ingest.summaries import LANGUAGE_MISMATCH, facts_language
 from iifa.ingest.values import DIFFERENT, SAME, compare_values, same_spelling
 from iifa.language import UNDETERMINED, detect, main_script, writing_mismatch
-from iifa.recall.tokenizer import normalize
 from iifa.scopes import Visibility, ancestors, within
+from iifa.store.corrections import merge_nodes, merge_refusal, unmerge_nodes
 from iifa.store.models import Edge, Fact, Node
 from iifa.store.repo import Store, decayed_weight
 
+TASK = "task"  # SPEC 4.2: the kind of an activity's node
+INSTANCE_OF = "instance_of"  # SPEC 5.6: an occurrence to its generic activity
 DREAM_ORIGIN = "dream"
 DREAM_EDGE_WEIGHT = 0.5  # a proposed edge is used at reduced weight (SPEC 5.2)
 CONFLICT = "conflict"
-EXTERNAL = "external"
+EXTERNAL, ASSISTANT = "external", "assistant"
 
 
 class Drop(Exception):
@@ -90,6 +96,22 @@ def changeable(scopes: Iterable[str], scope: str) -> bool:
     """Rule 12: a dream changes only records whose every scope is at or below its own."""
     values = list(scopes)
     return bool(values) and all(within(s, scope) for s in values)
+
+
+def observed_as_of(facts: Sequence[Fact]) -> str | None:
+    """SPEC 4.2: a consolidation is observed, as of the latest day, when every
+    fact it restates is observed; otherwise it is lasting (None)."""
+    days = [f.observed_at for f in facts]
+    return max(d for d in days if d) if days and all(days) else None
+
+
+def consolidated_flags(facts: Sequence[Fact]) -> list[str]:
+    """An element of a set stays one once consolidated (SPEC 5.4), and
+    observations stay one (SPEC 4.2)."""
+    return [
+        *([MANY] if any(MANY in f.flags for f in facts) else []),
+        *([OBSERVED] if observed_as_of(facts) else []),
+    ]
 
 
 def says_one_thing(facts: Sequence[Fact]) -> bool:
@@ -399,6 +421,7 @@ class Applier:
             "refresh_summary": self._refresh_summary,
             "propose_edge": self._propose_edge,
             "create_theme": self._create_theme,
+            "group_activities": self._group_activities,
             "consolidate_facts": self._consolidate,
             "merge_nodes": self._merge,
             "supersede_fact": self._supersede,
@@ -490,6 +513,66 @@ class Applier:
 
         return _Checked(dict(op), [], members_ids, apply)
 
+    def _group_activities(self, scope: str, op: Mapping[str, Any]) -> _Checked:
+        """SPEC 5.6: the occurrences of one activity under one generic task node,
+        whose name is only what their names share."""
+        store = self.store
+        members_ids = list(op["members"])
+        if len(set(members_ids)) != len(members_ids):
+            raise Drop("same_record")
+        members = [self._node(m) for m in members_ids]
+        if any(m.kind != TASK for m in members):
+            raise Drop("not_task")
+        if len({frozenset(m.scopes) for m in members}) != 1:
+            raise Drop("scope_mismatch")
+        shared, name = members[0].scopes, str(op["name"])
+        if mixed_script_words(name) or is_speaker(name):
+            raise Drop("mixed_script" if mixed_script_words(name) else "speaker")
+        if not two_words(name):
+            raise Drop("one_word")  # a verb the model kept, not an activity
+        if not shared_by(name, [" ".join((m.name, *m.aliases)) for m in members]):
+            raise Drop("not_shared")
+        view = Visibility.of_scopes(shared)
+        held = store.nodes_by_id([r["id"] for r in store.lookup_name(name, view)], view)
+        if any(n.kind != TASK for n in held.values()):
+            raise Drop("name_taken")
+        parent = next(iter(sorted(held.values(), key=lambda n: n.id)), None)
+        linked: list[Node] = []
+        for member in members:
+            if parent is not None and member.id == parent.id:
+                continue
+            ups = [
+                e.dst
+                for e in store.edges_of([member.id], view)
+                if e.src == member.id and e.type == INSTANCE_OF
+            ]
+            if any(parent is None or up != parent.id for up in ups):
+                raise Drop("grouped")
+            if not ups:
+                linked.append(member)
+        if not linked:
+            raise Drop("duplicate")
+
+        def apply() -> Applied:
+            created: list[str] = []
+            generic = parent
+            if generic is None:
+                generic = store.create_node(scopes=shared, name=name, kind=TASK)
+                created.append(generic.id)
+            for member in linked:
+                edge = store.add_edge(
+                    scopes=shared,
+                    src=member.id,
+                    dst=generic.id,
+                    type=INSTANCE_OF,
+                    origin=DREAM_ORIGIN,
+                    status="confirmed",
+                )
+                created.append(edge.id)
+            return {"created": created}, created
+
+        return _Checked(dict(op), [], members_ids, apply)
+
     def _consolidate(self, scope: str, op: Mapping[str, Any]) -> _Checked:  # noqa: PLR0912
         store = self.store
         fact_ids = list(op["facts"])
@@ -511,10 +594,8 @@ class Applier:
                 raise Drop("pinned")
             if CONFLICT in fact.flags:
                 raise Drop("conflict")
-        if any(
-            f.same_as is not None or store.equivalents([f.id], dream_view(scope))[f.id][1:]
-            for f in facts
-        ):
+        groups = store.equivalents(fact_ids, dream_view(scope))
+        if any(f.same_as is not None or len(groups.get(f.id, [])) > 1 for f in facts):
             raise Drop("same_as")
         if len({frozenset(f.scopes) for f in facts}) != 1:
             raise Drop("scope_mismatch")
@@ -538,10 +619,16 @@ class Applier:
 
         def apply() -> Applied:
             provenances = {f.provenance for f in facts}
+            provenance = provenances.pop() if len(provenances) == 1 else None
+            # SPEC 4.2: the part's kind and ref when every original shares them,
+            # and the latest day read
+            parts = {(f.part_kind, f.part_ref) for f in facts}
+            part_kind, part_ref = parts.pop() if len(parts) == 1 else (None, None)
+            days = sorted(f.read_at for f in facts if f.read_at)
             dates = sorted(f.valid_from for f in facts if f.valid_from)
             written = detect(statement)
-            if written == UNDETERMINED:
-                written = target  # checked by script above (P12)
+            if written == UNDETERMINED and target in languages:
+                written = target  # it restates originals determined in that language (P12)
             new = store.add_fact(
                 scopes=facts[0].scopes,
                 statement=statement,
@@ -552,7 +639,13 @@ class Applier:
                 valid_from=dates[0] if dates else None,
                 confidence=min(f.confidence for f in facts),
                 language=None if written == UNDETERMINED else written,
-                provenance=provenances.pop() if len(provenances) == 1 else None,
+                provenance=provenance,
+                part_kind=part_kind if provenance == EXTERNAL else None,
+                part_ref=part_ref if provenance in (EXTERNAL, ASSISTANT) else None,
+                read_at=days[-1] if provenance == EXTERNAL and days else None,
+                flags=consolidated_flags(facts),
+                observed_at=observed_as_of(facts),
+                activities=shared_activities(store, facts),
             )
             closed = [
                 {
@@ -575,56 +668,15 @@ class Applier:
         if op["keep"] == op["absorb"]:
             raise Drop("same_record")
         keep, absorb = self._node(op["keep"]), self._node(op["absorb"])
-        if keep.kind != absorb.kind:
-            raise Drop("kind_mismatch")
-        if set(keep.scopes) != set(absorb.scopes):
-            raise Drop("scope_mismatch")
+        refusal = merge_refusal(keep, absorb)
+        if refusal is not None:
+            raise Drop(refusal)
         fact_ids = store.node_fact_ids(absorb.id)
         edge_ids = store.node_edge_ids(absorb.id)
 
         def apply() -> Applied:
-            known = {normalize(keep.name), *(normalize(a) for a in keep.aliases)}
-            added: list[str] = []
-            for name in (absorb.name, *absorb.aliases):
-                if normalize(name) not in known:
-                    known.add(normalize(name))
-                    added.append(name)
-            for fact_id in fact_ids:
-                store.attach_fact(fact_id, keep.id)
-            moved: list[dict[str, str]] = []
-            closed: list[dict[str, str | None]] = []
-            for edge_id in edge_ids:
-                edge = store.get_edge(edge_id)
-                src = keep.id if edge.src == absorb.id else edge.src
-                dst = keep.id if edge.dst == absorb.id else edge.dst
-                if src == dst:  # it would join the kept node to itself
-                    if edge.valid_to is None:
-                        store.close_edge(edge_id)
-                        closed.append({"id": edge_id, "valid_to": None})
-                    continue
-                store.move_edge(edge_id, src=src, dst=dst)
-                moved.append({"id": edge_id, "src": edge.src, "dst": edge.dst})
-            if added:
-                store.update_node(keep.id, add_aliases=added)
-            store.merge_node(absorb.id, into=keep.id)
-            proposal = self._follow_proposal(op, "accepted")
-            changes = {
-                "keep": keep.id,
-                "absorb": absorb.id,
-                "absorb_archived_at": absorb.archived_at,
-                "aliases_added": added,
-                "moved_facts": fact_ids,
-                "moved_edges": moved,
-                "closed_edges": closed,
-                "proposal": proposal,
-            }
-            changed = [
-                keep.id,
-                absorb.id,
-                *fact_ids,
-                *(m["id"] for m in moved),
-                *(str(c["id"]) for c in closed),
-            ]
+            changes, changed = merge_nodes(store, keep, absorb, fact_ids, edge_ids)
+            changes["proposal"] = self._follow_proposal(op, "accepted")
             return changes, changed
 
         return _Checked(
@@ -746,7 +798,7 @@ class Applier:
                 language=before["language"],
                 flags=before["flags"],
             )
-        elif name in ("propose_edge", "create_theme"):
+        elif name in ("propose_edge", "create_theme", "group_activities"):
             for record_id in reversed(changes.get("created", [])):
                 if store.revisions([record_id]):
                     store.remove_created(record_id)
@@ -762,21 +814,7 @@ class Applier:
                 if store.revisions([record_id]):
                     store.remove_created(record_id)
         elif name == "merge_nodes":
-            for closed in changes["closed_edges"]:
-                edge = store.get_edge(closed["id"])
-                store.set_edge_life(
-                    edge.id,
-                    weight=edge.weight,
-                    decayed_at=store.edge_decayed_at(edge.id),
-                    valid_to=closed["valid_to"],
-                )
-            for moved in changes["moved_edges"]:
-                store.move_edge(moved["id"], src=moved["src"], dst=moved["dst"])
-            for fact_id in changes["moved_facts"]:
-                store.attach_fact(fact_id, changes["absorb"])
-            if changes["aliases_added"]:
-                store.remove_aliases(changes["keep"], changes["aliases_added"])
-            store.unmerge_node(changes["absorb"], archived_at=changes["absorb_archived_at"])
+            unmerge_nodes(store, changes)
             if changes.get("proposal"):
                 store.set_proposal_status(changes["proposal"], "pending")
         elif name == "supersede_fact":
@@ -818,8 +856,8 @@ def _supersede_cause(old: Fact, by: Fact) -> str | None:  # noqa: PLR0911, PLR09
     key = canonical_key(old.attribute)
     if key is None or not same_key(old.attribute, by.attribute):
         return "key"
-    if multi_valued(key):
-        return "several"
+    if multi_valued(key) or MANY in old.flags or MANY in by.flags:
+        return "several"  # SPEC 5.4: an element of a set is never superseded
     if not supersedable(key):
         return "key"
     if old.valid_from and by.valid_from:
@@ -844,6 +882,13 @@ def _one_language(a: Fact, b: Fact) -> bool:
         return left == right
     script = main_script(a.statement)
     return script is not None and script == main_script(b.statement)
+
+
+def shared_activities(store: Store, facts: Sequence[Fact]) -> list[str]:
+    """SPEC 4.2, 5.6: the activities every original is linked to."""
+    links = store.fact_activities([f.id for f in facts])
+    common = set.intersection(*(set(links.get(f.id, ())) for f in facts)) if facts else set()
+    return sorted(common)
 
 
 __all__ = [

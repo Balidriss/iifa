@@ -47,7 +47,7 @@ import sys
 import tempfile
 import time
 from collections import defaultdict, deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -65,8 +65,18 @@ from bench.dream import (
     dream_bench,
     oracle_verdict,
 )
+from bench.intent_bench import IntentTally, oracle_consolidation, worksession_audit
+from bench.self_bench import (
+    SELF_NAME,
+    SELF_SCOPE,
+    add_self_turns,
+    family_after_dream,
+    self_audit,
+    turn_payload,
+)
 from bench.synthetic import (
     ALICE,
+    OBSERVED_QUESTION,
     OWNER_NAME,
     Corpus,
     Question,
@@ -82,6 +92,8 @@ from iifa.dream.run import DreamConfig, Dreamer
 from iifa.ingest.extract import PipelineConfig
 from iifa.ingest.jobs import HANDLERS, TURN
 from iifa.ingest.queue import Queue
+from iifa.ingest.session_prompts import CONSOLIDATION_START
+from iifa.ingest.sessions import SESSION_CLOSE
 from iifa.ingest.speaker import is_speaker
 from iifa.ingest.worker import ON_DEMAND, Budget, Gate, Worker
 from iifa.language import UNDETERMINED, detect, is_code, language_of_span
@@ -90,6 +102,7 @@ from iifa.recall.dense import Dense
 from iifa.recall.engine import RecallEngine
 from iifa.recall.probes import run_probe_set
 from iifa.scopes import Visibility
+from iifa.store.models import Fact
 from iifa.store.repo import Store
 from iifa.tokens import ConservativeTokenizer, Tokenizer
 
@@ -128,6 +141,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--embeddings-url", default=None, help="tier 3 and the vector baseline")
     parser.add_argument("--embeddings-model", default=None, help="the embedding model")
+    parser.add_argument(
+        "--activity-threshold",
+        type=float,
+        default=None,
+        help="tier 3: the cosine at which a request matches an activity (default: words only)",
+    )
     parser.add_argument("--budgets", default="150,300,600", help="comma-separated token budgets")
     parser.add_argument("--seed", type=int, default=7, help="corpus seed")
     parser.add_argument("--months", type=int, default=12, help="months of events (>= 2)")
@@ -152,6 +171,20 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         " default, --no-replacement-question turns it off)",
     )
     parser.add_argument(
+        "--restatement-question",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="ask, within one language, whether a change whose values share words tells"
+        " the same value again (SPEC 5.4; on by default, --no-restatement-question turns"
+        " it off)",
+    )
+    parser.add_argument(
+        "--value-norm",
+        action="store_true",
+        help="ask each value's comparison form and link the values whose forms agree across"
+        " languages (SPEC 5.4; off by default): against the same command without it",
+    )
+    parser.add_argument(
         "--force-language",
         default=None,
         metavar="CODE",
@@ -169,6 +202,49 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action="store_true",
         help="add people whose names are near another's of the same scope (Karima beside"
         " Karim): wrong attachments; another corpus: compare only with runs that used it",
+    )
+    parser.add_argument(
+        "--neighbours",
+        action="store_true",
+        help="add turns describing two projects side by side (a web service and a tool):"
+        " facts attached to the other project; another corpus: compare only with runs that"
+        " used it",
+    )
+    parser.add_argument(
+        "--intent",
+        action="store_true",
+        help="add turns not meant as facts (hypotheses, questions, examples, test personas)"
+        " beside sincere controls on the same values; another corpus: compare only with runs"
+        " that used it",
+    )
+    parser.add_argument(
+        "--worksession",
+        action="store_true",
+        help="turn the last month of user:alice into a work session on a slide deck, closed"
+        " at its end; another corpus: compare only with runs that used it",
+    )
+    parser.add_argument(
+        "--observed",
+        action="store_true",
+        help="add things whose state changes (a folder, a service, a queue), observed in"
+        " several months beside a lasting fact under the same key; another corpus: compare"
+        " only with runs that used it",
+    )
+    parser.add_argument(
+        "--self",
+        dest="self_corpus",
+        action="store_true",
+        help=f"add a scope of its own ({SELF_SCOPE}) whose memory is also the agent's"
+        f" ({SELF_NAME}): lessons, views, commitments, rules of method, and what must not"
+        " become its memory (pages restated, echoes, roles); another corpus: compare only"
+        " with runs that used it",
+    )
+    parser.add_argument(
+        "--read-intent",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="read the frame, modality and duration of what is extracted (SPEC 4.2; on by"
+        " default, --no-read-intent turns it off)",
     )
     parser.add_argument(
         "--resolve-threshold",
@@ -298,16 +374,28 @@ class Oracle:
     scopes (the homonym): their answers are served in turn order."""
 
     def __init__(self, corpus: Corpus) -> None:
+        self._consolidation = oracle_consolidation(corpus)
         self._gold: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
         for turn in corpus.turns:
             if not corpus.is_chatter(turn):
-                self._gold[turn.text].append(corpus.gold[turn.text])
+                key = turn.source_key or turn.text  # --self: the whole source
+                self._gold[key].append(corpus.gold[key])
         self._forms = value_forms()
         # --traps: the statements that add a value to what holds (truth: "both")
         self._added = {
             str(corpus.gold[t.text]["facts"][0]["statement"])
             for t in corpus.turns
             if t.event is not None and corpus.events[t.event].added
+        }
+        # --neighbours: a project told something unrelated under its key (truth: "both")
+        self._asides = {
+            str(corpus.gold[t.text]["facts"][0]["statement"]) for t in corpus.turns if t.aside
+        }
+        # --observed: what a thing is for and its state are both true under one key
+        self._lasting = {
+            str(corpus.gold[t.text]["facts"][0]["statement"])
+            for t in corpus.turns
+            if t.observed is not None and t.observation is None
         }
         self.calls = 0
 
@@ -319,10 +407,14 @@ class Oracle:
             return json.dumps({"operations": []})  # the oracle reorganises nothing
         if system.startswith(DREAM_ADJUDICATION):
             return json.dumps(oracle_verdict(json.loads(memory_of(user))))
+        if system.startswith(CONSOLIDATION_START):
+            return json.dumps(self._consolidation, ensure_ascii=False)
         if '"decisions"' in system:
             return json.dumps({"decisions": []})
         if '"replacements"' in system:
             return json.dumps({"replacements": self._verdicts(user, change="replaces")})
+        if '"restatements"' in system:
+            return json.dumps({"restatements": self._verdicts(user)})
         if '"verdicts"' in system:
             return json.dumps({"verdicts": self._verdicts(user)})
         source = source_text(messages)
@@ -332,12 +424,24 @@ class Oracle:
         if not queue:
             return json.dumps(EMPTY_ANSWER)
         answer = queue.popleft() if len(queue) > 1 else queue[0]
+        if "value_norm" in system:
+            answer = self._with_forms(answer)
         return json.dumps(answer, ensure_ascii=False)
+
+    def _with_forms(self, answer: dict[str, Any]) -> dict[str, Any]:
+        """SPEC 5.4: an ideal comparison form, the corpus's own id of each value
+        ("Лион" -> "city:lyon"); a value the corpus does not know gets none."""
+        facts = []
+        for fact in answer.get("facts") or ():
+            form = self._forms.get(str(fact.get("value") or "").lower())
+            facts.append({**fact, "value_norm": form} if form else fact)
+        return {**answer, "facts": facts}
 
     def _verdicts(self, user: str, *, change: str = "different") -> list[dict[str, Any]]:
         """The truth for each pair: the same value, or another one (``change``:
-        "different" for the value question, "replaces" for role, team and
-        preferences - in this corpus a new value always replaces the old one)."""
+        "different" for the value question, "replaces" for role, team,
+        preferences and free-form keys - in this corpus a new value always
+        replaces the old one, unless it was added or is an aside)."""
         match = PAIRS.search(user)
         out: list[dict[str, Any]] = []
         for pair in json.loads(match.group(1)) if match else []:
@@ -346,6 +450,13 @@ class Oracle:
             word = "unsure" if a is None or b is None else "same" if a == b else change
             if word == "replaces" and str(pair["b"]["statement"]) in self._added:
                 word = "both"  # an added value replaces nothing
+            if change == "replaces" and str(pair["b"]["statement"]) in self._asides:
+                word = "both"  # an unrelated statement under one key replaces nothing
+            if change == "replaces" and self._lasting & {
+                str(pair["a"]["statement"]),
+                str(pair["b"]["statement"]),
+            }:
+                word = "both"  # a state observed beside what the thing is for
             out.append({"pair": pair["pair"], "verdict": word})
         return out
 
@@ -689,7 +800,9 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
     outcomes: dict[str, int] = defaultdict(int)
     chatter = {"turns": 0, "turns_with_facts": 0, "facts": 0, "nodes": 0}
     owner_turns: list[dict[str, Any]] = []
+    self_jobs: dict[str, dict[str, Any]] = {}  # --self: each case's job report
     adjudications: list[dict[str, Any]] = []
+    intent = IntentTally()
     budget = Budget()
     processed = 0
     interrupted = False
@@ -697,13 +810,17 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
     try:
         for index, turn in enumerate(corpus.turns, start=1):
             began = time.perf_counter()
-            worker.enqueue(
-                TURN,
-                {"user": turn.text, "assistant": "", "external_id": turn.key},
-                scopes=[turn.scope],
-                session_id=turn.session,
-            )
+            payload = {"user": turn.text, "assistant": "", "external_id": turn.key}
+            if turn.self_case is not None:  # --self: the reply and the pages
+                payload.update(turn_payload(turn))
+            if turn.occurred_at:  # --observed: the day the turn says it happened
+                payload["occurred_at"] = turn.occurred_at
+            worker.enqueue(TURN, payload, scopes=[turn.scope], session_id=turn.session)
             enqueue.append(time.perf_counter() - began)
+            if turn.ends_session:  # the host closes the session (SPEC 5.8)
+                worker.enqueue(
+                    SESSION_CLOSE, {"reason": "end"}, scopes=[turn.scope], session_id=turn.session
+                )
             report = worker.run(budget)
             for job in report.jobs:
                 outcomes[f"{job['kind']}:{job['outcome']}"] += 1
@@ -721,17 +838,22 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
                         chatter["turns_with_facts"] += int(bool(written or created))
                     if turn.speaker:
                         owner_turns.append(owner_record(turn.key, turn.language, result))
+                    if turn.self_case is not None:
+                        self_jobs[turn.key] = result
+                    intent.add(turn, result)
                     for key, value in (result.get("facts") or {}).items():
                         totals[f"facts_{key}"] += int(value)
                     for key, value in (result.get("keys") or {}).items():
                         totals[f"keys_{key}"] += int(value)
                     values = result.get("values") or {}
-                    for key in ("same", "different"):
+                    for key in ("same", "different", "norm"):
                         totals[f"values_{key}"] += int(values.get(key) or 0)
                     for key, value in (values.get("adjudicated") or {}).items():
                         totals[f"values_adjudicated_{key}"] += int(value)
                     for key, value in (values.get("replacement") or {}).items():
                         totals[f"values_replacement_{key}"] += int(value)
+                    for key, value in (values.get("restatement") or {}).items():
+                        totals[f"values_restatement_{key}"] += int(value)
                     totals["calls"] += int(result.get("calls") or 0)
                     totals["mentions_adjudicated"] += int(result.get("mentions_adjudicated") or 0)
                     totals["adjudication_calls"] += int(result.get("adjudication_calls") or 0)
@@ -762,6 +884,8 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
         "chatter": chatter,
         "owner_turns": owner_turns,
         "adjudications": adjudications,
+        "intent": intent.as_dict(),
+        "self_jobs": self_jobs,
     }
 
 
@@ -923,6 +1047,216 @@ def attachments(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str
     return out
 
 
+def neighbours(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
+    """What the turns of ``--neighbours`` wrote (SPEC 11.1, 5.1): each fact is
+    judged by the sentence its excerpt lies in - right on that sentence's file,
+    wrong on the other one (must be 0), unjudged when the excerpt lies in no
+    sentence of one file alone or the fact has no node - and each file without
+    a right fact is missing.
+    Fact proposals from those turns are counted (the oracle's: 0)."""
+    neighbour_turns = {t.key: t for t in corpus.turns if t.neighbours}
+    out: dict[str, Any] = {
+        "turns": len(neighbour_turns),
+        "expected": 0,
+        "right": 0,
+        "wrong": 0,
+        "unjudged": 0,
+        "missing": 0,
+        "proposed": 0,
+        "examples": [],
+    }
+    sources = {source: turn for source, turn in turns.items() if turn in neighbour_turns}
+    for source_id, key in sources.items():
+        text = str(store.get_source(source_id).text or "")
+        told = corpus.gold[neighbour_turns[key].text]["facts"]
+        spans = []
+        for item in told:
+            start = text.find(str(item["statement"]))
+            spans.append((str(item["subject"]), start, start + len(str(item["statement"]))))
+        out["expected"] += len(told)
+        right: set[str] = set()
+        rows = store.execute(
+            "SELECT f.statement, f.excerpt_start, f.excerpt_end, n.name FROM facts f"
+            " LEFT JOIN nodes n ON n.id = f.node_id WHERE f.source_id = ?",
+            (source_id,),
+        ).fetchall()
+        for row in rows:
+            start, end = row["excerpt_start"], row["excerpt_end"]
+            about = (
+                [name for name, s, e in spans if s >= 0 and s <= start and end <= e]
+                if start is not None and end is not None
+                else []
+            )
+            if len(about) != 1 or row["name"] is None:
+                out["unjudged"] += 1  # no file's sentence alone, or on no node at all
+            elif str(row["name"] or "").casefold() == about[0].casefold():
+                out["right"] += 1
+                right.add(about[0])
+            else:
+                out["wrong"] += 1
+                if len(out["examples"]) < 10:
+                    out["examples"].append(
+                        {"turn": key, "node": row["name"], "statement": row["statement"]}
+                    )
+        out["missing"] += sum(1 for item in told if str(item["subject"]) not in right)
+        out["proposed"] += int(
+            store.execute(
+                "SELECT COUNT(*) FROM proposals WHERE kind = 'fact' AND source_id = ?",
+                (source_id,),
+            ).fetchone()[0]
+        )
+    out["asides"] = asides(store, corpus, turns)
+    return out
+
+
+def observed_states(
+    store: Store,
+    corpus: Corpus,
+    turns: dict[str, str],
+    engines: Mapping[str, RecallEngine],
+    budgets: Sequence[int],
+) -> dict[str, Any]:
+    """What ``--observed`` left (SPEC 11.1, 4.2), per thing: its newest
+    observation ``current`` (live, flagged ``observed``, as of its turn's day),
+    the older ones ``stale`` (still live: must be 0), the lasting fact ``kept``
+    (still live) or ``closed`` (must be 0), ``missing`` when a turn wrote
+    nothing on the thing; then a recall per thing and budget: ``shown`` when the
+    newest observation is among the handles with the flag, ``stale_shown`` per
+    older observation among them (must be 0), and of those ``stale_flagged``,
+    the ones flagged ``newer_pending``, ``newer_observed`` or ``conflict`` (SPEC 8.5)."""
+    out: dict[str, Any] = {
+        "things": 0,
+        "current": 0,
+        "stale": 0,
+        "kept": 0,
+        "closed": 0,
+        "missing": 0,
+        "recall": {},
+    }
+    view = Visibility.of_scope(ALICE)
+    turn_of = {source: key for source, key in turns.items()}
+    by_thing: dict[str, list[Any]] = {}
+    for turn in corpus.turns:
+        if turn.observed is not None:
+            by_thing.setdefault(turn.observed, []).append(turn)
+    newest: dict[str, str] = {}  # thing -> fact id of its newest observation
+    older: dict[str, set[str]] = {}
+    for name, told in by_thing.items():
+        out["things"] += 1
+        node = store.find_node(name, view)
+        if node is None:
+            out["missing"] += len(told)
+            continue
+        rows = store.execute(
+            "SELECT id FROM facts WHERE node_id = ? ORDER BY created_at, id", (node.id,)
+        ).fetchall()
+        facts: dict[str, list[Any]] = {}
+        for row in rows:
+            fact = store.get_fact(row["id"])
+            facts.setdefault(turn_of.get(fact.source_id or "", ""), []).append(fact)
+        observations = [t for t in told if t.observation is not None]
+        last = max(observations, key=lambda t: (t.month, t.observation or 0))
+        for turn in told:
+            written = facts.get(turn.key) or []
+            if not written:
+                out["missing"] += 1
+                continue
+            alive = [f for f in written if f.valid_to is None and f.superseded_by is None]
+            if turn.observation is None:
+                out["kept" if alive else "closed"] += 1
+            elif turn is last:
+                day = (turn.occurred_at or "")[:10]
+                if any("observed" in f.flags and f.observed_at == day for f in alive):
+                    out["current"] += 1
+                newest[name] = written[0].id
+            else:
+                out["stale"] += bool(alive)
+                older.setdefault(name, set()).update(f.id for f in written)
+    for engine_name, engine in engines.items():
+        per_budget: dict[str, dict[str, int]] = {}
+        for budget in budgets:
+            shown = stale_shown = stale_flagged = 0
+            for name, told in by_thing.items():
+                query = OBSERVED_QUESTION[told[0].language].format(name=name)
+                items = engine.recall(query, view=view, budget_tokens=budget)["items"]
+                flagged = {i["id"] for i in items if "observed" in (i.get("flags") or ())}
+                shown += newest.get(name) in flagged
+                for item in items:
+                    if item["id"] in older.get(name, set()):
+                        stale_shown += 1
+                        flags = set(item.get("flags") or ())
+                        stale_flagged += bool(
+                            flags & {"newer_pending", "newer_observed", "conflict"}
+                        )
+            per_budget[str(budget)] = {
+                "shown": shown,
+                "stale_shown": stale_shown,
+                "stale_flagged": stale_flagged,
+            }
+        out["recall"][engine_name] = per_budget
+    return out
+
+
+def asides(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
+    """The asides of ``--neighbours`` (SPEC 11.1, 5.4): a project told something
+    unrelated to its description, compared with what the turn before it wrote
+    on that project. ``other_key``: no key shared with the description, so
+    nothing to replace; of those sharing one, ``kept`` (the description still
+    live, the ideal answer), ``closed`` (superseded by the aside: must be 0) and
+    ``conflict`` (the aside flagged); ``missing``: either side wrote nothing on
+    the project. ``keys`` lists, per aside, the keys of both sides."""
+    out: dict[str, Any] = {
+        "told": 0,
+        "kept": 0,
+        "closed": 0,
+        "conflict": 0,
+        "other_key": 0,
+        "missing": 0,
+        "keys": [],
+    }
+    source_of = {turn: source for source, turn in turns.items()}
+    for index, turn in enumerate(corpus.turns):
+        if turn.aside is None:
+            continue
+        out["told"] += 1
+        before = corpus.turns[index - 1]  # the neighbour turn it follows
+        said = _facts_on(store, source_of.get(turn.key), turn.aside)
+        described = _facts_on(store, source_of.get(before.key), turn.aside)
+        out["keys"].append(
+            {
+                "project": turn.aside,
+                "description": sorted({str(f.attribute) for f in described}),
+                "aside": sorted({str(f.attribute) for f in said}),
+            }
+        )
+        if not said or not described:
+            out["missing"] += 1
+            continue
+        shared = {f.attribute for f in said} & {f.attribute for f in described} - {None}
+        if not shared:
+            out["other_key"] += 1
+            continue
+        ids = {f.id for f in said}
+        if any(f.superseded_by in ids for f in described):
+            out["closed"] += 1
+        elif all(f.valid_to is None for f in described if f.attribute in shared):
+            out["kept"] += 1
+        out["conflict"] += any("conflict" in f.flags for f in said)
+    return out
+
+
+def _facts_on(store: Store, source_id: str | None, name: str) -> list[Fact]:
+    """The facts one source wrote on the node of that name (live or closed)."""
+    if source_id is None:
+        return []
+    rows = store.execute(
+        "SELECT f.id FROM facts f JOIN nodes n ON n.id = f.node_id"
+        " WHERE f.source_id = ? AND lower(n.name) = lower(?) ORDER BY f.created_at, f.id",
+        (source_id, name),
+    ).fetchall()
+    return [store.get_fact(r["id"]) for r in rows]
+
+
 def restatements(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, int]:
     """What the restating turns of ``--rephrase`` wrote (SPEC 11.1): facts, those
     in one equivalence group with a fact of the original turn (``same_as``), and
@@ -1081,9 +1415,17 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
         rephrase=args.rephrase,
         speaker=args.speaker,
         name_traps=args.name_traps,
+        neighbours=args.neighbours,
+        intent=args.intent,
+        worksession=args.worksession,
+        observed=args.observed,
     )
+    if args.self_corpus:
+        add_self_turns(corpus)
     events = corpus.turns_of_event()
     owners = ((ALICE, OWNER_NAME, ()),) if args.speaker else ()
+    if args.self_corpus:  # its scope only: the main corpus is read as without it
+        owners = (*owners, (SELF_SCOPE, OWNER_NAME, ()))
     tokenizer = ConservativeTokenizer()
     oracle = Oracle(corpus) if not args.chat_url else None
     chat = (
@@ -1131,7 +1473,11 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
         answer_max_tokens=args.max_tokens,
         json_mode=args.json_mode,
         owners=owners,
+        selves=((SELF_SCOPE, SELF_NAME, ()),) if args.self_corpus else (),
         replacement_question=args.replacement_question,
+        restatement_question=args.restatement_question,
+        value_norm=args.value_norm,
+        intent=args.read_intent,
         resolve_threshold=args.resolve_threshold,
         merge_threshold=args.merge_threshold,
         language_overrides=tuple((scope, args.force_language) for scope in corpus.scopes)
@@ -1176,6 +1522,10 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
         ingestion["owner"] = {"scope": ALICE, "name": OWNER_NAME} if args.speaker else None
         if args.rephrase:
             ingestion["restatements"] = restatements(store, corpus, turns)
+        if args.neighbours:
+            ingestion["neighbours"] = neighbours(store, corpus, turns)
+        if args.worksession:
+            ingestion["worksession"] = worksession_audit(store, corpus, turns)
         engines: dict[str, RecallEngine] = {"iifa_tier2": RecallEngine(store, tokenizer, tier=2)}
         systems: dict[str, System] = {
             "none": no_memory,
@@ -1188,13 +1538,24 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
                 corpus, tokenizer, queries, embeddings.model
             )
             dense = Dense(store, QueryEmbedder(queries), timeout=args.timeout, cache_size=0)
-            engines["iifa_tier3"] = RecallEngine(store, tokenizer, tier=3, dense=dense)
+            engines["iifa_tier3"] = RecallEngine(
+                store,
+                tokenizer,
+                tier=3,
+                dense=dense,
+                activity_threshold=lambda model: args.activity_threshold,
+            )
         else:
             skipped["vector_topk"] = skipped["iifa_tier3"] = (
                 "no embeddings endpoint (--embeddings-url)"
             )
         for name, engine in engines.items():
             systems[name] = iifa_system(store, engine, turns)
+        if args.observed:
+            ingestion["observed"] = observed_states(store, corpus, turns, engines, args.budgets)
+        self_jobs = ingestion.pop("self_jobs")
+        if args.self_corpus:
+            ingestion["self"] = self_audit(store, corpus, self_jobs, engines, args.budgets, turns)
         say(
             f"answering {len(corpus.questions)} questions x {len(systems)} systems x {len(args.budgets)} budgets"
         )
@@ -1231,6 +1592,10 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
                 hostile_scope=ALICE if args.hostile else None,
                 progress=say,
             )
+            if args.self_corpus:
+                ingestion["self"]["family_after_dream"] = family_after_dream(
+                    store, corpus, engines, args.budgets, turns
+                )
             dream["model"] = {
                 "url": args.dream_url or args.chat_url,
                 "model": args.dream_model or args.model,
@@ -1244,6 +1609,9 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
             "extractor": extractor,
             "pipeline": {
                 "replacement_question": args.replacement_question,
+                "restatement_question": args.restatement_question,
+                "value_norm": args.value_norm,
+                "read_intent": args.read_intent,
                 "forced_language": args.force_language,
                 "thresholds": {"resolve": args.resolve_threshold, "merge": args.merge_threshold}
                 if args.resolve_threshold is not None or args.merge_threshold is not None
@@ -1326,12 +1694,81 @@ def print_report(report: dict[str, Any]) -> None:
             f" with a determined quote; flagged: English turns {check['flagged']['turn_en']},"
             f" other turns {check['flagged']['turn_other']}"
         )
+    if ingestion.get("neighbours"):
+        side = ingestion["neighbours"]
+        shown = {k: v for k, v in side.items() if k not in ("examples", "asides")}
+        print("neighbours: " + ", ".join(f"{k}={v}" for k, v in shown.items()))
+        counts = {k: v for k, v in side["asides"].items() if k != "keys"}
+        print("asides: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        for example in side["examples"]:
+            print(
+                "  attached to the other file: " + ", ".join(f"{k}={v}" for k, v in example.items())
+            )
+    if ingestion.get("observed"):
+        seen = ingestion["observed"]
+        counts = {k: v for k, v in seen.items() if k != "recall"}
+        print("observed: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        for engine_name, per_budget in seen["recall"].items():
+            shown = ", ".join(
+                f"@{b} shown={r['shown']} stale={r['stale_shown']} flagged={r['stale_flagged']}"
+                for b, r in per_budget.items()
+            )
+            print(f"  {engine_name}: {shown}")
+    if ingestion.get("self"):
+        agent = ingestion["self"]
+        for category, row in agent["categories"].items():
+            print(f"self {category}: " + ", ".join(f"{k}={v}" for k, v in row.items()))
+        print(
+            f"self: hostile_written={agent['hostile_written']}"
+            f" unmeant_written={agent['unmeant_written']}"
+            f" not_sincere={agent['assistant_turns_not_sincere']}"
+            f" counters={agent['counters']} profile={agent['profile_commitments']}"
+        )
+        for activity in agent.get("activities") or ():
+            print(
+                f"  activity {activity['name']!r}: linked={activity['linked']}"
+                f" rules={activity['rules']}"
+            )
+        for when in ("family", "family_after_dream"):
+            family = agent.get(when) or {}
+            for parent, children in (family.get("groups") or {}).items():
+                print(f"  {when} group {parent!r}: {children}")
+            for engine_name, per_budget in (family.get("rules_shown") or {}).items():
+                shown = ", ".join(f"@{b} {r}" for b, r in per_budget.items())
+                print(f"  {when} rules {engine_name}: {shown}")
+        vectors = agent.get("vector_probes") or {}
+        for key, found in (vectors.get("scores") or {}).items():
+            shown = ", ".join(
+                f"{f['activity']!r}={f['cosine']}{' (word)' if f['word'] else ''}" for f in found
+            )
+            print(f"  vectors {key}: {shown or '-'}")
+        for threshold, row in (vectors.get("sweep") or {}).items():
+            print(
+                f"  activity_threshold {threshold}: positives={row['positives']}"
+                f" negatives_with_block={row['negatives_with_block']}/{vectors['negatives']}"
+            )
+        for engine_name, per_budget in agent["probes"].items():
+            shown = ", ".join(
+                f"@{b} transfer={r['transfer_shown']} rules={r['rules_shown']}/{r['rules_total']}"
+                f" limits={r['limits_shown']} rules_first={r['rules_first']}"
+                f" activity={r['activity_rules_shown']}/{r['activity_rules_total']}"
+                f" activity_first={r['activity_first']}"
+                for b, r in per_budget.items()
+            )
+            print(f"  {engine_name}: {shown}")
     for record in ingestion.get("owner_turns") or ():
         print("owner turn: " + ", ".join(f"{k}={v}" for k, v in record.items()))
     if ingestion.get("restatements"):
         print(
             "restatements: " + ", ".join(f"{k}={v}" for k, v in ingestion["restatements"].items())
         )
+    intent = ingestion.get("intent") or {}
+    if (intent.get("unmeant") or {}).get("turns"):
+        print("not meant: " + ", ".join(f"{k}={v}" for k, v in intent["unmeant"].items()))
+        print("controls: " + ", ".join(f"{k}={v}" for k, v in intent["controls"].items()))
+        print(f"dropped by intent: {intent['dropped_by_intent']}")
+    if ingestion.get("worksession"):
+        print("work session: " + ", ".join(f"{k}={v}" for k, v in ingestion["worksession"].items()))
     for budget in report["budgets"]:
         print(f"\nbudget {budget} tokens")
         print(

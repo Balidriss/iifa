@@ -13,6 +13,7 @@ from typing import Any
 from iifa.dream.apply import changeable, dream_view
 from iifa.dream.bounds import by_priority, by_recency, largest, prompt_tokens, shown_in_order
 from iifa.dream.prompts import dream_messages
+from iifa.ingest.activity import matched_words
 from iifa.ingest.summaries import facts_language
 from iifa.scopes import Visibility
 from iifa.store.models import Edge, Fact, Node
@@ -20,6 +21,8 @@ from iifa.store.repo import Store
 from iifa.tokens import Tokenizer
 
 SCAN = 50  # node ids read at a time while looking for the next unit
+ALIKE = 10  # SPEC 5.6: task nodes a task unit shows beside its own
+TASK = "task"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,8 @@ class Unit:
     neighbours: tuple[Node, ...]
     summary_language: str
     snapshot: dict[str, int]
+    # SPEC 5.6: for a task node, the other task nodes sharing a word of its name
+    alike: tuple[Node, ...] = ()
 
     @property
     def ids(self) -> set[str]:
@@ -82,6 +87,8 @@ class Unit:
         if len(shown_edges) < len(self.edges):
             out["edges_left_out"] = len(self.edges) - len(shown_edges)
         out["neighbours"] = [_node(n) for n in self.neighbours if n.id in ends]
+        if self.alike:
+            out["alike_activities"] = [_node(n) for n in self.alike]
         out["summary_language"] = self.summary_language
         return out
 
@@ -110,6 +117,7 @@ class Unit:
             *(f.id for f in facts[:n_facts]),
             *(e.id for e in shown_edges),
             *(n.id for n in self.neighbours if n.id in ends),
+            *(n.id for n in self.alike),
         }
         return Fitted(
             messages=messages,
@@ -163,11 +171,13 @@ def read_unit(
         others = [e.dst if e.src == current.id else e.src for e in edges]
         nodes = store.nodes_by_id(list(dict.fromkeys(others)), view)
         neighbours = tuple(nodes[i] for i in dict.fromkeys(others) if i in nodes)
+        alike = _alike(store, current, view) if current.kind == TASK else ()
         ids = [
             current.id,
             *(f.id for f in facts),
             *(e.id for e in edges),
             *(n.id for n in neighbours),
+            *(n.id for n in alike),
         ]
         snapshot = store.revisions(ids)
     language = (
@@ -182,7 +192,23 @@ def read_unit(
         neighbours=neighbours,
         summary_language=language,
         snapshot=snapshot,
+        alike=alike,
     )
+
+
+def _alike(store: Store, node: Node, view: Visibility) -> tuple[Node, ...]:
+    """SPEC 5.6: the other live task nodes of the node's scope set that share a
+    word of its name (the activity's word rule), the most shared first, at most
+    ``ALIKE``."""
+    forms = (node.name, *node.aliases)
+    found: list[tuple[int, str, Node]] = []
+    for other in store.nodes_of_kind(TASK, view):
+        if other.id == node.id or set(other.scopes) != set(node.scopes):
+            continue
+        shared = max(matched_words(f, " ".join((other.name, *other.aliases))) for f in forms)
+        if shared:
+            found.append((-shared, other.id, other))
+    return tuple(n for _, _, n in sorted(found, key=lambda t: (t[0], t[1]))[:ALIKE])
 
 
 __all__ = ["Fitted", "Unit", "next_unit_node", "read_unit"]

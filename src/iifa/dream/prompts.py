@@ -34,6 +34,12 @@ DESCRIPTIONS: dict[str, str] = {
         '{"op": "create_theme", "name": "<topic name>", "members": ["<node id>", ...], '
         '"summary": "<one line or null>"} - a recurring subject grouping nodes'
     ),
+    "group_activities": (
+        '{"op": "group_activities", "name": "<the activity they all are, with only the words '
+        'every name shares>", "members": ["<task node id>", ...]} - the node and alike_activities '
+        "that are the same activity done on different objects (painting a portrait of the baker, "
+        'painting a portrait of the mayor: "painting a portrait")'
+    ),
     "consolidate_facts": (
         '{"op": "consolidate_facts", "node": "<node id>", "facts": ["<fact id>", ...], '
         '"statement": "<one complete sentence naming the node, in the facts\' language>"} '

@@ -19,6 +19,7 @@ from typing import Any
 
 from iifa import vectors
 from iifa.ids import kind_of, new_id
+from iifa.names import InvalidName, require_name
 from iifa.recall.tokenizer import normalize, tokenize
 from iifa.scopes import Visibility, validate_scope, within
 from iifa.store.checkpoint import DEFAULT_INTERVAL, Checkpointer
@@ -33,9 +34,12 @@ FORGETTABLE = ("node", "fact", "edge", "src")
 _TABLES = {"node": "nodes", "fact": "facts", "edge": "edges", "src": "sources"}
 
 PROPOSED, CONFIRMED = "proposed", "confirmed"
+MAX_MERGED = 50  # SPEC 5.5: the nodes merged into one activity that are read, at most
+_EPISODE_SQL = "(',' || f.flags || ',') LIKE '%,episode,%'"
 PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
 ALIAS, MERGE, FACT = "alias", "merge", "fact"
 PROPOSAL_KINDS = (ALIAS, MERGE, FACT)
+SELF_RULE = "self:rule"  # SPEC 4.2: why a rule of the self waits in review
 FACT_PAYLOAD_KEYS = (
     "attribute",
     "value",
@@ -44,7 +48,14 @@ FACT_PAYLOAD_KEYS = (
     "language",
     "flags",
     "provenance",
+    "part_kind",
+    "part_ref",
+    "read_at",
+    "observed_at",  # SPEC 4.2: an observation keeps its day
+    "activities",  # SPEC 4.2, agent perspective: the activities it was learnt during
     "confidence",
+    "why",  # SPEC 4.2: a fact proposed because its intent is in doubt says which
+    "subject",  # ...and whom it is about, when no node is named yet
 )
 # the embedded facets of a record (SPEC 6.1)
 TEXT, NAME, SUMMARY = "text", "name", "summary"
@@ -68,6 +79,18 @@ class VectorRow:
     blob: bytes
 
 
+def _plain_aliases(aliases: Iterable[str]) -> list[str]:
+    """The aliases that pass ``checked_name``, as the store keeps them (SPEC 5.1):
+    one that is no name is left out."""
+    kept: list[str] = []
+    for alias in aliases:
+        try:
+            kept.append(checked_name(alias))
+        except InvalidName:
+            continue
+    return kept
+
+
 def node_name_text(node: Node) -> str:
     """What a node's name vector embeds: its name, then its aliases."""
     return "; ".join([node.name, *node.aliases])
@@ -87,8 +110,23 @@ class ProposalDecided(ValueError):
 
 
 class ProposalNotApplicable(ValueError):
-    """A proposal that can be rejected but not accepted directly: a merge, which only a
-    reviewed ``merge_nodes`` of a dream applies (SPEC 4.4b, 5.6)."""
+    """A proposal this path cannot accept: a merge, which only a reviewer's decision
+    applies - a reviewed ``merge_nodes`` of a dream, or a person's merge through
+    the review path (SPEC 4.4b, 5.6, 5.7)."""
+
+
+NAME_MAX_CHARS = 300
+
+
+def checked_name(text: str) -> str:
+    """The one name rule every node name and alias passes before the store keeps
+    it (SPEC 5.1, 5.7): Markdown stripped and brackets balanced (``require_name``),
+    its whitespace collapsed to single spaces, at most ``NAME_MAX_CHARS``
+    characters. Raises ``InvalidName``."""
+    name = " ".join(require_name(text).split())
+    if len(name) > NAME_MAX_CHARS:
+        raise InvalidName(f"a name is at most {NAME_MAX_CHARS} characters")
+    return name
 
 
 class ScopeMismatch(ValueError):
@@ -139,6 +177,20 @@ def _visible(view: Visibility, record_column: str) -> tuple[str, list[str]]:
         f" AND {pred}) > 0"
     )
     return sql, params
+
+
+_ARCHIVED_FIELDS = {
+    "node": ("name", "node_kind", "merged_into"),
+    "fact": ("statement", "node_id", "node_name"),
+    "edge": ("type", "status", "src", "src_name", "dst", "dst_name"),
+}
+
+
+def _archived_item(kind: str, row: Any) -> dict[str, Any]:
+    """One row of ``Store.archived`` as the archive list shows it."""
+    item: dict[str, Any] = {"id": row["id"], "kind": kind, "archived_at": row["archived_at"]}
+    item.update({name: row[name] for name in _ARCHIVED_FIELDS[kind]})
+    return item
 
 
 _LEX_LIVE = (
@@ -370,6 +422,10 @@ class Store:
         external_id: str | None = None,
         language: str | None = None,
     ) -> Node:
+        """A new node. Its name and aliases go through ``checked_name`` (SPEC 5.1):
+        Markdown stripped; a name that is no name raises ``InvalidName``, such
+        an alias is left out."""
+        name = checked_name(name)
         node_id = new_id("node")
         now = self.now()
         with self._lock, self._transaction():
@@ -379,7 +435,7 @@ class Store:
                 (node_id, kind, name, normalize(name), summary, external_id, now, now, language),
             )
             self._set_scopes(node_id, scopes)
-            for alias in dict.fromkeys(a.strip() for a in aliases if a.strip()):
+            for alias in dict.fromkeys(_plain_aliases(aliases)):
                 self._execute(
                     "INSERT OR IGNORE INTO node_aliases (node_id, alias, alias_norm)"
                     " VALUES (?, ?, ?)",
@@ -470,11 +526,29 @@ class Store:
         add_aliases: Iterable[str] = (),
         language: str | None = None,
         flags: Iterable[str] | None = None,
+        name: str | None = None,
+        kind: str | None = None,
     ) -> Node:
         """Change the summary (with the language it is written in, P12), add aliases,
-        replace the flags. ``updated_at`` moves only when something changed."""
+        replace the flags, rename the node or change its kind (a person's
+        correction, SPEC 5.7). The new name passes ``checked_name``; an added
+        alias that does not is left out (SPEC 5.1). ``updated_at`` moves only
+        when something changed."""
+        new_name = None if name is None else checked_name(name)
+        aliases = _plain_aliases(add_aliases)
         with self._lock, self._transaction():
             before = self.get_node(node_id)
+            if new_name is not None and new_name != before.name:
+                self._execute(
+                    "UPDATE nodes SET name = ?, name_norm = ?, updated_at = ? WHERE id = ?",
+                    (new_name, normalize(new_name), self.now(), node_id),
+                )
+                self._drop_vector(node_id, NAME)
+            if kind is not None and kind != before.kind:
+                self._execute(
+                    "UPDATE nodes SET kind = ?, updated_at = ? WHERE id = ?",
+                    (kind, self.now(), node_id),
+                )
             if summary is not None:
                 self._execute(
                     "UPDATE nodes SET summary = ?, language = coalesce(?, language),"
@@ -491,13 +565,12 @@ class Store:
                     (",".join(sorted(set(flags))), node_id),
                 )
             added = 0
-            for alias in add_aliases:
-                if alias.strip():
-                    added += self._execute(
-                        "INSERT OR IGNORE INTO node_aliases (node_id, alias, alias_norm)"
-                        " VALUES (?, ?, ?)",
-                        (node_id, alias.strip(), normalize(alias)),
-                    ).rowcount
+            for alias in aliases:
+                added += self._execute(
+                    "INSERT OR IGNORE INTO node_aliases (node_id, alias, alias_norm)"
+                    " VALUES (?, ?, ?)",
+                    (node_id, alias, normalize(alias)),
+                ).rowcount
             if added:
                 self._drop_vector(node_id, NAME)
             self._reindex_node(node_id)
@@ -520,6 +593,119 @@ class Store:
                 (*node_ids, *params),
             ).fetchall()
             return {n.id: n for n in self._nodes_from_rows(rows)}
+
+    def merge_target(self, node_id: str, *, hops: int = 10) -> str | None:
+        """The node ``node_id`` stands for: itself, or the node it was merged
+        into, followed through ``merged_into`` (at most ``hops``); None when it
+        no longer exists. Visibility is the caller's to check."""
+        with self._lock:
+            for _ in range(hops):
+                row = self._execute(
+                    "SELECT merged_into FROM nodes WHERE id = ?", (node_id,)
+                ).fetchone()
+                if row is None:
+                    return None
+                if row["merged_into"] is None:
+                    return node_id
+                node_id = str(row["merged_into"])
+            return None
+
+    def node_list(
+        self,
+        view: Visibility,
+        *,
+        sort: str,
+        prefix: str | None,
+        include_archived: bool,
+        mark: str,
+        after: tuple[str, str] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """The nodes the view sees, a page at a time (SPEC 8.2), in one query plus
+        one for their aliases, never one per node.
+
+        ``mark`` is a ULID: only nodes, and facts counted in ``changed_at``, whose
+        id is at or below it take part, so a walk started at ``mark`` keeps its
+        members and their sort keys whatever is written between its pages.
+        ``changed_at`` is the latest of the node's creation and the recording of
+        a fact of it the view sees. ``prefix`` (already normalised) matches the
+        start of the normalised name or of an alias. ``sort`` is ``name``
+        (normalised name, then id) or ``changed`` (``changed_at`` newest first,
+        then id descending); ``after`` is the last delivered item's key in that
+        order. Live facts and pending proposals are counted as the view sees
+        them now."""
+        if view.is_empty or limit <= 0:
+            return []
+        with self._lock:
+            vis_n, p_n = _visible(view, "n.id")
+            vis_g, p_g = _visible(view, "g.id")
+            vis_f, p_f = _visible(view, "f.id")
+            vis_p, p_p = _visible(view, "p.id")
+            where = [vis_n, "substr(n.id, instr(n.id, '_') + 1) <= ?"]
+            where_args: list[object] = [*p_n, mark]
+            if not include_archived:
+                where.append("n.archived_at IS NULL")
+            if prefix:
+                high = prefix + chr(0x10FFFF)  # above every name that starts with prefix
+                where.append(
+                    "((n.name_norm >= ? AND n.name_norm < ?) OR n.id IN (SELECT a.node_id"
+                    " FROM node_aliases a WHERE a.alias_norm >= ? AND a.alias_norm < ?))"
+                )
+                where_args.extend((prefix, high, prefix, high))
+            if sort == "name":
+                key_sql, order_sql = "(s.name_norm, s.id) > (?, ?)", "s.name_norm, s.id"
+            elif sort == "changed":
+                key_sql, order_sql = "(s.changed_at, s.id) < (?, ?)", "s.changed_at DESC, s.id DESC"
+            else:
+                raise ValueError(f"unknown sort {sort!r}")
+            outer_where = f" WHERE {key_sql}" if after is not None else ""
+            rows = self._execute(
+                "SELECT s.*,"  # noqa: S608
+                " (SELECT count(*) FROM facts f WHERE f.node_id = s.id AND f.archived_at IS NULL"
+                f"  AND f.valid_to IS NULL AND {vis_f}) AS live_facts,"
+                " (SELECT count(*) FROM proposals p WHERE p.node_id = s.id AND p.status = ?"
+                f"  AND {vis_p}) AS pending_proposals"
+                " FROM (SELECT n.id, n.kind, n.name, n.name_norm, n.archived_at, n.merged_into,"
+                " max(n.created_at, coalesce((SELECT max(g.created_at) FROM facts g"
+                "  WHERE g.node_id = n.id AND substr(g.id, instr(g.id, '_') + 1) <= ?"
+                f"  AND {vis_g}), '')) AS changed_at"
+                f" FROM nodes n WHERE {' AND '.join(where)}) s"
+                f"{outer_where} ORDER BY {order_sql} LIMIT ?",
+                (
+                    *p_f,
+                    PENDING,
+                    *p_p,
+                    mark,
+                    *p_g,
+                    *where_args,
+                    *(after or ()),
+                    int(limit),
+                ),
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            aliases: dict[str, list[str]] = {}
+            if ids:
+                for r in self._execute(
+                    f"SELECT node_id, alias FROM node_aliases WHERE node_id IN ({_ph(ids)})"  # noqa: S608
+                    " ORDER BY alias",
+                    ids,
+                ):
+                    aliases.setdefault(r["node_id"], []).append(r["alias"])
+            return [
+                {
+                    "id": r["id"],
+                    "kind": r["kind"],
+                    "name": r["name"],
+                    "name_norm": r["name_norm"],
+                    "aliases": aliases.get(r["id"], []),
+                    "live_facts": int(r["live_facts"]),
+                    "pending_proposals": int(r["pending_proposals"]),
+                    "changed_at": r["changed_at"],
+                    "archived_at": r["archived_at"],
+                    "merged_into": r["merged_into"],
+                }
+                for r in rows
+            ]
 
     def node_index(
         self, view: Visibility, *, limit: int = DEFAULT_NODE_INDEX_LIMIT
@@ -575,6 +761,20 @@ class Store:
 
     # ------------------------------------------------------------------ sources
 
+    def session_texts(self, session_id: str, view: Visibility, *, limit: int = 200) -> list[str]:
+        """The texts of the visible sources recorded under ``session_id``, the
+        newest ``limit`` of them (SPEC 5.1: what the session has named)."""
+        if not session_id or view.is_empty:
+            return []
+        with self._lock:
+            vis, params = _visible(view, "s.id")
+            rows = self._execute(
+                f"SELECT s.text FROM sources s WHERE s.session_id = ? AND {vis}"  # noqa: S608
+                " ORDER BY s.created_at DESC, s.id DESC LIMIT ?",
+                (session_id, *params, limit),
+            ).fetchall()
+            return [r["text"] for r in rows if r["text"]]
+
     def add_source(
         self,
         *,
@@ -585,13 +785,15 @@ class Store:
         external_id: str | None = None,
         session_id: str | None = None,
         language: str | None = None,
+        external: str = "none",
     ) -> Source:
         source_id = new_id("src")
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         with self._lock, self._transaction():
             self._execute(
                 "INSERT INTO sources (id, kind, text, text_sha256, reference, external_id,"
-                " created_at, session_id, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " created_at, session_id, language, external)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     source_id,
                     kind,
@@ -602,6 +804,7 @@ class Store:
                     self.now(),
                     session_id,
                     language,
+                    external,
                 ),
             )
             self._set_scopes(source_id, scopes)
@@ -623,6 +826,7 @@ class Store:
                 created_at=row["created_at"],
                 session_id=row["session_id"],
                 language=row["language"],
+                external=row["external"],
             )
 
     def source_if_visible(self, source_id: str, view: Visibility) -> Source | None:
@@ -657,8 +861,18 @@ class Store:
         conflicts_with: str | None = None,
         same_as: str | None = None,
         provenance: str | None = None,
+        part_kind: str | None = None,
+        part_ref: str | None = None,
+        read_at: str | None = None,
         proposal_id: str | None = None,
+        value_norm: str | None = None,
+        observed_at: str | None = None,
+        activities: Sequence[str] = (),
     ) -> Fact:
+        """``value_norm``: the value's comparison form (SPEC 5.4), kept beside the
+        fact and read only by ``value_norms``: never part of the record, never
+        indexed. ``activities``: the task nodes it was learnt or done during
+        (SPEC 4.2), links beside its subject."""
         fact_id = new_id("fact")
         now = self.now()
         with self._lock, self._transaction():
@@ -668,8 +882,9 @@ class Store:
                 "INSERT INTO facts (id, node_id, statement, attribute, value, valid_from, valid_to,"
                 " origin, confidence, source_id, excerpt_start, excerpt_end, pinned, flags,"
                 " external_id, created_at, updated_at, language, conflicts_with, same_as,"
-                " provenance, proposal_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " provenance, part_kind, part_ref, read_at, proposal_id, value_norm, observed_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+                " ?, ?, ?)",
                 (
                     fact_id,
                     node_id,
@@ -692,9 +907,19 @@ class Store:
                     conflicts_with,
                     same_as,
                     provenance,
+                    part_kind,
+                    part_ref,
+                    read_at,
                     proposal_id,
+                    value_norm or None,
+                    observed_at,
                 ),
             )
+            for activity_id in dict.fromkeys(activities):
+                self._execute(
+                    "INSERT OR IGNORE INTO fact_activities (fact_id, activity_id) VALUES (?, ?)",
+                    (fact_id, activity_id),
+                )
             unique = self._set_scopes(fact_id, scopes)
             if node_id is not None:
                 self._execute("UPDATE nodes SET updated_at = ? WHERE id = ?", (now, node_id))
@@ -764,6 +989,30 @@ class Store:
             self._refresh_hidden(fact_id, "fact")
             return self.get_fact(fact_id)
 
+    def observe_again(self, fact_id: str, day: str) -> bool:
+        """SPEC 4.2: an observed fact seen again - its ``observed_at`` moves to
+        ``day`` when that is later. Returns whether it moved."""
+        with self._lock, self._transaction():
+            moved = self._execute(
+                "UPDATE facts SET observed_at = ?, updated_at = ? WHERE id = ?"
+                " AND observed_at IS NOT NULL AND observed_at < ?",
+                (day, self.now(), fact_id, day),
+            ).rowcount
+            return bool(moved)
+
+    def observed_days(self, fact_ids: Sequence[str]) -> dict[str, str]:
+        """``fact id -> observed_at`` for the observed ones among facts already
+        known to be visible (recall's ranking, SPEC 4.2)."""
+        if not fact_ids:
+            return {}
+        with self._lock:
+            rows = self._execute(
+                f"SELECT id, observed_at FROM facts WHERE id IN ({_ph(fact_ids)})"  # noqa: S608
+                " AND observed_at IS NOT NULL",
+                fact_ids,
+            ).fetchall()
+            return {r["id"]: r["observed_at"] for r in rows}
+
     def flag_fact(self, fact_id: str, *flags: str, conflicts_with: str | None = None) -> Fact:
         """Add flags (``conflict``, ``language_mismatch``) and, for a conflict, the
         fact it stands against; nothing else about the fact changes."""
@@ -797,6 +1046,23 @@ class Store:
             ).fetchall()
             return self._facts_from_rows(rows)
 
+    def flagged_facts(
+        self, node_ids: Sequence[str], view: Visibility, *, flag: str, limit: int
+    ) -> list[Fact]:
+        """At most ``limit`` live, visible facts of ``node_ids`` carrying ``flag``
+        (SPEC 5.4: the elements of sets the extraction prompt lists), oldest first."""
+        if not node_ids:
+            return []
+        with self._lock:
+            vis, params = self._fact_visible_sql(view)
+            rows = self._execute(
+                "SELECT f.* FROM facts f LEFT JOIN nodes n ON n.id = f.node_id"  # noqa: S608
+                f" WHERE f.node_id IN ({_ph(node_ids)}) AND (',' || f.flags || ',') LIKE ?"
+                f" AND {vis} AND f.valid_to IS NULL ORDER BY f.created_at, f.id LIMIT ?",
+                (*node_ids, f"%,{flag},%", *params, int(limit)),
+            ).fetchall()
+            return self._facts_from_rows(rows)
+
     def facts(
         self,
         node_ids: Sequence[str],
@@ -819,6 +1085,20 @@ class Store:
                 (*node_ids, *params),
             ).fetchall()
             return self._facts_from_rows(rows)
+
+    def value_norms(self, fact_ids: Sequence[str]) -> dict[str, str]:
+        """The comparison forms of these facts' values (SPEC 5.4), by fact id; a
+        fact without one is left out. For the write path's comparison only: the
+        caller already holds the facts through its view (P9)."""
+        if not fact_ids:
+            return {}
+        with self._lock:
+            rows = self._execute(
+                f"SELECT id, value_norm FROM facts WHERE id IN ({_ph(fact_ids)})"  # noqa: S608
+                " AND value_norm IS NOT NULL",
+                list(fact_ids),
+            ).fetchall()
+        return {r["id"]: r["value_norm"] for r in rows}
 
     def fact_roots(self, fact_ids: Sequence[str]) -> dict[str, str]:
         """The first fact of each fact's equivalence group (SPEC 5.4): its
@@ -884,6 +1164,23 @@ class Store:
                 (*node_ids, *params),
             ).fetchall()
             return {r["node_id"]: int(r["n"]) for r in rows}
+
+    def external_only(self, node_ids: Sequence[str], view: Visibility) -> set[str]:
+        """The nodes among ``node_ids`` whose live, visible facts are all
+        external content (SPEC 8.5); a node with no such fact is not one."""
+        if not node_ids:
+            return set()
+        with self._lock:
+            vis, params = self._fact_visible_sql(view)
+            rows = self._execute(
+                "SELECT f.node_id AS node_id"  # noqa: S608
+                " FROM facts f LEFT JOIN nodes n ON n.id = f.node_id"
+                f" WHERE f.node_id IN ({_ph(node_ids)}) AND {vis} AND f.valid_to IS NULL"
+                " GROUP BY f.node_id"
+                " HAVING sum(coalesce(f.provenance, '') != 'external') = 0",
+                (*node_ids, *params),
+            ).fetchall()
+            return {r["node_id"] for r in rows}
 
     def facts_top(self, node_ids: Sequence[str], view: Visibility, per_node: int) -> list[Fact]:
         """The ``per_node`` best live, visible facts of each node, in one query."""
@@ -984,39 +1281,47 @@ class Store:
             ).fetchall()
             return self._facts_from_rows(rows)
 
-    def fact_history(
+    def fact_changes(
         self,
         view: Visibility,
         *,
         node_id: str | None,
         since: str | None,
         until: str | None,
+        before: tuple[str, str, str] | None,
         limit: int,
-    ) -> list[Fact]:
-        """Visible facts, live or closed, of one node or of the whole view, whose
-        life touched ``[since, until]``: recorded before ``until`` and not closed
-        before ``since``. Newest first, bounded (the timeline's raw material)."""
+    ) -> list[tuple[str, str, str]]:
+        """``(at, fact id, change)`` of the visible facts, live or closed, of one node
+        or of the whole view: ``recorded`` at ``created_at``, ``closed`` at
+        ``valid_to``. Newest first (ties: id, then ``recorded`` before ``closed``),
+        inside ``[since, until]``, strictly after the keyset position ``before`` in
+        that order, at most ``limit`` (the timeline's pages, SPEC 8)."""
         if view.is_empty or limit <= 0:
             return []
         with self._lock:
             vis, params = self._fact_visible_sql(view)
-            clauses = [vis]
-            args: list[object] = list(params)
-            if node_id is not None:
-                clauses.append("f.node_id = ?")
-                args.append(node_id)
-            if until is not None:
-                clauses.append("f.created_at <= ?")
-                args.append(until)
+            node_sql, node_args = (" AND f.node_id = ?", [node_id]) if node_id else ("", [])
+            base = f"FROM facts f LEFT JOIN nodes n ON n.id = f.node_id WHERE {vis}{node_sql}"
+            clauses: list[str] = []
+            args: list[object] = [*params, *node_args, *params, *node_args]
             if since is not None:
-                clauses.append("(f.valid_to IS NULL OR f.valid_to >= ?)")
+                clauses.append("c.at >= ?")
                 args.append(since)
+            if until is not None:
+                clauses.append("c.at <= ?")
+                args.append(until)
+            if before is not None:
+                clauses.append("(c.at, c.id, c.change) < (?, ?, ?)")
+                args.extend(before)
+            where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
             rows = self._execute(
-                "SELECT f.* FROM facts f LEFT JOIN nodes n ON n.id = f.node_id"  # noqa: S608
-                f" WHERE {' AND '.join(clauses)} ORDER BY f.created_at DESC, f.id DESC LIMIT ?",
+                "SELECT c.at, c.id, c.change FROM ("  # noqa: S608
+                f"SELECT f.created_at AS at, f.id AS id, 'recorded' AS change {base}"
+                f" UNION ALL SELECT f.valid_to, f.id, 'closed' {base} AND f.valid_to IS NOT NULL"
+                f") c{where} ORDER BY c.at DESC, c.id DESC, c.change DESC LIMIT ?",
                 (*args, int(limit)),
             ).fetchall()
-            return self._facts_from_rows(rows)
+            return [(r["at"], r["id"], r["change"]) for r in rows]
 
     # ------------------------------------------------------------------ edges
 
@@ -1078,6 +1383,33 @@ class Store:
                 (CONFIRMED, self.now(), edge_id),
             )
             return self.get_edge(edge_id)
+
+    def set_edge_status(self, edge_id: str, status: str) -> Edge:
+        """Put the edge back to ``status`` (what undoing a person's confirmation
+        does, SPEC 5.7)."""
+        if status not in (PROPOSED, CONFIRMED):
+            raise ValueError(f"unknown edge status {status!r}")
+        with self._lock, self._transaction():
+            self.get_edge(edge_id)
+            self._execute(
+                "UPDATE edges SET status = ?, updated_at = ? WHERE id = ?",
+                (status, self.now(), edge_id),
+            )
+            return self.get_edge(edge_id)
+
+    def live_edge(
+        self, src: str, dst: str, type: str, view: Visibility, *, either_way: bool = False
+    ) -> Edge | None:
+        """The live, visible edge of ``type`` from ``src`` to ``dst`` (or from
+        ``dst`` to ``src`` with ``either_way``), confirmed first, else the oldest:
+        the one an explicit link confirms rather than adding a twin (SPEC 5.2)."""
+        found = [
+            e
+            for e in self.edges_between([src, dst], view)
+            if e.type == type and ((e.src, e.dst) == (src, dst) or (either_way and e.src == dst))
+        ]
+        found.sort(key=lambda e: (e.status != CONFIRMED, e.created_at, e.id))
+        return found[0] if found else None
 
     def reinforce_edge(self, edge_id: str, *, step: float = REINFORCE_STEP) -> Edge | None:
         """The expand signal (SPEC 5.3): the edge was used by a recall the agent then
@@ -1388,6 +1720,8 @@ class Store:
         if node_id is None and kind != FACT:
             raise ValueError(f"a {kind} proposal needs a node")
         text = " ".join(value.split())
+        if kind == ALIAS:  # SPEC 5.1: what is no name is not proposed either
+            text = require_name(text)
         norm = normalize(text)
         if not norm:
             raise ValueError("a proposal needs a value")
@@ -1450,18 +1784,154 @@ class Store:
             scopes = self._scopes_map([r["id"] for r in rows])
             return [self._proposal_from_row(r, scopes.get(r["id"], ())) for r in rows]
 
-    def pending_proposals(self, view: Visibility, *, kind: str | None = None) -> list[Proposal]:
+    def newer_pending(self, facts: Iterable[Fact], view: Visibility) -> set[str]:
+        """SPEC 8.5: the live observed facts among ``facts`` whose node has a
+        pending fact proposal visible in ``view`` (P9) that is itself an
+        observation of the same attribute with another value, observed on a
+        later day: memory did not close them, yet a newer observation waits in
+        review. Computed, never stored."""
+        observed = [
+            f
+            for f in facts
+            if "observed" in f.flags
+            and f.observed_at
+            and f.node_id
+            and f.attribute
+            and f.valid_to is None
+            and f.archived_at is None
+        ]
+        if not observed:
+            return set()
+        nodes = sorted({f.node_id for f in observed if f.node_id})
+        pending = [p for p in self.proposals(nodes, view) if p.kind == "fact"]
+        out: set[str] = set()
+        for fact in observed:
+            for proposal in pending:
+                said = proposal.payload
+                value, day = said.get("value"), said.get("observed_at")
+                if (
+                    proposal.node_id == fact.node_id
+                    and said.get("attribute") == fact.attribute
+                    and "observed" in (said.get("flags") or ())
+                    and isinstance(value, str)
+                    and value.casefold() != (fact.value or "").casefold()
+                    and isinstance(day, str)
+                    and day[:10] > (fact.observed_at or "")[:10]
+                ):
+                    out.add(fact.id)
+                    break
+        return out
+
+    def newer_observed(self, facts: Iterable[Fact], view: Visibility) -> set[str]:
+        """SPEC 8.5: the live observed facts among ``facts`` whose node holds
+        another live observed fact, visible in ``view`` (P9), under another
+        attribute and observed on a later day. Computed, never stored."""
+        observed = [
+            f
+            for f in facts
+            if "observed" in f.flags
+            and f.observed_at
+            and f.node_id
+            and f.valid_to is None
+            and f.archived_at is None
+        ]
+        if not observed:
+            return set()
+        nodes = sorted({f.node_id for f in observed if f.node_id})
+        with self._lock:
+            vis, params = self._fact_visible_sql(view)
+            rows = self._execute(
+                "SELECT f.node_id, f.attribute, f.observed_at FROM facts f"  # noqa: S608
+                " LEFT JOIN nodes n ON n.id = f.node_id"
+                f" WHERE f.node_id IN ({_ph(nodes)}) AND f.observed_at IS NOT NULL"
+                " AND f.valid_to IS NULL AND f.archived_at IS NULL"
+                f" AND (',' || f.flags || ',') LIKE '%,observed,%' AND {vis}",
+                (*nodes, *params),
+            ).fetchall()
+        latest: dict[tuple[str, str | None], str] = {}
+        for row in rows:
+            key = (row["node_id"], row["attribute"])
+            latest[key] = max(latest.get(key, ""), str(row["observed_at"])[:10])
+        out: set[str] = set()
+        for fact in observed:
+            day = (fact.observed_at or "")[:10]
+            if any(
+                node == fact.node_id and attribute != fact.attribute and seen > day
+                for (node, attribute), seen in latest.items()
+            ):
+                out.add(fact.id)
+        return out
+
+    def contested(self, facts: Iterable[Fact], view: Visibility) -> set[str]:
+        """SPEC 8.5: the live facts among ``facts`` that a live fact, visible in
+        ``view`` (P9) and still flagged ``conflict``, names in
+        ``conflicts_with``: the other side of an open conflict. Only a fact of
+        at least the same authority counts (P6): an explicit fact is contested
+        only by an explicit one, a fact that is not external content never by
+        external content."""
+        live = {f.id: f for f in facts if f.valid_to is None and f.archived_at is None}
+        if not live:
+            return set()
+        with self._lock:
+            vis, params = self._fact_visible_sql(view)
+            rows = self._execute(
+                "SELECT f.conflicts_with, f.origin, f.provenance FROM facts f"  # noqa: S608
+                " LEFT JOIN nodes n ON n.id = f.node_id"
+                f" WHERE f.conflicts_with IN ({_ph(list(live))})"
+                " AND f.valid_to IS NULL AND f.archived_at IS NULL"
+                f" AND (',' || f.flags || ',') LIKE '%,conflict,%' AND {vis}",
+                (*live, *params),
+            ).fetchall()
+        out: set[str] = set()
+        for row in rows:
+            held = live[str(row["conflicts_with"])]
+            if held.origin == "explicit" and row["origin"] != "explicit":
+                continue  # P6: an extraction never casts doubt on an explicit fact
+            if held.provenance != "external" and row["provenance"] == "external":
+                continue  # P6: external content never on what was not
+            out.add(held.id)
+        return out
+
+    def read_flags(self, facts: Iterable[Fact], view: Visibility) -> dict[str, set[str]]:
+        """SPEC 8.5: the flags computed when facts are read, by fact id:
+        ``newer_pending``, ``newer_observed`` and the other side of an open
+        ``conflict``. Never stored."""
+        listed = list(facts)
+        out: dict[str, set[str]] = {}
+        for flag, ids in (
+            ("newer_pending", self.newer_pending(listed, view)),
+            ("newer_observed", self.newer_observed(listed, view)),
+            ("conflict", self.contested(listed, view)),
+        ):
+            for fact_id in ids:
+                out.setdefault(fact_id, set()).add(flag)
+        return out
+
+    def pending_proposals(
+        self,
+        view: Visibility,
+        *,
+        kind: str | None = None,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> list[Proposal]:
         """Every pending proposal visible in ``view`` (P9), of ``kind`` when given,
-        oldest first: the only place a fact proposal without a node shows."""
+        oldest first: the only place a fact proposal without a node shows. With
+        ``after`` (``created_at``, id), only those after that keyset position;
+        with ``limit``, at most that many (SPEC 8 pages)."""
         if view.is_empty:
             return []
         with self._lock:
             vis, params = _visible(view, "p.id")
             kind_sql, kind_params = (" AND p.kind = ?", (kind,)) if kind else ("", ())
+            after_sql, after_params = (
+                (" AND (p.created_at, p.id) > (?, ?)", after) if after else ("", ())
+            )
+            limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
             rows = self._execute(
-                f"SELECT p.* FROM proposals p WHERE p.status = ?{kind_sql} AND {vis}"  # noqa: S608
-                " ORDER BY p.created_at, p.id",
-                (PENDING, *kind_params, *params),
+                f"SELECT p.* FROM proposals p WHERE p.status = ?{kind_sql}{after_sql}"  # noqa: S608
+                f" AND {vis} ORDER BY p.created_at, p.id{limit_sql}",
+                (PENDING, *kind_params, *after_params, *params),
             ).fetchall()
             scopes = self._scopes_map([r["id"] for r in rows])
             return [self._proposal_from_row(r, scopes.get(r["id"], ())) for r in rows]
@@ -1483,6 +1953,7 @@ class Store:
                 applied = self._apply_fact_proposal(proposal)
             elif accept:
                 assert proposal.node_id is not None  # only a fact proposal goes without
+                require_name(proposal.value)  # SPEC 5.1: no alias to add, InvalidName
                 self.update_node(proposal.node_id, add_aliases=[proposal.value])
             self._execute(
                 "UPDATE proposals SET status = ?, decided_at = ?, applied_id = ? WHERE id = ?",
@@ -1493,7 +1964,7 @@ class Store:
     def _apply_fact_proposal(self, proposal: Proposal) -> str:
         """An explicit fact (a human vouched for it, P6) that keeps where it came
         from: the source and span, the part's provenance, the proposal. Like
-        ``remember``, it closes nothing."""
+        ``remember``, it closes nothing - but for a commitment of the self."""
         data = proposal.payload
         excerpt = (
             (proposal.excerpt_start, proposal.excerpt_end)
@@ -1516,9 +1987,134 @@ class Store:
             flags=[str(f) for f in data.get("flags") or ()],
             language=data.get("language"),
             provenance=data.get("provenance"),
+            part_kind=data.get("part_kind"),
+            part_ref=data.get("part_ref"),
+            read_at=data.get("read_at"),
+            observed_at=data.get("observed_at"),
+            activities=self._live_nodes(data.get("activities")),
             proposal_id=proposal.id,
         )
+        self._replace_commitment(fact, data.get("why"))
         return fact.id
+
+    def _replace_commitment(self, fact: Fact, why: Any) -> None:
+        """SPEC 4.2: a commitment of the self accepted from review replaces the
+        live one of its topic, as it would have when written without review -
+        the reviewer's accept is the decision. Only a commitment with a topic
+        (one current value per topic), only one proposed as a rule of the
+        self, and only what the write would have seen: the facts visible from
+        the proposal's own scopes (P9), never the same topic held in a scope
+        beside it. Any other accepted fact closes nothing."""
+        for old in self._commitment_held(fact.node_id, fact.attribute, fact.scopes, why):
+            if old.id != fact.id:
+                self.close_fact(old.id, valid_to=fact.valid_from, superseded_by=fact.id)
+
+    def _commitment_held(
+        self, node_id: str | None, attribute: Any, scopes: Sequence[str], why: Any
+    ) -> list[Fact]:
+        """The live facts an accepted rule of the self closes: see
+        ``_replace_commitment``, which states the rule."""
+        if (
+            why != SELF_RULE
+            or node_id is None
+            or not isinstance(attribute, str)
+            or not attribute.startswith("commitment.")
+            or not scopes
+        ):
+            return []
+        view = Visibility.of_scope(scopes[0]) if len(scopes) == 1 else Visibility.of_scopes(scopes)
+        return [old for old in self.facts([node_id], view) if old.attribute == attribute]
+
+    def replaced_by(self, proposal: Proposal) -> list[Fact]:
+        """SPEC 4.4b: the live facts accepting this pending proposal would
+        close, so that a reviewer reads them before deciding. The same rule
+        as the accept itself; none for any proposal that closes nothing."""
+        if proposal.kind != "fact" or proposal.status != PENDING:
+            return []
+        data = proposal.payload
+        return self._commitment_held(
+            proposal.node_id, data.get("attribute"), list(proposal.scopes), data.get("why")
+        )
+
+    def _live_nodes(self, node_ids: Any) -> list[str]:
+        """SPEC 4.2: the activities a fact proposal named whose node is still
+        there (forgetting one deletes the links to it, P5)."""
+        if not isinstance(node_ids, list):
+            return []
+        return [n for n in node_ids if isinstance(n, str) and self._exists("nodes", n)]
+
+    def nodes_of_kind(self, kind: str, view: Visibility, *, limit: int = 500) -> list[Node]:
+        """The live, visible nodes of ``kind``, the newest first, at most ``limit``."""
+        with self._lock:
+            vis, params = _visible(view, "n.id")
+            rows = self._execute(
+                f"SELECT n.* FROM nodes n WHERE n.kind = ? AND n.archived_at IS NULL AND {vis}"  # noqa: S608
+                " ORDER BY n.created_at DESC, n.id DESC LIMIT ?",
+                (kind, *params, limit),
+            ).fetchall()
+            return self._nodes_from_rows(rows)
+
+    def activity_facts(
+        self, activity_ids: Sequence[str], view: Visibility, *, rules: int, episodes: int
+    ) -> list[Fact]:
+        """SPEC 5.5: a family's block from the store - the ``rules`` newest live,
+        visible ``method`` facts linked to one of ``activity_ids`` or to a node
+        merged into one, then their ``episodes`` newest linked episodes."""
+        with self._lock:
+            ids, frontier = list(activity_ids), list(activity_ids)
+            while frontier and len(ids) < MAX_MERGED:
+                frontier = [
+                    r["id"]
+                    for r in self._execute(
+                        f"SELECT id FROM nodes WHERE merged_into IN ({_ph(frontier)})",  # noqa: S608
+                        tuple(frontier),
+                    ).fetchall()
+                    if r["id"] not in ids
+                ]
+                ids.extend(frontier)
+            vis, params = self._fact_visible_sql(view)
+            found = []
+            for kind, limit in (("f.attribute = 'method'", rules), (_EPISODE_SQL, episodes)):
+                found.extend(
+                    self._execute(
+                        "SELECT DISTINCT f.* FROM facts f"  # noqa: S608
+                        " JOIN fact_activities a ON a.fact_id = f.id"
+                        " LEFT JOIN nodes n ON n.id = f.node_id"
+                        f" WHERE a.activity_id IN ({_ph(ids)}) AND {kind}"
+                        f" AND f.valid_to IS NULL AND {vis}"
+                        " ORDER BY f.created_at DESC, f.id DESC LIMIT ?",
+                        (*ids, *params, limit),
+                    ).fetchall()
+                )
+            return self._facts_from_rows(found)
+
+    def node_rules(self, node_id: str, view: Visibility, limit: int) -> list[Fact]:
+        """SPEC 5.5: the ``limit`` newest live, visible ``method`` facts of a node."""
+        with self._lock:
+            vis, params = self._fact_visible_sql(view)
+            rows = self._execute(
+                "SELECT f.* FROM facts f LEFT JOIN nodes n ON n.id = f.node_id"  # noqa: S608
+                f" WHERE f.node_id = ? AND f.attribute = 'method' AND f.valid_to IS NULL"
+                f" AND {vis} ORDER BY f.created_at DESC, f.id DESC LIMIT ?",
+                (node_id, *params, limit),
+            ).fetchall()
+            return self._facts_from_rows(rows)
+
+    def fact_activities(self, fact_ids: Sequence[str]) -> dict[str, list[str]]:
+        """SPEC 4.2: ``fact id -> the activities it is linked to`` (stored ids;
+        a reader follows ``merge_target`` and checks visibility)."""
+        if not fact_ids:
+            return {}
+        with self._lock:
+            rows = self._execute(
+                "SELECT fact_id, activity_id FROM fact_activities"  # noqa: S608
+                f" WHERE fact_id IN ({_ph(fact_ids)}) ORDER BY fact_id, activity_id",
+                tuple(fact_ids),
+            ).fetchall()
+        out: dict[str, list[str]] = {}
+        for row in rows:
+            out.setdefault(row["fact_id"], []).append(row["activity_id"])
+        return out
 
     def merge_proposed(self, a: str, b: str) -> bool:
         """Is a merge of these two nodes already proposed, in either direction?"""
@@ -1832,6 +2428,42 @@ class Store:
             self._reindex_node(node_id)
             return self.get_node(node_id)
 
+    def scope_sets(self, record_ids: Sequence[str]) -> dict[str, tuple[str, ...]]:
+        """The scope set of every record among ``record_ids`` that exists, in one
+        query (a forgotten or unknown id is absent)."""
+        with self._lock:
+            return self._scopes_map(list(dict.fromkeys(record_ids)))
+
+    def restore_node_names(
+        self, node_id: str, *, name: str, kind: str, aliases: Iterable[str]
+    ) -> Node:
+        """Put back exactly a node's name, kind and alias set (undoing a person's
+        correction, SPEC 5.7): the stored text as it was, not run through the
+        name rule again."""
+        wanted = {normalize(a): a for a in aliases}
+        with self._lock, self._transaction():
+            before = self.get_node(node_id)
+            self._execute(
+                "UPDATE nodes SET name = ?, name_norm = ?, kind = ?, updated_at = ? WHERE id = ?",
+                (name, normalize(name), kind, self.now(), node_id),
+            )
+            for alias in before.aliases:
+                if normalize(alias) not in wanted or wanted[normalize(alias)] != alias:
+                    self._execute(
+                        "DELETE FROM node_aliases WHERE node_id = ? AND alias = ?",
+                        (node_id, alias),
+                    )
+            for alias in wanted.values():
+                self._execute(
+                    "INSERT OR IGNORE INTO node_aliases (node_id, alias, alias_norm)"
+                    " VALUES (?, ?, ?)",
+                    (node_id, alias, normalize(alias)),
+                )
+            if name != before.name or set(before.aliases) != set(wanted.values()):
+                self._drop_vector(node_id, NAME)
+            self._reindex_node(node_id)
+            return self.get_node(node_id)
+
     def consolidate_facts(
         self, fact_ids: Sequence[str], *, into: str, valid_to: str | None = None
     ) -> None:
@@ -2078,21 +2710,65 @@ class Store:
             self._refresh_hidden(record_id, kind)
         return kind
 
-    def archived(self, view: Visibility) -> list[dict[str, str]]:
+    def archived(
+        self,
+        view: Visibility,
+        *,
+        before: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Archived nodes, facts and edges the view sees, most recently archived
+        first (ties: id, descending); with ``before`` (``archived_at``, id), only
+        those after that keyset position; with ``limit``, at most that many.
+
+        Each item says what a person needs to choose between restore and forget
+        (SPEC 8.3): a node's name and kind, a fact's statement and node, an
+        edge's type, status and ends. A node the view does not see (a fact's, an
+        edge's end) shows as null, its id and its name alike (P9)."""
+        if view.is_empty:
+            return []
         with self._lock:
-            out: list[dict[str, str]] = []
+            out: list[dict[str, Any]] = []
+            before_sql, before_params = (
+                (" AND (t.archived_at, t.id) < (?, ?)", before) if before else ("", ())
+            )
+            limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
             for kind in ARCHIVABLE:
                 vis, params = _visible(view, "t.id")
+                columns, joins, join_params = self._archived_columns(kind, view)
                 rows = self._execute(
-                    f"SELECT t.id, t.archived_at FROM {_TABLES[kind]} t"  # noqa: S608
-                    f" WHERE t.archived_at IS NOT NULL AND {vis}"
-                    " ORDER BY t.archived_at DESC, t.id",
-                    params,
+                    f"SELECT t.id, t.archived_at{columns} FROM {_TABLES[kind]} t{joins}"  # noqa: S608
+                    f" WHERE t.archived_at IS NOT NULL{before_sql} AND {vis}"
+                    f" ORDER BY t.archived_at DESC, t.id DESC{limit_sql}",
+                    (*join_params, *before_params, *params),
                 ).fetchall()
-                out.extend(
-                    {"id": r["id"], "kind": kind, "archived_at": r["archived_at"]} for r in rows
-                )
-            return out
+                out.extend(_archived_item(kind, r) for r in rows)
+            out.sort(key=lambda r: (r["archived_at"], r["id"]), reverse=True)
+            return out if limit is None else out[: int(limit)]
+
+    @staticmethod
+    def _archived_columns(kind: str, view: Visibility) -> tuple[str, str, list[str]]:
+        """The extra columns, joins and join parameters of one kind's archive rows."""
+        if kind == "node":
+            return ", t.name, t.kind AS node_kind, t.merged_into", "", []
+        if kind == "fact":
+            vis, params = _visible(view, "n.id")
+            return (
+                f", t.statement, CASE WHEN {vis} THEN n.id END AS node_id,"
+                f" CASE WHEN {vis} THEN n.name END AS node_name",
+                " LEFT JOIN nodes n ON n.id = t.node_id",
+                [*params, *params],
+            )
+        vis_s, p_s = _visible(view, "s.id")
+        vis_d, p_d = _visible(view, "d.id")
+        return (
+            f", t.type, t.status, CASE WHEN {vis_s} THEN s.id END AS src,"
+            f" CASE WHEN {vis_s} THEN s.name END AS src_name,"
+            f" CASE WHEN {vis_d} THEN d.id END AS dst,"
+            f" CASE WHEN {vis_d} THEN d.name END AS dst_name",
+            " LEFT JOIN nodes s ON s.id = t.src LEFT JOIN nodes d ON d.id = t.dst",
+            [*p_s, *p_s, *p_d, *p_d],
+        )
 
     def forget(self, record_id: str) -> dict[str, int]:
         """Irreversible hard delete of the record and everything hanging off it (P5).
@@ -2115,6 +2791,7 @@ class Store:
                     counts = self._forget_source(record_id, removed)
                 counts["dream_ops_wiped"] = self._wipe_journal(removed)
                 counts["adjudications_deleted"] = self._forget_adjudications(removed)
+                counts["corrections_wiped"] = self._wipe_corrections(removed)
             self._scrub()
         return counts
 
@@ -2142,6 +2819,24 @@ class Store:
                 )
                 wiped.add(op_id)
             self._execute("DELETE FROM dream_op_records WHERE record_id = ?", (record_id,))
+        return len(wiped)
+
+    def _wipe_corrections(self, record_ids: Sequence[str]) -> int:
+        """P5 (SPEC 5.7): the corrections journal entries that mention a forgotten
+        record lose their content (what was asked, the state they changed) and
+        the record's id; they can no longer be undone. Returns how many."""
+        wiped: set[str] = set()
+        for record_id in record_ids:
+            for row in self._execute(
+                "SELECT correction_id FROM correction_records WHERE record_id = ?", (record_id,)
+            ).fetchall():
+                self._execute(
+                    "UPDATE corrections SET payload = NULL, changes = NULL, before_revs = NULL,"
+                    " after_revs = NULL, forgotten = 1 WHERE id = ?",
+                    (row["correction_id"],),
+                )
+                wiped.add(row["correction_id"])
+            self._execute("DELETE FROM correction_records WHERE record_id = ?", (record_id,))
         return len(wiped)
 
     def _forget_adjudications(self, record_ids: Sequence[str]) -> int:
@@ -2177,6 +2872,11 @@ class Store:
         counts["proposals"] += self._forget_proposals("value", node_id, kind=MERGE)
         counts["vectors"] = counts.get("vectors", 0) + self._drop_vector(node_id)
         counts["probes_deleted"] = counts.get("probes_deleted", 0) + self._forget_expected(node_id)
+        session_facts, session_turns = self._forget_session_facts(node_id)
+        if session_facts:
+            counts["session_facts"] = session_facts
+        if session_turns:
+            counts["session_turns"] = session_turns
         self._execute("DELETE FROM node_aliases WHERE node_id = ?", (node_id,))
         self._unindex(node_id)
         self._drop_scopes(node_id)
@@ -2186,6 +2886,37 @@ class Store:
         removed.append(node_id)
         counts["nodes"] = 1
         return counts
+
+    def _forget_session_facts(self, node_id: str) -> tuple[int, int]:
+        """P5 (SPEC 5.8): the session facts about a forgotten node - their subject is
+        its name or one of its aliases - go with it, and so do the turns of a
+        trace that name it (whole words: "Karima" does not name Karim). A source
+        forgotten takes its session facts and its trace along by itself (they
+        reference it). Returns (session facts, turns) deleted."""
+        names = [
+            r[0]
+            for r in self._execute(
+                "SELECT name FROM nodes WHERE id = ?"
+                " UNION SELECT alias FROM node_aliases WHERE node_id = ?",
+                (node_id, node_id),
+            ).fetchall()
+        ]
+        norms = sorted({n for n in (normalize(name) for name in names) if n})
+        if not norms:
+            return 0, 0
+        cursor = self._execute(
+            f"DELETE FROM session_facts WHERE subject_norm IN ({_ph(norms)})",  # noqa: S608
+            norms,
+        )
+        wanted = [f" {' '.join(n.split())} " for n in norms]
+        named = [
+            r["id"]
+            for r in self._execute("SELECT id, excerpt FROM session_turns").fetchall()
+            if any(w in f" {' '.join(normalize(r['excerpt']).split())} " for w in wanted)
+        ]
+        for turn_id in named:
+            self._execute("DELETE FROM session_turns WHERE id = ?", (turn_id,))
+        return int(cursor.rowcount), len(named)
 
     def _forget_facts(self, fact_ids: Sequence[str], removed: list[str]) -> dict[str, int]:
         counts = {"facts": 0, "sources": 0, "vectors": 0, "probes_deleted": 0}
@@ -2470,6 +3201,10 @@ class Store:
             conflicts_with=row["conflicts_with"],
             same_as=row["same_as"],
             provenance=row["provenance"],
+            part_kind=row["part_kind"],
+            part_ref=row["part_ref"],
+            read_at=row["read_at"],
+            observed_at=row["observed_at"],
             proposal_id=row["proposal_id"],
             consolidated_into=row["consolidated_into"],
             rev=int(row["rev"]),
@@ -2517,6 +3252,7 @@ class Store:
             archived_at=row["archived_at"],
             evidence=evidence,
             rev=int(row["rev"]),
+            decision_rev=int(row["decision_rev"]),
         )
 
 

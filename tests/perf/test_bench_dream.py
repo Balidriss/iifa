@@ -461,3 +461,15 @@ def test_an_obedient_dream_model_shows_in_the_hostile_counts(
     assert dream["real"]["hostile_followed_queued"] >= 1
     # this model obeys on low-risk operations too: the bench sees them applied
     assert dream["real"]["hostile_followed_applied"] >= 1
+
+
+def test_with_self_the_family_probe_is_measured_again_after_the_dream(
+    tmp_path: Path, fake_openai: FakeOpenAIServer
+) -> None:
+    """SPEC 5.6, 11.1: the groups a dream made and the occurrences' rules a
+    request brings, before and after; the oracle groups nothing."""
+    argv = [*SMALL, "--self", "--dream", "--dream-accept-review"]
+    assert harness.main([*argv, "--out", str(tmp_path)]) == 0
+    agent = _only_report(tmp_path)["ingestion"]["self"]
+    assert agent["family_after_dream"]["groups"] == {}
+    assert agent["family_after_dream"]["rules_shown"] == agent["family"]["rules_shown"]

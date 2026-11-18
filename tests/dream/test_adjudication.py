@@ -6,6 +6,7 @@ shown to the reviewer beside the pair (SPEC 4.4b, 8.6)."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -570,21 +571,16 @@ def test_accepting_a_merge_proposal_directly_says_where_merges_happen(
     )
     assert accept.status_code == 409
     assert accept.json()["detail"] == (
-        "a merge proposal is never accepted directly: a dream's merge_nodes, "
-        "approved in review, merges"
+        "a merge proposal is accepted in review only (POST /v1/review/{id}):"
+        " a person's decision, with the 'review' permission"
     )
     assert dream_app.state.store.get_node(memory.kiki.id).merged_into is None
 
 
-def test_a_merge_proposal_can_be_rejected_in_review_never_accepted(
+def test_a_merge_proposal_can_be_rejected_in_review(
     dream_client: TestClient, dream_app: FastAPI, memory: Memory
 ) -> None:
     proposal = _propose(dream_app, memory.karim.id, memory.kiki.id)
-    accept = dream_client.post(
-        f"/v1/review/{proposal.id}", json={"decision": "accept"}, headers=auth("review")
-    )
-    assert accept.status_code == 409
-    assert dream_app.state.store.get_node(memory.kiki.id).merged_into is None
     reject = dream_client.post(
         f"/v1/review/{proposal.id}", json={"decision": "reject"}, headers=auth("review")
     )
@@ -665,3 +661,80 @@ def test_a_quiet_run_reports_empty_adjudications(
         "names_unfit": 0,
         "pairs": [],
     }
+
+
+# --------------------------------------------------------------------------- one person, two scripts
+
+
+# an operator who lets every risk class apply alone
+ALL_AUTO = (("*", "medium", "auto"), ("*", "high", "auto"))
+
+
+@pytest.mark.parametrize("dream_review", [ALL_AUTO])
+def test_ivan_split_across_scripts_is_merged_only_through_adjudication_and_review(
+    dream_client: TestClient, dream_app: FastAPI, fake_openai: FakeOpenAIServer
+) -> None:
+    """The write path left one person on two nodes, "Иван" and "Ivan", with a
+    pending merge proposal (the embed job's name cosine). The dream reads both
+    nodes whole - names AND facts - and its `same` only queues a merge_nodes:
+    even under an all-auto policy it waits in review. A unit's own merge is
+    refused, and the names fit only by transliteration (never by a near form),
+    which is what lets this `same` stand."""
+    store = dream_app.state.store
+    ivan_ru = store.create_node(scopes=[SCOPE], name="Иван", kind="person")
+    ivan = store.create_node(scopes=[SCOPE], name="Ivan", kind="person")
+    for node, statement, key, value, language in (
+        (ivan_ru, "Иван живёт в Казани.", "home", "Казань", "ru"),
+        (ivan_ru, "Иван работает архитектором.", "role", "архитектор", "ru"),
+        (ivan, "Ivan prefers coffee.", "drink", "coffee", "en"),
+    ):
+        store.add_fact(
+            scopes=[SCOPE],
+            node_id=node.id,
+            statement=statement,
+            origin="extracted",
+            attribute=key,
+            value=value,
+            language=language,
+        )
+    proposal = _propose(dream_app, ivan.id, ivan_ru.id)
+    assert names_fit(ivan_ru, ivan, None)  # one spelling in two scripts
+    assert not names_fit(ivan_ru, replace(ivan, name="Ivana"), None)  # a near form never fits
+
+    def plan(unit: dict[str, Any]) -> list[dict[str, Any]]:
+        other = ivan.id if unit["node"]["id"] == ivan_ru.id else ivan_ru.id
+        return [{"op": "merge_nodes", "keep": unit["node"]["id"], "absorb": other}]
+
+    reason = "one name in two scripts; Kazan, architect and coffee fit one life"
+    fake_openai.set_default(
+        chat=dream_model(plan, lambda pair: {"verdict": "same", "reason": reason})
+    )
+    run = dream(dream_client)
+    [pair] = adjudication_calls(fake_openai)
+    sides = {pair["a"]["name"]: pair["a"], pair["b"]["name"]: pair["b"]}
+    assert sides["Иван"]["timelines"] == {
+        "home": "Казань (learned 1st)",
+        "role": "архитектор (learned 2nd)",
+    }
+    assert sides["Ivan"]["timelines"] == {"drink": "coffee (learned 3rd)"}
+    report = run["report"]
+    assert report["rejected"] == {"adjudication_only": 2}  # never a unit's merge
+    assert report["adjudications"]["verdicts"] == {"same": 1, "different": 0, "unsure": 0}
+    assert report["adjudications"]["names_unfit"] == 0
+    [item] = plan_of(dream_client, run["run_id"])
+    assert (item["op"], item["status"]) == ("merge_nodes", "queued")
+    assert item["route"] == "review"
+    assert (item["payload"]["keep"], item["payload"]["absorb"]) == (ivan_ru.id, ivan.id)
+    assert store.get_node(ivan.id).merged_into is None  # never a silent merge
+    assert store.get_node(ivan.id).archived_at is None
+    assert store.get_proposal(proposal.id).status == "pending"
+    [queued] = [i for i in _merge_items(dream_client) if i["kind"] == "dream_operation"]
+    assert queued["adjudication"]["verdict"] == "same"
+    assert queued["adjudication"]["reason"] == reason
+    accept = dream_client.post(
+        f"/v1/review/{queued['id']}", json={"decision": "accept"}, headers=auth("review")
+    )
+    assert accept.status_code == 200, accept.text
+    assert store.get_node(ivan.id).merged_into == ivan_ru.id  # the reviewer's decision
+    assert "Ivan" in store.get_node(ivan_ru.id).aliases
+    assert store.get_proposal(proposal.id).status == "accepted"

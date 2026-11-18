@@ -84,6 +84,7 @@ def test_a_synchronous_run_is_visible_to_another_client_while_it_runs(
         "jobs_done": 1,  # the noop before; the peek itself is still running
         "jobs_left": 2,  # 3 pending, but max_jobs leaves room for 2 more
         "yielded": False,
+        "cancel_requested": False,
     }
     background = seen[0]["background"]
     assert background["run"] == run and background["run_in_progress"] is True

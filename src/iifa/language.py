@@ -383,6 +383,12 @@ def is_code(value: str) -> bool:
     return bool(re.fullmatch(r"[a-z]{2,3}", value))
 
 
+def function_words() -> frozenset[str]:
+    """The function words of every language the detector knows ("the", "une",
+    "der"), as written: a word in this set names no subject or activity."""
+    return frozenset().union(*_STOPWORDS.values())
+
+
 def fold(text: str) -> str:
     """Lower-cased, NFC-normalised text (for comparing statements across answers)."""
     return unicodedata.normalize("NFC", text).casefold()
@@ -394,6 +400,7 @@ __all__ = [
     "describe",
     "detect",
     "fold",
+    "function_words",
     "is_code",
     "language_name",
     "language_of_span",

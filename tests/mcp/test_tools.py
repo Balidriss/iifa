@@ -293,3 +293,11 @@ def test_p3_service_down_is_an_error_result_not_a_crash(app: FastAPI) -> None:
     assert {t.name for t in listed.tools} == set(CORE_TOOLS)  # the server itself is up
     assert result.is_error
     assert "unavailable" in text_of(result) and "continue without memory" in text_of(result)
+
+
+def test_remember_about_self_reaches_the_service(
+    call: Callable[[str, dict[str, Any]], Any],
+) -> None:
+    """SPEC 9: the flag goes through; this server's scope declares no self."""
+    result = call("memory_remember", {"statement": "I answer briefly", "about_self": True})
+    assert result.is_error and "no self is declared" in text_of(result)

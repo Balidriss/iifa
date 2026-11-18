@@ -11,8 +11,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from iifa.recall.engine import RecallEngine
-from iifa.recall.handles import LINE_CHARS, one_line
+from iifa.recall.handles import LINE_CHARS, one_line, with_from
 from iifa.recall.packer import pack
+from iifa.recall.paging import take
 from iifa.scopes import Visibility
 from iifa.store.models import Fact, Node
 
@@ -47,22 +48,25 @@ def _node_head(node: Node) -> dict[str, Any]:
 
 
 def _change(fact: Fact, node: Node | None, change: str, at: str) -> dict[str, Any]:
-    return {
-        "id": fact.id,
-        "kind": "fact",
-        "change": change,
-        "at": at,
-        "node_id": node.id if node else None,
-        "node_name": node.name if node else None,
-        "line": one_line(fact.statement, LINE_CHARS),
-        "attribute": fact.attribute,
-        "value": fact.value,
-        "valid_from": fact.valid_from,
-        "valid_to": fact.valid_to,
-        "origin": fact.origin,
-        "superseded_by": fact.superseded_by,
-        "flags": list(fact.flags),
-    }
+    return with_from(
+        {
+            "id": fact.id,
+            "kind": "fact",
+            "change": change,
+            "at": at,
+            "node_id": node.id if node else None,
+            "node_name": node.name if node else None,
+            "line": one_line(fact.statement, LINE_CHARS),
+            "attribute": fact.attribute,
+            "value": fact.value,
+            "valid_from": fact.valid_from,
+            "valid_to": fact.valid_to,
+            "origin": fact.origin,
+            "superseded_by": fact.superseded_by,
+            "flags": list(fact.flags),
+        },
+        fact,
+    )
 
 
 def timeline(
@@ -74,9 +78,14 @@ def timeline(
     since: str | None,
     until: str | None,
     limit: int,
+    before: tuple[str, str, str] | None = None,
 ) -> dict[str, Any] | None:
-    """Fact changes (recorded, closed) newest first, of one node or of the view.
-    ``None`` when ``node_id`` is not a node the view may see."""
+    """Fact changes (recorded, closed) newest first, of one node or of the view,
+    one page at a time (SPEC 8): at most ``limit`` changes after the keyset
+    position ``before`` (``at``, fact id, change), the longest run of them that
+    fits the budget. ``next`` is the position of the last change delivered when
+    more follow, else ``None``. ``None`` when ``node_id`` is not a node the view
+    may see."""
     store = engine.store
     node: Node | None = None
     if node_id is not None:
@@ -85,51 +94,58 @@ def timeline(
             return None
     low = parse_bound(since) if since else None
     high = parse_bound(until, end=True) if until else None
-    facts = store.fact_history(view, node_id=node_id, since=low, until=high, limit=limit)
-    subjects = store.nodes_by_id(sorted({f.node_id for f in facts if f.node_id}), view)
-    changes: list[dict[str, Any]] = []
-    for fact in facts:
+    keys = store.fact_changes(
+        view, node_id=node_id, since=low, until=high, before=before, limit=limit + 1
+    )
+    facts = store.facts_by_id(sorted({fact_id for _, fact_id, _ in keys}), view)
+    subjects = store.nodes_by_id(sorted({f.node_id for f in facts.values() if f.node_id}), view)
+    changes: list[tuple[tuple[str, str, str], dict[str, Any]]] = []
+    for key in keys:
+        at, fact_id, change = key
+        fact = facts.get(fact_id)
+        if fact is None:  # forgotten between the two reads
+            continue
         subject = subjects.get(fact.node_id) if fact.node_id else None
-        for change, at in ((RECORDED, fact.created_at), (CLOSED, fact.valid_to)):
-            if at is None:
-                continue
-            if (low is not None and at < low) or (high is not None and at > high):
-                continue
-            changes.append(_change(fact, subject, change, at))
-    changes.sort(key=lambda c: (c["at"], c["id"], c["change"]), reverse=True)
-    result = pack([engine.cost(c) for c in changes], budget_tokens)
-    reason = result.reason
-    if not changes:
-        reason = "no_changes"
-    elif not result.chosen:
-        reason = "budget_too_small"
+        changes.append((key, _change(fact, subject, change, at)))
+    page = take(
+        changes,
+        limit=limit,
+        budget_tokens=budget_tokens,
+        cost=lambda c: engine.cost(c[1]),
+        empty_reason="no_changes",
+        more_after=len(keys) > limit,
+    )
     return {
         "node": _node_head(node) if node else None,
         "since": low,
         "until": high,
-        "items": [changes[i] for i in result.chosen],
-        "used_tokens": result.used_tokens,
+        "items": [c[1] for c in page.items],
+        "used_tokens": page.used_tokens,
         "budget_tokens": budget_tokens,
-        "omitted": result.omitted,
-        "reason": reason,
+        "omitted": page.omitted,
+        "reason": page.reason,
+        "next": page.last[0] if page.more and page.last else None,
     }
 
 
 def _known(fact: Fact) -> dict[str, Any]:
-    return {
-        "id": fact.id,
-        "kind": "fact",
-        "statement": fact.statement,
-        "attribute": fact.attribute,
-        "value": fact.value,
-        "valid_from": fact.valid_from,
-        "valid_to": fact.valid_to,
-        "origin": fact.origin,
-        "confidence": fact.confidence,
-        "recorded_at": fact.created_at,
-        "superseded_by": fact.superseded_by,
-        "flags": list(fact.flags),
-    }
+    return with_from(
+        {
+            "id": fact.id,
+            "kind": "fact",
+            "statement": fact.statement,
+            "attribute": fact.attribute,
+            "value": fact.value,
+            "valid_from": fact.valid_from,
+            "valid_to": fact.valid_to,
+            "origin": fact.origin,
+            "confidence": fact.confidence,
+            "recorded_at": fact.created_at,
+            "superseded_by": fact.superseded_by,
+            "flags": list(fact.flags),
+        },
+        fact,
+    )
 
 
 def known_at(

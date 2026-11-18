@@ -38,9 +38,12 @@ def test_manual_run_prints_what_it_wrote_and_its_language_checks(
                         "quote": "dirige la planification",
                         "attribute": "rôle",
                         "value": "planification",
+                        "modality": "fact",
+                        "duration": "lasting",
                     }
                 ],
                 "edges": [],
+                "frame": "sincere",
             }
         )
     )
@@ -94,9 +97,12 @@ KARIM = chat_json(
                 "subject": "Karim",
                 "statement": "Karim dirige la planification du projet solaire.",
                 "quote": "dirige la planification",
+                "modality": "fact",
+                "duration": "lasting",
             }
         ],
         "edges": [],
+        "frame": "sincere",
     }
 )
 

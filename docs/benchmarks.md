@@ -115,6 +115,7 @@ Other corpora, each compared only with runs that used it:
 | `--rephrase` | a value told again the same month in another language: links, conflicts, and a value closed by its own restatement (counted `restated`) |
 | `--speaker` | Alice, the declared owner of `user:alice`, speaks in the first person and is asked about in the first person |
 | `--name-traps` | Karima beside Karim, Ivana beside Ivan, Nadine beside Nadia: wrong attachments |
+| `--neighbours` | two projects described side by side in one turn: a fact attached to the other project |
 
 `--dream` adds a dry and a real dream run to a benchmark run, measured
 against the known correct answers.

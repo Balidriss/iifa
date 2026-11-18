@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from iifa.ingest.checks import unspaced_chars
+from iifa.ingest.parts import ASSISTANT, EXTERNAL
 from iifa.store.models import Fact, Node
 from iifa.tokens import Tokenizer
 
@@ -69,6 +70,39 @@ def age_days(now: datetime, stamp: str | None) -> int | None:
     return max(0, (now - then).days)
 
 
+EXTERNAL_ONLY = "external_only"  # a node known only from what was read (SPEC 8.5)
+
+
+def with_read_flags(item: dict[str, Any], read: dict[str, set[str]]) -> dict[str, Any]:
+    """``item`` (a fact handle, a fact expansion, or a fact a node's expansion
+    lists) with the flags computed at read for its fact (``Store.read_flags``:
+    ``newer_pending``, ``newer_observed``, SPEC 8.5)."""
+    extra = read.get(str(item.get("id")))
+    if extra:
+        item["flags"] = sorted({*item.get("flags", []), *extra})
+    return item
+
+
+def fact_from(fact: Fact) -> str | None:
+    """SPEC 8.5: where a fact came from, in a few tokens - the assistant's
+    declared name (``assistant`` when none), or
+    ``<kind> <ref> <day read>`` for external content - and None for the
+    owner's own words and a fact without provenance (``remember``, an import)."""
+    if fact.provenance == ASSISTANT:
+        return fact.part_ref or ASSISTANT  # its declared name (SPEC 4.6)
+    if fact.provenance != EXTERNAL:
+        return None
+    return " ".join(p for p in (fact.part_kind or EXTERNAL, fact.part_ref, fact.read_at) if p)
+
+
+def with_from(item: dict[str, Any], fact: Fact) -> dict[str, Any]:
+    """``item`` with ``from`` when the fact is not the owner's own words."""
+    said = fact_from(fact)
+    if said is not None:
+        item["from"] = said
+    return item
+
+
 def fact_expansion(
     fact: Fact, node: Node | None, level: int, excerpt: str | None
 ) -> dict[str, Any]:
@@ -95,6 +129,14 @@ def fact_expansion(
     }
     if fact.conflicts_with is not None:
         out["conflicts_with"] = fact.conflicts_with
+    if fact_from(fact) is not None:  # SPEC 8.5: where it came from, in full
+        with_from(out, fact)
+        out["provenance"] = fact.provenance
+        for key in ("part_kind", "part_ref", "read_at"):
+            if getattr(fact, key) is not None:
+                out[key] = getattr(fact, key)
+    if fact.observed_at is not None:  # SPEC 8.5: true as of that day
+        out["observed_at"] = fact.observed_at
     if fact.language is not None:
         out["language"] = fact.language
     if level >= 2:
@@ -119,7 +161,15 @@ def node_expansion(node: Node, facts: list[Fact], level: int, fact_count: int) -
         "created_at": node.created_at,
         "fact_count": fact_count,
         "facts": [
-            {"id": f.id, "statement": f.statement, "valid_from": f.valid_from, "origin": f.origin}
+            with_from(
+                {
+                    "id": f.id,
+                    "statement": f.statement,
+                    "valid_from": f.valid_from,
+                    "origin": f.origin,
+                },
+                f,
+            )
             for f in facts
         ],
     }
@@ -132,16 +182,18 @@ def fact_handle(
     fact: Fact, node: Node | None, why: str, now: datetime, expand_tokens: int
 ) -> dict[str, Any]:
     title = f"{node.name} — {fact.statement}" if node else fact.statement
-    return {
+    handle = {
         "id": fact.id,
         "kind": "fact",
         "title": one_line(title, TITLE_CHARS),
         "line": one_line(fact.statement),
         "why": why,
-        "age_days": age_days(now, fact.valid_from or fact.created_at),
+        # SPEC 8.5: an observation's age counts from the day it was observed
+        "age_days": age_days(now, fact.observed_at or fact.valid_from or fact.created_at),
         "expand_tokens": expand_tokens,
         "flags": sorted({*fact.flags, *(["pinned"] if fact.pinned else [])}),
     }
+    return with_from(handle, fact)
 
 
 def node_handle(
@@ -151,7 +203,10 @@ def node_handle(
     expand_tokens: int,
     fact_count: int,
     tokenizer: Tokenizer,
+    external_only: bool = False,
 ) -> dict[str, Any]:
+    """``external_only``: every live fact of the node the reader sees is
+    external content (SPEC 8.5)."""
     summary = summary_line(node.summary, tokenizer)
     return {
         "id": node.id,
@@ -161,7 +216,7 @@ def node_handle(
         "why": why,
         "age_days": age_days(now, node.updated_at),
         "expand_tokens": expand_tokens,
-        "flags": [],
+        "flags": [EXTERNAL_ONLY] if external_only else [],
     }
 
 

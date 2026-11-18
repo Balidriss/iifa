@@ -453,7 +453,8 @@ export function createHooks(input: PluginInput, options: Options, deps: Deps): H
         "Store ONE explicit, durable fact worth knowing in a later session: a preference, a decision, something true " +
         "about a person, project, place, object or topic. Not for chatter or transient state. Give `node_name` to " +
         "attach it to its subject, `attribute`/`value` for a structured fact, `valid_from`/`valid_to` (ISO dates) for " +
-        "a dated one.",
+        "a dated one. When this memory is also yours, `about_self` stores what you learnt, hold or commit to " +
+        "about yourself (no node needed).",
       args: {
         statement: text(z, "The fact, as one sentence."),
         node_name: z.string().optional().describe("The subject: a person, project, place, object or topic."),
@@ -463,12 +464,14 @@ export function createHooks(input: PluginInput, options: Options, deps: Deps): H
         valid_from: z.string().optional().describe("ISO date, e.g. 2026-03."),
         valid_to: z.string().optional().describe("ISO date."),
         pinned: z.boolean().optional().describe("Always part of the profile block."),
+        about_self: z.boolean().optional().describe("A fact about yourself, when this memory is also yours."),
       },
       execute: async (args) => {
         const body: Record<string, unknown> = { statement: String(args.statement ?? "") }
         if (args.node_name) body.node = { name: args.node_name, kind: args.node_kind || "other" }
         for (const key of ["attribute", "value", "valid_from", "valid_to"]) if (args[key]) body[key] = args[key]
         if (args.pinned === true) body.pinned = true
+        if (args.about_self === true) body.about_self = true
         return runTool("memory_remember", "remember", "/v1/remember", body)
       },
     },

@@ -25,7 +25,24 @@ _MAX_RANDOM = (1 << _RANDOM_BITS) - 1
 _WAIT_SECONDS = 0.0002
 
 PREFIXES = frozenset(
-    {"node", "fact", "edge", "src", "job", "run", "prop", "pset", "probe", "dream", "dop", "dadj"}
+    {
+        "node",
+        "fact",
+        "edge",
+        "src",
+        "job",
+        "run",
+        "prop",
+        "pset",
+        "probe",
+        "dream",
+        "dop",
+        "dadj",
+        "corr",
+        "sess",
+        "sfact",
+        "sturn",
+    }
 )
 
 

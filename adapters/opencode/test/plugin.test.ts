@@ -334,6 +334,12 @@ describe("tools", () => {
         "/v1/remember",
         { scope: "user:alice/agent:opencode", statement: "Karim leads solar", node: { name: "Karim", kind: "other" }, attribute: "role", value: "lead", pinned: true },
       ],
+      [
+        "memory_remember",
+        { statement: "I keep my answers short", about_self: true },
+        "/v1/remember",
+        { scope: "user:alice/agent:opencode", statement: "I keep my answers short", about_self: true },
+      ],
       ["memory_archive", { id: "fact_1" }, "/v1/archive", { id: "fact_1" }],
     ]
     for (const [name, args, path, body] of cases) {

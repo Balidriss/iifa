@@ -182,11 +182,44 @@ def lookup_call(
     return Call("GET", f"{API}/lookup", params=params)
 
 
-def archived_call(*, view_fields: Mapping[str, Any], budget_tokens: int | None) -> Call:
-    params: dict[str, Any] = dict(view_fields)
-    if budget_tokens is not None:
-        params["budget_tokens"] = budget_tokens
+def archived_call(
+    *,
+    view_fields: Mapping[str, Any],
+    budget_tokens: int | None,
+    cursor: str | None = None,
+    limit: int | None = None,
+) -> Call:
+    params: dict[str, Any] = {
+        **view_fields,
+        **_clean({"budget_tokens": budget_tokens, "cursor": cursor, "limit": limit}),
+    }
     return Call("GET", f"{API}/archive", params=params)
+
+
+def nodes_call(
+    *,
+    view_fields: Mapping[str, Any],
+    budget_tokens: int | None,
+    prefix: str | None,
+    sort: str | None,
+    include_archived: bool,
+    cursor: str | None,
+    limit: int | None,
+) -> Call:
+    params: dict[str, Any] = {
+        **view_fields,
+        **_clean(
+            {
+                "budget_tokens": budget_tokens,
+                "prefix": prefix,
+                "sort": sort,
+                "include_archived": "true" if include_archived else None,
+                "cursor": cursor,
+                "limit": limit,
+            }
+        ),
+    }
+    return Call("GET", f"{API}/nodes", params=params)
 
 
 def node_ref(node: str | Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -211,6 +244,7 @@ def remember_call(
     pinned: bool,
     external_id: str | None,
     source_reference: str | None,
+    about_self: bool = False,
 ) -> Call:
     body = _clean(
         {
@@ -226,6 +260,7 @@ def remember_call(
             "pinned": pinned or None,
             "external_id": external_id,
             "source_reference": source_reference,
+            "about_self": about_self or None,
         }
     )
     return Call("POST", f"{API}/remember", json=body)
@@ -282,6 +317,46 @@ def patch_fact_call(
         }
     )
     return Call("PATCH", f"{API}/facts/{fact_id}", json=body)
+
+
+def patch_node_call(
+    node_id: str,
+    *,
+    name: str | None,
+    keep_old_name: bool,
+    kind: str | None,
+    add_aliases: Sequence[str],
+    remove_aliases: Sequence[str],
+    rev: int | None,
+) -> Call:
+    body = _clean(
+        {
+            "name": name,
+            "keep_old_name": None if keep_old_name else False,
+            "kind": kind,
+            "add_aliases": list(add_aliases) or None,
+            "remove_aliases": list(remove_aliases) or None,
+            "rev": rev,
+        }
+    )
+    return Call("PATCH", f"{API}/nodes/{node_id}", json=body)
+
+
+def merge_nodes_call(keep: str, absorb: str, *, revs: Mapping[str, int] | None) -> Call:
+    body = _clean({"keep": keep, "absorb": absorb, "revs": None if revs is None else dict(revs)})
+    return Call("POST", f"{API}/nodes/merge", json=body)
+
+
+def decide_edge_call(edge_id: str, decision: str, *, rev: int | None) -> Call:
+    return Call("POST", f"{API}/edges/{edge_id}", json=_clean({"decision": decision, "rev": rev}))
+
+
+def correction_call(correction_id: str) -> Call:
+    return Call("GET", f"{API}/corrections/{correction_id}")
+
+
+def undo_correction_call(correction_id: str) -> Call:
+    return Call("POST", f"{API}/corrections/{correction_id}/undo")
 
 
 # --------------------------------------------------------------------------- lifecycle (SPEC 8.1)
@@ -373,6 +448,7 @@ def timeline_call(
     since: str | None,
     until: str | None,
     limit: int | None,
+    cursor: str | None = None,
 ) -> Call:
     body = _clean(
         {
@@ -382,6 +458,7 @@ def timeline_call(
             "since": since,
             "until": until,
             "limit": limit,
+            "cursor": cursor,
         }
     )
     return Call("POST", f"{API}/timeline", json=body)
@@ -450,6 +527,10 @@ def run_call(
 
 def background_run_call(run_id: str) -> Call:
     return Call("GET", f"{API}/background/run/{run_id}")
+
+
+def cancel_run_call(run_id: str) -> Call:
+    return Call("POST", f"{API}/background/run/{run_id}/cancel")
 
 
 def yield_call(*, timeout_seconds: float | None) -> Call:

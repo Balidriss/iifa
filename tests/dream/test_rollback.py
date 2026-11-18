@@ -264,7 +264,8 @@ def test_a_probe_finds_what_a_dream_consolidated_or_merged(
     probe_set = store.create_probe_set(
         scope=SCOPE,
         name="follow",
-        budget_tokens=400,
+        # "Kiki" names Karim once merged: his facts come ahead of his handle (SPEC 5.5)
+        budget_tokens=1500,
         probes=[("green tea daily", [memory.green_tea.id]), ("Kiki", [memory.kiki.id])],
     )
     store.consolidate_facts([memory.green_tea.id], into=new.id)

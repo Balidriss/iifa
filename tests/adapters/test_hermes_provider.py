@@ -819,6 +819,17 @@ def test_the_tools_are_the_four_one_call_tools_with_openai_schemas(provider: Any
                 "pinned": True,
             },
         ),
+        (
+            "memory_remember",
+            {"statement": "I keep my answers short", "about_self": True},
+            "/v1/remember",
+            "remember",
+            {
+                "scope": "user:alice/agent:hermes",
+                "statement": "I keep my answers short",
+                "about_self": True,
+            },
+        ),
         ("memory_archive", {"id": "fact_1"}, "/v1/archive", "archive", {"id": "fact_1"}),
     ],
 )
