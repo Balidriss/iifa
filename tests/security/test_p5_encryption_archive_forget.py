@@ -69,6 +69,7 @@ def test_p5_forget_leaves_no_trace_in_the_file(tmp_path: Path) -> None:
             source_id=source.id,
             attribute=f"attr {CANARY}",
             value=f"value {CANARY}",
+            value_norm=f"norm {CANARY}",  # SPEC 5.4: the comparison form goes with it
         )
         keep = store.add_fact(
             scopes=["user:alice"], statement="unrelated fact stays", origin="explicit"
@@ -86,6 +87,7 @@ def test_p5_forget_leaves_no_trace_in_the_file(tmp_path: Path) -> None:
             "probes_deleted": 0,
             "dream_ops_wiped": 0,
             "adjudications_deleted": 0,
+            "corrections_wiped": 0,
         }
         assert store.postings(["canary"], Visibility.of_scope("user:alice")) == []
         assert store.counts() == {
@@ -171,6 +173,7 @@ def test_p5_forget_needs_its_own_permission_on_every_route(client: TestClient) -
         "probes_deleted": 0,
         "dream_ops_wiped": 0,
         "adjudications_deleted": 0,
+        "corrections_wiped": 0,
     }
     assert client.get("/v1/stats").json()["counts"]["facts"] == 0
 
@@ -199,6 +202,7 @@ def test_p5_forget_works_without_archiving_first(client: TestClient) -> None:
         "probes_deleted": 0,
         "dream_ops_wiped": 0,
         "adjudications_deleted": 0,
+        "corrections_wiped": 0,
     }
     assert client.get("/v1/archive", params={"scope": "user:alice"}).json()["items"] == []
 

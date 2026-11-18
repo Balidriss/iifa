@@ -2,7 +2,7 @@
 from the node's name or from one of its aliases ("Ивана" for Иван, "Карим" for
 Карима) is a proposal, never kept on its own - kept, it would attach every
 later mention of the near name by exact match, before the adjudication could
-see it. Found with huihui_ai/Qwen3.8-abliterated:27b on the traps corpus: 5
+see it. Found with a Qwen3.8 27B variant on the traps corpus: 5
 wrong attachments, 3 false supersessions. A far nickname (Kiki) and the same
 name in another script (Ivan / Иван) are still kept."""
 

@@ -175,6 +175,7 @@ class Dreamer:
         budget: Mapping[str, Any],
         dry_run: bool,
         policy: ReviewPolicy,
+        started_by: str | None = None,
     ) -> Run:
         """Record a run; refused while another is active in the scope's family (rule 7)."""
         with self.store.lock:
@@ -183,7 +184,12 @@ class Dreamer:
                     raise DreamBusy(active.id)
             limits = {**DEFAULT_BUDGET, **{k: v for k, v in budget.items() if v is not None}}
             return self.journal.create_run(
-                scope=scope, dry_run=dry_run, operations=operations, budget=limits, policy=policy
+                scope=scope,
+                dry_run=dry_run,
+                operations=operations,
+                budget=limits,
+                policy=policy,
+                started_by=started_by,
             )
 
     # ------------------------------------------------------------------ the job
@@ -317,6 +323,10 @@ class Dreamer:
         state["seconds"] = round(own.elapsed(self._monotonic()), 3)
         journal.save_state(run.id, state)
         run = journal.get_run(run.id)
+        if stopped_by == "cancelled" and not run.cancel_requested:
+            # the background run around the dream was cancelled, not the dream:
+            # a stop at that run's budget, the dream itself finishes
+            stopped_by = "run_cancelled"
         status = CANCELLED if stopped_by == "cancelled" else FINISHED
         probes, rolled_back = self._measure(run)
         if rolled_back is not None:

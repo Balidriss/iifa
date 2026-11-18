@@ -29,6 +29,7 @@ from pydantic import (
 )
 
 from iifa.ingest.schema import normalize_edge_type
+from iifa.names import require_name
 
 # SPEC 5.6, in the order of its table
 OPERATIONS: tuple[str, ...] = (
@@ -37,6 +38,7 @@ OPERATIONS: tuple[str, ...] = (
     "reembed",
     "propose_edge",
     "create_theme",
+    "group_activities",
     "consolidate_facts",
     "merge_nodes",
     "supersede_fact",
@@ -55,6 +57,7 @@ RISK: dict[str, str] = {
     "reembed": "low",
     "propose_edge": "low",
     "create_theme": "medium",
+    "group_activities": "medium",
     "consolidate_facts": "medium",
     "merge_nodes": "high",
     "supersede_fact": "high",
@@ -138,12 +141,26 @@ class CreateTheme(_Operation):
         flat = _flat(value)
         if not flat:
             raise ValueError("an empty name")
-        return flat
+        return require_name(flat)  # SPEC 5.1: the name a node is created with
 
     @field_validator("summary")
     @classmethod
     def _flat_summary(cls, value: str | None) -> str | None:
         return None if value is None else (_flat(value) or None)
+
+
+class GroupActivities(_Operation):
+    op: Literal["group_activities"]
+    name: str = Field(min_length=1, max_length=NAME_CHARS)
+    members: list[NodeId] = Field(min_length=2, max_length=MAX_MEMBERS)
+
+    @field_validator("name")
+    @classmethod
+    def _flat_name(cls, value: str) -> str:
+        flat = _flat(value)
+        if not flat:
+            raise ValueError("an empty name")
+        return require_name(flat)  # SPEC 5.1: the name a node is created with
 
 
 class ConsolidateFacts(_Operation):
@@ -183,6 +200,7 @@ SCHEMAS: dict[str, type[_Operation]] = {
     "refresh_summary": RefreshSummary,
     "propose_edge": ProposeEdge,
     "create_theme": CreateTheme,
+    "group_activities": GroupActivities,
     "consolidate_facts": ConsolidateFacts,
     "merge_nodes": MergeNodes,
     "supersede_fact": SupersedeFact,

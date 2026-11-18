@@ -200,6 +200,11 @@ def test_the_tools_and_their_calls(fake: FakeIifaService) -> None:
                 {"statement": "Lina prefers tea", "node_name": "Lina"},
                 call_id="r",
             ),
+            function_call(
+                "memory_remember",
+                {"statement": "I keep my answers short", "about_self": True},
+                call_id="s",
+            ),
             function_call("memory_archive", {"id": "fact_1"}, call_id="a"),
         ],
         [assistant_message("Done.")],
@@ -207,7 +212,9 @@ def test_the_tools_and_their_calls(fake: FakeIifaService) -> None:
     _, model = run(memory, steps)
     assert all(o.startswith("<recalled-data") for o in tool_outputs(model))
     assert fake.calls_to("/v1/expand")[0].body["level"] == 2
-    assert fake.calls_to("/v1/remember")[0].body["node"] == {"name": "Lina"}
+    first, about_self = fake.calls_to("/v1/remember")
+    assert first.body["node"] == {"name": "Lina"} and "about_self" not in first.body
+    assert about_self.body["about_self"] is True and "node" not in about_self.body
     assert fake.calls_to("/v1/archive")[0].body == {"id": "fact_1"}
 
 

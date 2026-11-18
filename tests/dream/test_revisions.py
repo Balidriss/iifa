@@ -104,6 +104,66 @@ def test_every_change_to_an_edge_moves_its_revision(
     _moves(store, edge, actions[change])
 
 
+def _decision_rev(store: Store, edge_id: str) -> int:
+    return store.get_edge(edge_id).decision_rev
+
+
+@pytest.mark.parametrize(
+    ("change", "moves"),
+    [
+        ("reinforce", False),
+        ("evidence", False),
+        ("decay", False),
+        ("confirm", True),
+        ("close", True),
+        ("archive", True),
+        ("move", True),
+        ("scope", True),
+    ],
+)
+def test_an_edges_decision_revision_moves_only_on_what_a_person_decides(
+    store: Store, memory: Memory, clock: object, change: str, moves: bool
+) -> None:
+    """SPEC 4.4: status, life, ends, type and scope set move it; weight, use
+    counters and evidence do not, while the full revision moves on all."""
+    edge = store.add_edge(
+        scopes=[SCOPE],
+        src=memory.karim.id,
+        dst=memory.lyon.id,
+        type="lives_in",
+        origin="test",
+        status="proposed",
+    ).id
+    source = store.add_source(scopes=[SCOPE], kind="turn", text="Karim lives in Lyon.")
+
+    def decay() -> None:
+        clock.advance(days=10)  # type: ignore[attr-defined]
+        assert store.decay_edges(half_life_days=30, prune_below=0.01)["decayed"] == 1
+
+    def scope() -> None:
+        with store.lock:
+            store.execute(
+                "INSERT INTO record_scopes (record_id, scope) VALUES (?, ?)",
+                (edge, "user:alice/project:solar"),
+            )
+
+    actions: dict[str, Callable[[], object]] = {
+        "reinforce": lambda: store.reinforce_edge(edge),
+        "evidence": lambda: store.add_evidence(edge, source.id),
+        "decay": decay,
+        "confirm": lambda: store.confirm_edge(edge),
+        "close": lambda: store.close_edge(edge),
+        "archive": lambda: store.archive(edge),
+        "move": lambda: store.move_edge(edge, src=memory.karim.id, dst=memory.kiki.id),
+        "scope": scope,
+    }
+    before = _decision_rev(store, edge)
+    _moves(store, edge, actions[change])
+    assert (_decision_rev(store, edge) > before) is moves
+    if moves:
+        assert _decision_rev(store, edge) == before + 1  # one change, one step
+
+
 def test_decay_moves_the_revision_of_the_edges_it_changes(
     store: Store, memory: Memory, clock: object
 ) -> None:

@@ -403,7 +403,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "decision, something true about a person, project, place, object or topic. Not "
             "for chatter or transient state. Give `node_name` to attach it to its subject, "
             "`attribute`/`value` for a structured fact, `valid_from`/`valid_to` (ISO dates) "
-            "for a dated one."
+            "for a dated one. When this memory is also yours, `about_self` stores what you "
+            "learnt, hold or commit to about yourself (no node needed)."
         ),
         "parameters": {
             "type": "object",
@@ -416,6 +417,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "valid_from": {"type": "string"},
                 "valid_to": {"type": "string"},
                 "pinned": {"type": "boolean"},
+                "about_self": {"type": "boolean"},
             },
             "required": ["statement"],
         },
@@ -923,6 +925,8 @@ class IifaMemoryProvider(MemoryProvider):
             body.update({k: args[k] for k in _REMEMBER_TEXT if _text(args, k)})
             if args.get("pinned") is True:
                 body["pinned"] = True
+            if args.get("about_self") is True:
+                body["about_self"] = True
             return "/v1/remember", body, "remember"
         if tool == "memory_archive":
             return "/v1/archive", {"id": _text(args, "id", required=True)}, "archive"

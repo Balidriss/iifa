@@ -47,7 +47,7 @@ def city_fact(value: str, quote: str, **extra: object) -> dict[str, object]:
     return {
         "subject": "Karim",
         "statement": f"Karim lives in {value}.",
-        "attribute": "city",
+        "attribute": "home",  # a vocabulary key: one current value (SPEC 5.4)
         "value": value,
         "quote": quote,
         **extra,
@@ -105,7 +105,7 @@ def test_p6_an_extracted_fact_never_overrides_an_explicit_one(
         client,
         "Karim lives in Paris",
         node={"name": "Karim", "kind": "person"},
-        attribute="city",
+        attribute="home",
         value="Paris",
     )
     fake_openai.script(chat=[answer(facts=[city_fact("Lyon", "Karim lives in Lyon")])])
@@ -115,6 +115,7 @@ def test_p6_an_extracted_fact_never_overrides_an_explicit_one(
         "written": 1,
         "duplicate": 0,
         "superseded": 0,
+        "kept_same": 0,
         "conflict": 1,
         "language_mismatch": 0,
         "incomplete": 0,
@@ -123,6 +124,15 @@ def test_p6_an_extracted_fact_never_overrides_an_explicit_one(
         "speaker_owner": 0,
         "speaker_free": 0,
         "proposed": 0,
+        "neighbour": 0,
+        "unnamed": 0,
+        "observed": 0,
+        "observed_by_tool": 0,
+        "observed_again": 0,
+        "self": 0,
+        "method": 0,
+        "self_proposed": 0,
+        "self_echo": 0,
     }
     store = app.state.store
     live = store.facts([explicit["node"]["id"]], VIEW)
@@ -140,7 +150,7 @@ def test_p6_an_extracted_fact_never_overrides_an_explicit_one(
     assert expanded["items"][0]["conflicts_with"] == old.id
     # the explicit fact is untouched by a second extraction saying the same thing
     fake_openai.script(chat=[answer(facts=[city_fact("Lyon", "Lyon")])])
-    post_turn(client, "Still Lyon.", "ok")
+    post_turn(client, "Karim is still in Lyon.", "ok")
     assert run_all(client, app)["jobs"][0]["result"]["facts"]["duplicate"] == 1
     assert store.get_fact(old.id).valid_to is None
 
@@ -207,6 +217,7 @@ def since_fact(statement: str, value: str, quote: str) -> dict[str, object]:
         "statement": statement,
         "attribute": "since",
         "value": value,
+        "cardinality": "one",
         "quote": quote,
     }
 

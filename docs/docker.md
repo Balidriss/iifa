@@ -9,6 +9,7 @@ mounted somewhere else.
 - [The key file](#the-key-file)
 - [Publishing the port safely](#publishing-the-port-safely)
 - [Connecting a model on the host](#connecting-a-model-on-the-host)
+- [Starting over](#starting-over)
 - [Build options](#build-options)
 - [What CI checks](#what-ci-checks)
 
@@ -92,6 +93,22 @@ docker run ... \
 
 On Linux, add `--add-host=host.docker.internal:host-gateway`. All the model
 settings are in [Configuration](configuration.md#environment-variables).
+
+## Starting over
+
+To forget the whole memory and keep the key and the configuration, remove the
+container and its data volume, then run the container again as in
+[Run it](#run-it):
+
+```bash
+docker rm -f iifa
+docker volume rm iifa-data
+docker volume create iifa-data
+```
+
+The new database is empty and encrypted with the same key. See
+[Configuration](configuration.md#starting-over-with-an-empty-memory) for what
+is kept and what is not.
 
 ## Build options
 

@@ -19,6 +19,7 @@ from typing import Any
 from iifa.dream.catalogue import OPERATIONS
 from iifa.dream.policy import ReviewPolicy
 from iifa.ids import new_id
+from iifa.scopes import Visibility
 from iifa.store.repo import NotFound, Store
 
 PENDING, RUNNING, FINISHED, CANCELLED, ROLLED_BACK, FAILED = (
@@ -58,6 +59,7 @@ class Run:
     probes_before: list[dict[str, Any]] | None = None
     state: dict[str, Any] = field(default_factory=dict)
     report: dict[str, Any] | None = None
+    started_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,7 @@ class Journal:
         operations: Sequence[str] | None,
         budget: Mapping[str, Any],
         policy: ReviewPolicy,
+        started_by: str | None = None,
     ) -> Run:
         run_id = new_id("dream")
         chosen = [o for o in OPERATIONS if operations is None or o in operations]
@@ -135,7 +138,7 @@ class Journal:
         with store.lock, store.transaction():
             store.execute(
                 "INSERT INTO dream_runs (id, scope, status, dry_run, operations, budget, policy,"
-                " created_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " created_at, state, started_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     scope,
@@ -146,6 +149,7 @@ class Journal:
                     _dumps(policy.as_dict()),
                     store.now(),
                     _dumps({}),
+                    started_by,
                 ),
             )
         return self.get_run(run_id)
@@ -156,6 +160,35 @@ class Journal:
         if row is None:
             raise NotFound(run_id)
         return _run_from_row(row)
+
+    def runs_within(
+        self,
+        scope: str,
+        *,
+        status: str | None = None,
+        before: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> list[Run]:
+        """The runs on ``scope`` and below it, newest first (ties: id, descending);
+        with ``status``, only those; with ``before`` (``created_at``, id), only
+        those after that keyset position; with ``limit``, at most that many."""
+        pred, params = Visibility.of_subtree(scope).sql("scope")
+        clauses: list[str] = [pred]
+        args: list[Any] = [*params]
+        if status is not None:
+            clauses.append("status = ?")
+            args.append(status)
+        if before is not None:
+            clauses.append("(created_at, id) < (?, ?)")
+            args.extend(before)
+        limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
+        with self.store.lock:
+            rows = self.store.execute(
+                f"SELECT * FROM dream_runs WHERE {' AND '.join(clauses)}"  # noqa: S608
+                f" ORDER BY created_at DESC, id DESC{limit_sql}",
+                args,
+            ).fetchall()
+        return [_run_from_row(r) for r in rows]
 
     def active_runs(self) -> list[Run]:
         with self.store.lock:
@@ -495,6 +528,7 @@ def _run_from_row(row: Any) -> Run:
         probes_before=_loads(row["probes_before"]),
         state=_loads(row["state"]) or {},
         report=_loads(row["report"]),
+        started_by=row["started_by"],
     )
 
 

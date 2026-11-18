@@ -65,6 +65,7 @@ def karim_answer(statement: str, attribute: str, value: str) -> Any:
                 "statement": statement,
                 "attribute": attribute,
                 "value": value,
+                "cardinality": "one",  # free-form keys close only on "one" (SPEC 5.4)
                 "quote": statement,
             }
         ],
@@ -195,7 +196,9 @@ def test_tier3_a_near_free_form_key_is_aligned_by_embeddings(
     try:
         fake_openai.set_vectors({"commute mode": NEAR, "transport mode": NEAR, "Karim": FAR})
         node, old = karim_with(app, "commute_mode", "vélo", COMMUTE)
-        fake_openai.script(chat=[karim_answer(TRAIN, "transport_mode", "train")])
+        # an aligned free-form key goes to the replacement question (SPEC 5.4)
+        replaces = chat_json({"replacements": [{"pair": 0, "verdict": "replaces"}]})
+        fake_openai.script(chat=[karim_answer(TRAIN, "transport_mode", "train"), replaces])
         with make_client(app) as client:
             result = ingest(client, app, TRAIN)
             assert result["keys"]["matched"] == 1

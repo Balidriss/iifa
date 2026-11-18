@@ -156,9 +156,18 @@ said them: you, the assistant, or a page. Facts are closed, never
 overwritten, so you can ask what was known on any date.
 [More](docs/how-it-works.md#provenance-where-every-fact-comes-from)
 
+**What was meant, and for how long.** With a chat model, each turn is read for
+how it was meant before what it says: a role-play, an example, a question
+or a "what if" is not stored as true (a test leaves one line saying it took
+place), and a doubt waits for review instead. The details of a work session
+(a draft's wording, an intermediate result, a step) stay with the session,
+and when it ends, or goes quiet for two hours, only one line about what was
+done is kept. A host can also send a turn with `"record": false`: nothing of
+it is written.
+
 ## Status
 
-**0.1.0a2, pre-alpha.** Everything below is built and tested, but the API may
+**0.1.0a3, pre-alpha.** Everything below is built and tested, but the API may
 still change, and the package is not on PyPI yet.
 
 | Area | State |
@@ -167,6 +176,7 @@ still change, and the package is not on PyPI yet.
 | Learning from conversations (needs a chat model) | built; quality depends on the model, see [benchmarks](docs/benchmarks.md) |
 | Search by meaning (needs an embeddings model) | built; bge-m3 recommended |
 | The dream | built; merges and consolidations wait for review by default |
+| Corrections by a person (rename, aliases, kind, merge two nodes) | built, journalled and undoable; no model needed |
 | Claude Code, Hermes, opencode, Agents SDK | built, tested against a fake service, not yet run inside the harness |
 | Docker image | built, checked end to end in CI on `linux/amd64` |
 | Platforms | Linux and Windows (tested); macOS expected, untested |

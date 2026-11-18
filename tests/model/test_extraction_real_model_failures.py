@@ -285,6 +285,8 @@ def test_an_alias_absent_from_the_source_becomes_a_proposal(
         "invented": 0,
         "descriptive": 0,
         "near": 0,
+        "unknown": 0,
+        "malformed": 0,
     }
 
     # resolution never uses a proposal: the real Karim gets his own node
@@ -473,6 +475,26 @@ def test_a_statement_that_names_no_one_in_its_script_is_a_fragment(
     assert app.state.store.counts()["facts"] == 0
 
 
+def test_a_latin_name_inside_a_cyrillic_statement_is_written(
+    client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
+) -> None:
+    """SPEC 4.2: the subject's name written as it is in the statement names it,
+    whatever the statement's main script: no retry, no ``cross_script`` drop."""
+    statement = "report-2.pdf — корректный документ, страниц: 4."
+    fake_openai.script(
+        chat=[
+            answer(
+                nodes=[{"name": "report-2.pdf", "kind": "object"}],
+                facts=[{"subject": "report-2.pdf", "statement": statement, "quote": statement}],
+            )
+        ]
+    )
+    post_turn(client, statement)
+    result = run_all(client, app)["jobs"][0]["result"]
+    assert result["retries"] == 0 and result["facts"]["written"] == 1
+    assert result["facts"]["cross_script"] == 0 and result["facts"]["incomplete"] == 0
+
+
 def test_a_retry_that_supplies_the_source_spelling_keeps_the_fact(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
@@ -595,6 +617,8 @@ def test_an_alias_that_names_another_node_of_the_answer_is_a_proposal(
         "invented": 0,
         "descriptive": 0,
         "near": 0,
+        "unknown": 0,
+        "malformed": 0,
     }
     assert [f.statement for f in store.facts([youssef.id], VIEW)] == [
         "Youssef 00 prefers short answers."
@@ -651,6 +675,8 @@ def test_an_alias_in_a_script_absent_from_the_source_is_dropped_and_counted(
         "invented": 1,
         "descriptive": 0,
         "near": 0,
+        "unknown": 0,
+        "malformed": 0,
     }
     store = app.state.store
     karim = store.find_node("Karim", VIEW)

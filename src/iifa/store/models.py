@@ -51,6 +51,10 @@ class Fact:
     conflicts_with: str | None = None
     same_as: str | None = None  # the first fact of its equivalence group (SPEC 5.4)
     provenance: str | None = None  # owner | assistant | external: its part of the source (P6)
+    part_kind: str | None = None  # an external part's kind: tool | web | document | other
+    part_ref: str | None = None  # the short form of that part's ref (P6)
+    read_at: str | None = None  # the day that part was read (P6)
+    observed_at: str | None = None  # an observed fact: the day it was last observed (SPEC 4.2)
     proposal_id: str | None = None  # the fact proposal it was accepted from (SPEC 4.4b)
     consolidated_into: str | None = None  # the fact a dream consolidated it into (SPEC 5.6)
     rev: int = 0  # grows with every change to the record (SPEC 4.4)
@@ -77,6 +81,8 @@ class Edge:
     archived_at: str | None
     evidence: tuple[str, ...] = ()
     rev: int = 0  # grows with every change to the record (SPEC 4.4)
+    # grows only when what a person decides changes (SPEC 4.4): the API's ``rev``
+    decision_rev: int = 0
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,8 @@ class Source:
     created_at: str
     session_id: str | None = None
     language: str | None = None
+    # P6, SPEC 4.4: none | vouched (every external part was) | unvouched
+    external: str = "none"
 
 
 @dataclass(frozen=True)

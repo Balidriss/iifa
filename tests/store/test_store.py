@@ -238,6 +238,7 @@ def test_forget_cascades_and_counts(store: Store) -> None:
         "probes_deleted": 0,
         "dream_ops_wiped": 0,
         "adjudications_deleted": 0,
+        "corrections_wiped": 0,
     }  # the source is still used by f2
     assert store.forget(karim.id) == {
         "facts": 0,
@@ -249,6 +250,7 @@ def test_forget_cascades_and_counts(store: Store) -> None:
         "probes_deleted": 0,
         "dream_ops_wiped": 0,
         "adjudications_deleted": 0,
+        "corrections_wiped": 0,
     }
     with pytest.raises(NotFound):
         store.get_node(karim.id)
@@ -261,6 +263,7 @@ def test_forget_cascades_and_counts(store: Store) -> None:
         "probes_deleted": 0,
         "dream_ops_wiped": 0,
         "adjudications_deleted": 0,
+        "corrections_wiped": 0,
     }
     with pytest.raises(NotFound):
         store.get_fact(f2.id)
@@ -279,7 +282,12 @@ def test_forget_of_edge_and_unknown(store: Store) -> None:
     edge = store.add_edge(
         scopes=["user:alice"], src=a.id, dst=b.id, type="knows", origin="explicit"
     )
-    assert store.forget(edge.id) == {"edges": 1, "dream_ops_wiped": 0, "adjudications_deleted": 0}
+    assert store.forget(edge.id) == {
+        "edges": 1,
+        "dream_ops_wiped": 0,
+        "adjudications_deleted": 0,
+        "corrections_wiped": 0,
+    }
     for bad in (
         edge.id,
         "edge_" + "0" * 26,

@@ -306,6 +306,7 @@ class IifaMemory:
             attribute: str | None = None,
             value: str | None = None,
             valid_from: str | None = None,
+            about_self: bool = False,
         ) -> str:
             """Store ONE explicit, durable fact worth knowing in a later conversation: a
             preference, a decision, something true about a person, project, place, object
@@ -317,6 +318,8 @@ class IifaMemory:
                 attribute: For a structured fact, e.g. "location".
                 value: The attribute's value, e.g. "Lyon".
                 valid_from: An ISO date it holds from, e.g. 2026-03.
+                about_self: When this memory is also yours: a fact about yourself, what
+                    you learnt, hold or commit to (no node_name needed).
             """
             return await memory._tool(
                 "memory_remember",
@@ -328,6 +331,7 @@ class IifaMemory:
                     value=value or None,
                     valid_from=valid_from or None,
                     scope=memory.scope,
+                    about_self=about_self,
                 ),
             )
 

@@ -5,6 +5,7 @@ tells what the owner said from what came from outside."""
 from __future__ import annotations
 
 from iifa.ingest.jobs import ASSISTANT, EXTERNAL, OWNER, Part, precompact_source, turn_source
+from iifa.ingest.parts import short_ref
 
 
 def _texts(text: str, parts: list[Part]) -> list[tuple[str, str]]:
@@ -95,3 +96,52 @@ def test_a_quote_that_starts_in_a_part_label_belongs_to_that_part() -> None:
     assert source.provenance_of((owner_quote, web_quote + len("Web: User"))) is None
     # the blank line between two parts is no label
     assert source.provenance_of((web_quote - 1, len(text))) is None
+
+
+def test_an_external_part_keeps_its_kind_and_the_short_form_of_its_ref() -> None:
+    source = turn_source(
+        {
+            "user": "look",
+            "tool_summaries": ["listed the folder"],
+            "external": [
+                {
+                    "kind": "web",
+                    "text": "a page",
+                    "ref": "https://www.example.com/p/1?token=s3cret",
+                },
+                {"kind": "document", "text": "a file"},
+            ],
+        }
+    )
+    owner, tool, web, document = source.parts
+    assert (owner.kind, owner.ref) == (None, None)
+    assert (tool.kind, tool.ref) == ("tool", None)
+    assert (web.kind, web.ref) == ("web", "example.com")
+    assert (document.kind, document.ref) == ("document", None)
+    assert source.part_of((web.start, web.end)) == web
+    assert source.part_of((owner.start, web.end)) is None
+
+
+def test_a_precompact_tool_message_is_an_external_part_of_kind_tool() -> None:
+    source = precompact_source(
+        {"messages": [{"role": "tool", "content": "x=1"}, {"role": "system", "content": "y"}]}
+    )
+    assert [(p.provenance, p.kind) for p in source.parts] == [
+        (EXTERNAL, "tool"),
+        (EXTERNAL, None),
+    ]
+
+
+def test_the_short_form_of_a_ref_never_keeps_a_whole_url() -> None:
+    assert short_ref("https://www.Example.com/a/b?token=abc#x") == "example.com"
+    assert short_ref("http://example.com:8080/x") == "example.com"
+    assert short_ref("https://sub.example.org") == "sub.example.org"
+    assert short_ref(r"D:\shared\reports\report final.pdf") == "report_final.pdf"
+    assert short_ref("/home/someone/notes.md") == "notes.md"
+    assert short_ref("file:///home/someone/notes.md?v=2") == "notes.md"
+    assert short_ref("folder/sub/") == "sub"
+    assert short_ref("fetch_page") == "fetch_page"
+    assert short_ref("  list   the  folder ") == "list_the_folder"
+    assert short_ref("x" * 100) == "x" * 40
+    assert short_ref("") is None and short_ref("   ") is None and short_ref(None) is None
+    assert short_ref("https://") is None

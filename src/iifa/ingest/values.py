@@ -243,13 +243,26 @@ def _compare_dates(
 
 _NUMBER = re.compile(r"^\s*(?P<number>\d+(?:[.,]\d+)?)\s*(?P<rest>.*?)\s*$")
 
+# Unit symbols of one meaning: "o" (octet) is "B" (byte), bare or with a decimal
+# prefix, read as one byte unit that no folded wording can spell (a NUL in
+# front). Case-sensitive on purpose: "Mb" is a megabit and a lower-case "mo" a
+# month, so neither is a byte unit; "Mio" (a million, in German) is left out
+# with the other binary forms. Nothing is converted: 1 Ko is not 1000 o.
+_BYTE_SYMBOLS = {
+    f"{prefix}{symbol}": f"\0{prefix.upper()}B"
+    for prefix in ("", "k", "K", "M", "G", "T", "P")
+    for symbol in ("o", "B")
+}
+
 
 def _number(value: str) -> tuple[float, str] | None:
     text = _ascii_digits(unicodedata.normalize("NFKC", value))
     match = _NUMBER.match(text)
     if match is None or re.search(r"\d", match.group("rest")):
         return None
-    return float(match.group("number").replace(",", ".")), _fold(match.group("rest"))
+    rest = match.group("rest")
+    unit = _BYTE_SYMBOLS.get(rest, _fold(rest))
+    return float(match.group("number").replace(",", ".")), unit
 
 
 # --------------------------------------------------------------------------- names
@@ -617,6 +630,21 @@ def _one_apart(a: str, b: str) -> bool:
     return any(long_[:i] + long_[i + 1 :] == short for i in range(len(long_)))
 
 
+_WORD = re.compile(r"\w+")
+
+
+def shares_words(a: str, b: str) -> bool:
+    """May ``b`` restate ``a`` in other words (SPEC 5.4)? At least half of the
+    shorter value's words, folded (case, diacritics), are in the other one. No
+    word list: "120 o" and "120 octets" share their number, a list told again
+    shares its items; "Lyon" and "Paris" share nothing. A script written without
+    spaces is one word per run, so such values rarely share one."""
+    left, right = set(_WORD.findall(_fold(a))), set(_WORD.findall(_fold(b)))
+    if not left or not right:
+        return False
+    return 2 * len(left & right) >= min(len(left), len(right))
+
+
 # --------------------------------------------------------------------------- the comparison
 
 
@@ -624,8 +652,8 @@ def compare_values(a: str, b: str) -> str:  # noqa: PLR0911 - one return per rul
     """``same``, ``different`` or ``unknown`` for two values of one key."""
     if not a.strip() or not b.strip():
         return UNKNOWN
-    if _fold(a) == _fold(b):
-        return SAME
+    if _fold(a) == _fold(b) and (_number(a) is None or _number(b) is None):
+        return SAME  # two numbers go to their own rule: "Mb" and "MB" fold alike
     left_date, right_date = parse_date(a), parse_date(b)
     if left_date is not None and right_date is not None:
         return _compare_dates(left_date, right_date)
@@ -648,5 +676,6 @@ __all__ = [
     "compare_values",
     "parse_date",
     "precision",
+    "shares_words",
     "transliterate",
 ]

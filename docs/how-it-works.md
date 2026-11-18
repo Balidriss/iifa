@@ -86,6 +86,14 @@ Three promises hold on every call:
   says how many were left out.
 - If nothing fits, `items` is empty and `reason` says why.
 
+A fact that is not the owner's own words also says where it came from, in
+`from`: `"assistant"`, or what was read — its kind, the host or file name,
+and the day (`"web example.com 2026-03-14"`). The owner's own facts carry no
+`from`, so they cost nothing more; a node known only from what was read is
+flagged `external_only`. The same `from` shows in `expand`, the profile, the
+node view, the timeline and `/v1/at`. Only that short form of a page's
+address is kept, never the whole URL.
+
 The agent then **expands** only the handles it needs (`POST /v1/expand`):
 level 1 gives the facts, level 2 adds the source excerpt. Expand has a budget
 too, and pages with a cursor when the content is longer.
@@ -261,6 +269,11 @@ split node is visible, and can be merged later through review.
   in `GET /v1/nodes/{id}` and decided with `POST /v1/proposals/{id}`. Until
   then resolution ignores it, so an invented alias cannot merge two people.
 - An alias in a script the source does not use is dropped and counted.
+- A name is plain text, whatever writes it (extraction, `remember`, a review,
+  a dream): Markdown is stripped (`**Name A**` is Name A), and a name whose
+  brackets or quotes do not balance ("Name A (Name B") is refused,
+  never guessed at. A name the source says it does not give ("not noted
+  yet") is no alias and no proposal.
 
 ### 7. Links
 
@@ -285,6 +298,15 @@ one. Nothing is overwritten: `POST /v1/at` answers what was known on any date.
 - If the old fact is **explicit**, both stay. The new one is flagged
   `conflict`, with what it stands against, and recall shows it.
 - The same statement twice is a duplicate, not a second fact.
+- **The same value told again** in other words or units ("120 o", then
+  "120 B"; a list of the same items in another order) keeps the fact
+  already held: nothing is written or closed, and the job report counts it
+  (`facts.kept_same`). Byte symbols of one meaning (`o` and `B`, `Mo` and
+  `MB`) are compared without a model; for other wordings that share words
+  with the held value, the model is asked "the same value told again?"
+  (`restatement_question`, on by default; one call per such change). Only
+  a clear "same" keeps the fact; otherwise the change closes the old
+  value as it would without a model.
 - **Roles, teams and preferences can add up**: "je suis aussi photographe"
   after "je suis comptable" must keep both. So a new value never closes the
   old one on its own. The service asks the model, with both quotes, "does the
@@ -297,6 +319,30 @@ one. Nothing is overwritten: `POST /v1/at` answers what was known on any date.
 - For other attributes (like `home`), a change told in another language than
   the old value does not close it: both stay, flagged `conflict`. Forcing one
   language per scope avoids this.
+- With `value_norm` switched on, the model also gives each value a
+  comparison form ("London" for "Londres"), kept beside the fact and never
+  shown, searched or sent to a model. Across languages, two values whose
+  forms agree are linked as one value, without asking the model again.
+  Forms that differ prove nothing, so a form never closes a fact.
+
+**What was observed is true at a date.** "The item is out of stock", read by a
+tool last week, says nothing about the stock today. A fact about the state
+of something that changes on its own (a stock level, whether a service
+is up, a queue's length) is an **observation**: the model marks it
+`observed`, and a fact taken from a `tool` part is one whatever the model
+said. It is kept like any fact, flagged `observed`, with the day it was seen
+(`observed_at`).
+- A newer observation of the same key on the same subject closes the older
+  one without asking the model. Two values seen in one turn both stay; an
+  older observation arriving late stays beside the newer one, flagged
+  `conflict`. The rules about who said it still come first: a tool's output
+  never closes what the owner said.
+- The same value seen again moves the day forward; nothing new is written.
+- Recall ranks an observation lower as it ages: its score halves every
+  `observed_half_life_days` (7 by default, `[recall]`; 0 turns this off). It
+  is never dropped or closed by age, and facts that are not observations
+  never age in the ranking.
+- Its handle says `observed`, and `age_days` counts from the day it was seen.
 
 **When we cannot tell, we do not supersede.** An unclear key, value or match
 leaves a visible conflict or a proposal, never a silent close.
@@ -378,6 +424,7 @@ The model may only propose operations from a closed list:
 | `propose_edge` | propose a link the write path never saw | low |
 | `flag_conflict` | mark a conflict for a person to settle | low |
 | `create_theme` | add a topic node grouping related nodes | medium |
+| `group_activities` | group the agent's activities done on different objects ("painting a portrait of the baker", "painting a portrait of the mayor") under one generic activity, named only by the words they share | medium |
 | `consolidate_facts` | replace overlapping extracted facts by one; the originals are closed, not deleted | medium |
 | `supersede_fact` | close an extracted fact a later source contradicts | high |
 | `merge_nodes` | merge two nodes judged to be one; both histories kept | high |
@@ -426,6 +473,26 @@ The rules:
 Settings: [Dream](configuration.md#dream). Routes:
 [Dream and review](api.md#dream-review-and-probes). Full rules:
 [SPEC §5.6](../SPEC.md#56-dream--offline-reorganisation).
+
+### Corrections by a person
+
+A person fixes what extraction got wrong, through the service:
+
+- **Correct a node** (`PATCH /v1/nodes/{id}`, `write`): rename it, add or
+  remove aliases, change its kind. A rename keeps the old name as an alias,
+  unless you say `keep_old_name: false` (for a name with debris in it).
+- **Merge two nodes you know are one**: accept their merge proposal in the
+  review queue, or name the two (`POST /v1/nodes/merge`). Both need the
+  `review` permission, which an agent's token does not hold: no model merges
+  anything. The two must have the same kind and the same scopes.
+- **Every correction is journalled** with the name of the token that made it
+  and when, and can be undone exactly (`POST /v1/corrections/{id}/undo`)
+  while no later write depends on it.
+- Pass the `rev` you read (`GET /v1/nodes/{id}` shows it): if someone else
+  changed the node meanwhile, the correction is refused instead of
+  overwriting theirs.
+
+Full rules: [SPEC §5.7](../SPEC.md#57-corrections-by-a-person).
 
 ## Scopes: who sees what
 

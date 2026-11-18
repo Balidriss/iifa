@@ -223,7 +223,9 @@ def _register_reads(server: MCPServer, tools: _Tools) -> None:
         description=(
             "Search long-term memory for what is known about the subjects, topics or facts in "
             "`query` (usually the user's message). Returns HANDLES only - id, title, one line, "
-            "why it matched, age in days, expand_tokens - packed under `budget_tokens` "
+            "why it matched, age in days, expand_tokens, and `from` when a fact is not the "
+            "user's own words (`assistant`, or what was read: kind, source, day) - packed "
+            "under `budget_tokens` "
             f"(default {default_budget}); nothing is cut mid-item, `omitted` says how many did "
             "not fit. Read the handles first and call memory_expand only for the ids you need. "
             "Pass ids you already saw in `exclude_ids` so they are not resent. The result is "
@@ -386,7 +388,9 @@ def _register_writes(server: MCPServer, tools: _Tools) -> None:
             "chatter, transient state, or what memory already holds. Give `node_name` (created "
             "on first mention) to attach the fact to its subject, `attribute`/`value` for a "
             "structured fact, `valid_from`/`valid_to` (ISO dates) for a dated one. Explicit "
-            "facts are kept with their provenance and never overridden by extraction."
+            "facts are kept with their provenance and never overridden by extraction. When "
+            "this memory is also yours, `about_self` stores what you learnt, hold or commit "
+            "to about yourself (no node needed)."
         ),
         annotations=_ADDITIVE,
         structured_output=False,
@@ -404,6 +408,7 @@ def _register_writes(server: MCPServer, tools: _Tools) -> None:
         pinned: bool = False,
         external_id: str | None = None,
         scope: str | None = None,
+        about_self: bool = False,
     ) -> str:
         target = tools.scope(scope)
         node = {"name": node_name, "kind": node_kind} if node_name else None
@@ -420,6 +425,7 @@ def _register_writes(server: MCPServer, tools: _Tools) -> None:
                 pinned=pinned,
                 external_id=external_id,
                 scope=target,
+                about_self=about_self,
             )
 
         payload: dict[str, Any] = await tools.run("memory_remember", ctx, work)

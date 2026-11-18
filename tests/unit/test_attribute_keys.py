@@ -141,7 +141,9 @@ def test_keys_compare_canonically_on_both_sides() -> None:
 
 def test_the_base_vocabulary_is_small_and_language_neutral() -> None:
     assert set(BASE_KEYS) == {"home", "workplace", "role", "employer", "team"}
-    assert set(FAMILIES) == {"preference", "status", "date"}
+    # commitment: the agent perspective's (SPEC 4.2), never in the shared prompt
+    assert set(FAMILIES) == {"preference", "status", "date", "commitment"}
+    assert "commitment" not in VOCABULARY_TEXT
     assert all(k.isascii() and k == k.lower() for k in (*BASE_KEYS, *FAMILIES))
 
 

@@ -17,7 +17,8 @@ import unicodedata
 BASE_KEYS: tuple[str, ...] = ("home", "workplace", "role", "employer", "team")
 # families take a topic: "prefers tea" must not replace "prefers short answers",
 # "married" must not replace "on sick leave"; a bare family key never supersedes
-FAMILIES: tuple[str, ...] = ("preference", "status", "date")
+# ``commitment`` is the agent perspective's (SPEC 4.2): one per topic, like status
+FAMILIES: tuple[str, ...] = ("preference", "status", "date", "commitment")
 
 VOCABULARY_TEXT = (
     "home (where the subject lives), workplace (where they work: an office, a site, a "
@@ -106,6 +107,22 @@ def family_of(key: str | None) -> str | None:
     return head if head in FAMILIES else None
 
 
+# SPEC 4.2: the key families of a rule of the self (what it commits to, how it
+# prefers to behave): they ride the profile, and wait in review when the
+# operator asks
+RULE_FAMILIES = ("commitment", "preference")
+
+
+def rule_topic(key: str | None) -> str | None:
+    """The topic of a rule key (``answers`` for ``commitment.answers`` and for
+    ``preference.answers``); None for a bare family key or a key that is not a
+    rule's. A model files one rule under either family from one turn to the
+    next: the topic is what the two keys share."""
+    if key is None or family_of(key) not in RULE_FAMILIES:
+        return None
+    return key.partition(".")[2] or None
+
+
 def supersedable(key: str | None) -> bool:
     """May a new value of this (canonical) key close an old one? Not without a key,
     and not for a bare family key: every preference would share it."""
@@ -122,7 +139,7 @@ def is_free_form(key: str | None) -> bool:
 # in another language may be adjudicated for; never role or team, which may
 # hold several values at once
 SINGLE_VALUED: tuple[str, ...] = ("home", "workplace", "employer")
-SINGLE_VALUED_FAMILIES: tuple[str, ...] = ("status", "date")
+SINGLE_VALUED_FAMILIES: tuple[str, ...] = ("status", "date", "commitment")
 
 
 # SPEC 5.4: aspects that may hold several values at once; across languages
@@ -133,6 +150,14 @@ MULTI_VALUED_FAMILIES: tuple[str, ...] = ("preference",)
 
 def multi_valued(key: str | None) -> bool:
     return key in MULTI_VALUED or (supersedable(key) and family_of(key) in MULTI_VALUED_FAMILIES)
+
+
+def replacement_asked(key: str | None) -> bool:
+    """Is a changed value of this key asked "replaces, or both true?" (SPEC 5.4)?
+    Role, team and preferences may hold several values at once; a free-form key
+    is a slug the model chose, and a generic one may hold two unrelated
+    statements, so a shared key alone does not prove a replacement."""
+    return multi_valued(key) or (supersedable(key) and is_free_form(key))
 
 
 def single_valued(key: str | None) -> bool:

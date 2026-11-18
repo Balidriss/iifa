@@ -283,6 +283,37 @@
         "title": "DreamUndo",
         "type": "object"
       },
+      "EdgeDecision": {
+        "additionalProperties": false,
+        "description": "A person's decision on a proposed edge (SPEC 5.7); ``rev`` is the edge's\nrevision the author read.",
+        "properties": {
+          "decision": {
+            "enum": [
+              "confirm",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "rev": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rev"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "EdgeDecision",
+        "type": "object"
+      },
       "ExpandRequest": {
         "additionalProperties": false,
         "properties": {
@@ -405,6 +436,12 @@
             "maxLength": 100000,
             "title": "Text",
             "type": "string"
+          },
+          "vouched": {
+            "default": false,
+            "description": "The host's statement that the owner gave this content or asked for it: the agent perspective may learn from it (SPEC 4.2). Never covers the owner's facts.",
+            "title": "Vouched",
+            "type": "boolean"
           }
         },
         "required": [
@@ -584,11 +621,124 @@
         "title": "Message",
         "type": "object"
       },
+      "NodeMerge": {
+        "additionalProperties": false,
+        "description": "Two nodes a person knows are one (SPEC 5.7): ``absorb`` is merged into\n``keep``; ``revs`` (node id -> rev) are the revisions the author read.",
+        "properties": {
+          "absorb": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Absorb",
+            "type": "string"
+          },
+          "keep": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Keep",
+            "type": "string"
+          },
+          "revs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "maxProperties": 2,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revs"
+          }
+        },
+        "required": [
+          "keep",
+          "absorb"
+        ],
+        "title": "NodeMerge",
+        "type": "object"
+      },
+      "NodePatch": {
+        "additionalProperties": false,
+        "description": "A person's correction of a node (SPEC 5.7): rename it, change its kind,\nadd and remove aliases; ``rev`` is the revision the author read.",
+        "properties": {
+          "add_aliases": {
+            "items": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Add Aliases",
+            "type": "array"
+          },
+          "keep_old_name": {
+            "default": true,
+            "description": "A rename keeps the old name as an alias unless false.",
+            "title": "Keep Old Name",
+            "type": "boolean"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "remove_aliases": {
+            "items": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Remove Aliases",
+            "type": "array"
+          },
+          "rev": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rev"
+          }
+        },
+        "title": "NodePatch",
+        "type": "object"
+      },
       "NodeRef": {
         "additionalProperties": false,
         "properties": {
           "aliases": {
             "items": {
+              "maxLength": 300,
+              "minLength": 1,
               "type": "string"
             },
             "maxItems": 50,
@@ -1023,6 +1173,12 @@
       "RememberRequest": {
         "additionalProperties": false,
         "properties": {
+          "about_self": {
+            "default": false,
+            "description": "A fact about the self of the target scopes (SPEC 8.3, agent perspective).",
+            "title": "About Self",
+            "type": "boolean"
+          },
           "attribute": {
             "anyOf": [
               {
@@ -1171,6 +1327,11 @@
             "title": "Created Node",
             "type": "boolean"
           },
+          "echo": {
+            "default": false,
+            "title": "Echo",
+            "type": "boolean"
+          },
           "fact": {
             "additionalProperties": true,
             "title": "Fact",
@@ -1219,6 +1380,19 @@
             ],
             "title": "Decision",
             "type": "string"
+          },
+          "keep": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accepting a merge proposal: the node to keep (default: the one with more live facts, else the older; required when the two kinds differ).",
+            "title": "Keep"
           }
         },
         "required": [
@@ -1509,6 +1683,18 @@
             ],
             "title": "Budget Tokens"
           },
+          "cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cursor"
+          },
           "limit": {
             "default": 200,
             "maximum": 1000.0,
@@ -1640,6 +1826,11 @@
             ],
             "title": "Occurred At"
           },
+          "record": {
+            "default": true,
+            "title": "Record",
+            "type": "boolean"
+          },
           "scope": {
             "anyOf": [
               {
@@ -1762,12 +1953,13 @@
   "info": {
     "description": "Rich long-term memory for your agent, delivered under a token budget you set.",
     "title": "iifa",
-    "version": "0.1.0a2"
+    "version": "0.1.0a3"
   },
   "openapi": "3.1.0",
   "paths": {
     "/v1/archive": {
       "get": {
+        "description": "Archived nodes, facts and edges the view sees, most recently archived\nfirst, a page at a time (SPEC 8).",
         "operationId": "list_archived_v1_archive_get",
         "parameters": [
           {
@@ -1819,6 +2011,35 @@
                 }
               ],
               "title": "Subtree"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
             }
           },
           {
@@ -2118,6 +2339,48 @@
         "summary": "Background Run"
       }
     },
+    "/v1/background/run/{run_id}/cancel": {
+      "post": {
+        "description": "Stop a run early, as at a budget limit: no new job starts, a job in flight\nis put back untouched at its next model call, and the run ends with\n``stopped_by: cancelled``. The mode is unchanged; ``cancelled_by`` names the\ntoken.",
+        "operationId": "cancel_background_run_v1_background_run__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Background Run V1 Background Run  Run Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Background Run"
+      }
+    },
     "/v1/background/yield": {
       "post": {
         "description": "A foreground turn starts: the worker finishes its current model call and\nstarts no other until ``resume`` or ``timeout_seconds`` pass.",
@@ -2164,6 +2427,90 @@
           }
         },
         "summary": "Yield Background"
+      }
+    },
+    "/v1/corrections/{correction_id}": {
+      "get": {
+        "description": "One entry of the corrections journal (SPEC 5.7): what was changed, by which\ntoken, when, and whether it was undone.",
+        "operationId": "get_correction_v1_corrections__correction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "correction_id",
+            "required": true,
+            "schema": {
+              "title": "Correction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Correction V1 Corrections  Correction Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Correction"
+      }
+    },
+    "/v1/corrections/{correction_id}/undo": {
+      "post": {
+        "description": "Revert one correction exactly (SPEC 5.7); refused, naming the records, when\na later write depends on it. It needs the permission that made the\ncorrection: ``write`` for a patch, ``review`` for a merge.",
+        "operationId": "undo_correction_v1_corrections__correction_id__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "correction_id",
+            "required": true,
+            "schema": {
+              "title": "Correction Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Undo Correction V1 Corrections  Correction Id  Undo Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Correction"
       }
     },
     "/v1/dream": {
@@ -2292,7 +2639,7 @@
     },
     "/v1/dream/{run_id}/plan": {
       "get": {
-        "description": "The run's operations in order, each with what became of it and why\n(content: the model's texts and reasons), paginated and under budget.",
+        "description": "The run's operations in order, each with what became of it and why\n(content: the model's texts and reasons), a page at a time under budget\n(SPEC 8). ``after`` is the same position as ``cursor``, as a plain ``seq``.",
         "operationId": "dream_plan_v1_dream__run_id__plan_get",
         "parameters": [
           {
@@ -2309,10 +2656,33 @@
             "name": "after",
             "required": false,
             "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "After",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           },
           {
@@ -2429,6 +2799,172 @@
           }
         },
         "summary": "Undo Dream"
+      }
+    },
+    "/v1/dreams": {
+      "get": {
+        "description": "The runs on ``scope`` and below it, newest first, a page at a time\n(SPEC 8.6): every run the token reaches, whichever client started it.",
+        "operationId": "list_dreams_v1_dreams_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": true,
+            "schema": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "running",
+                    "finished",
+                    "cancelled",
+                    "rolled_back",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "budget_tokens",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Budget Tokens"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Dreams V1 Dreams Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Dreams"
+      }
+    },
+    "/v1/edges/{edge_id}": {
+      "post": {
+        "description": "A person's decision on a proposed edge (SPEC 5.7): ``confirm`` makes it\nconfirmed, ``reject`` archives it - journalled with the token's name, undoable.",
+        "operationId": "decide_edge_v1_edges__edge_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "edge_id",
+            "required": true,
+            "schema": {
+              "title": "Edge Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdgeDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Decide Edge V1 Edges  Edge Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Edge"
       }
     },
     "/v1/expand": {
@@ -2585,6 +3121,7 @@
     },
     "/v1/link": {
       "post": {
+        "description": "An explicit, confirmed edge (SPEC 5.2). When the pair already has the live\nedge of that type the token touches, that edge is confirmed (journalled as a\nperson's decision, SPEC 5.7) and returned rather than a twin added.",
         "operationId": "link_v1_link_post",
         "requestBody": {
           "content": {
@@ -2597,6 +3134,9 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "description": "Live edge confirmed"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -2743,6 +3283,219 @@
         "summary": "Lookup"
       }
     },
+    "/v1/nodes": {
+      "get": {
+        "description": "The nodes the view sees, a page at a time (SPEC 8.2): id, name, kind,\naliases, live facts, pending proposals and last change, by name or by last\nchange. ``prefix`` matches the start of the name or of an alias, compared in\ntheir normalised form (case and Latin diacritics folded). A walk lists the\nnodes that existed at its first page, with their last change as of then.",
+        "operationId": "list_nodes_v1_nodes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scopes",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scopes"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subtree",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subtree"
+            }
+          },
+          {
+            "in": "query",
+            "name": "prefix",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 300,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prefix"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "name",
+              "enum": [
+                "name",
+                "changed"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "budget_tokens",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Budget Tokens"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Nodes V1 Nodes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Nodes"
+      }
+    },
+    "/v1/nodes/merge": {
+      "post": {
+        "description": "Merge two nodes a person knows are one (SPEC 5.7): their merge proposal -\nthe pending one, else one recorded now - is accepted through the review\npath, so the same guard and the same journal apply.",
+        "operationId": "merge_nodes_v1_nodes_merge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeMerge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Merge Nodes V1 Nodes Merge Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Merge Nodes"
+      }
+    },
     "/v1/nodes/{node_id}": {
       "get": {
         "operationId": "get_node_v1_nodes__node_id__get",
@@ -2850,6 +3603,56 @@
           }
         },
         "summary": "Get Node"
+      },
+      "patch": {
+        "description": "A person's correction of a node (SPEC 5.7): rename it (the old name stays an\nalias unless ``keep_old_name`` is false), change its kind, add and remove\naliases - journalled with the token's name, undoable.",
+        "operationId": "patch_node_v1_nodes__node_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Node V1 Nodes  Node Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Node"
       }
     },
     "/v1/path": {
@@ -3138,7 +3941,7 @@
     },
     "/v1/proposals": {
       "get": {
-        "description": "The pending proposals visible in the view, oldest first, under budget\n(SPEC 4.4b, 8.3): the only place a fact proposal without a node shows.",
+        "description": "The pending proposals visible in the view, oldest first, a page at a time\nunder budget (SPEC 4.4b, 8.3): the only place a fact proposal without a node\nshows.",
         "operationId": "list_proposals_v1_proposals_get",
         "parameters": [
           {
@@ -3211,6 +4014,35 @@
                 }
               ],
               "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
             }
           },
           {
@@ -3430,7 +4262,7 @@
     },
     "/v1/review": {
       "get": {
-        "description": "One queue (SPEC 4.4b, 8.6): pending alias, fact and merge proposals and\nqueued dream operations the view sees, oldest first, under budget. A merge\nproposal carries the latest adjudication of its pair, and stands aside when\nits merge_nodes is queued (that item carries the same verdict).",
+        "description": "One queue (SPEC 4.4b, 8.6): pending alias, fact and merge proposals and\nqueued dream operations the view sees, oldest first, a page at a time under\nbudget (SPEC 8). A merge proposal carries the latest adjudication of its\npair, and stands aside when its merge_nodes is queued (that item carries the\nsame verdict). A fact proposal whose accept would close live facts carries\n``replaces``, each one by its statement. An item about nodes carries\n``nodes``: each one the view sees,\nby name with its first few facts; a queued operation that names facts\ncarries ``facts``, each one the view sees by its statement.",
         "operationId": "review_queue_v1_review_get",
         "parameters": [
           {
@@ -3486,6 +4318,35 @@
           },
           {
             "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
             "name": "budget_tokens",
             "required": false,
             "schema": {
@@ -3531,7 +4392,7 @@
     },
     "/v1/review/{item_id}": {
       "post": {
-        "description": "Accept or reject one item of the queue: a proposal, or a queued operation\n- checked again against memory as it is now (rule 8: ``stale`` is a 409).",
+        "description": "Accept or reject one item of the queue: a proposal (accepting a merge\nproposal merges the two nodes as a person's decision, SPEC 5.7), or a queued\noperation - checked again against memory as it is now (rule 8: ``stale`` is\na 409).",
         "operationId": "decide_review_item_v1_review__item_id__post",
         "parameters": [
           {
@@ -3685,7 +4546,7 @@
     },
     "/v1/timeline": {
       "post": {
-        "description": "Fact changes of a node, or of the whole view, inside a date range (P7).",
+        "description": "Fact changes of a node, or of the whole view, inside a date range (P7),\nnewest first, a page at a time (SPEC 8).",
         "operationId": "timeline_v1_timeline_post",
         "requestBody": {
           "content": {
@@ -3726,7 +4587,7 @@
     },
     "/v1/turns": {
       "post": {
-        "description": "Record a turn: one insert into the persisted queue, nothing else (P3).",
+        "description": "Record a turn: one insert into the persisted queue, nothing else (P3).\nWith ``record: false`` nothing at all: no queue row, no source, no fact.",
         "operationId": "record_turn_v1_turns_post",
         "requestBody": {
           "content": {

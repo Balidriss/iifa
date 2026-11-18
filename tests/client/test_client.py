@@ -91,6 +91,39 @@ def test_async_client_round_trip(app: FastAPI) -> None:
     run(scenario())
 
 
+def test_async_client_pages_the_lists_by_cursor(app: FastAPI) -> None:
+    async def scenario() -> None:
+        async with aclient(app, scope="user:alice") as memory:
+            ids = []
+            for name in ("Nadia", "Karim", "Émile"):
+                written = await memory.remember(f"{name} is known", node=name)
+                ids.append(written["node"]["id"])
+                if name != "Émile":
+                    await memory.archive(written["fact"]["id"])
+            await memory.remember("Émile writes novels", node="Émile")
+            first = await memory.nodes(limit=2, budget_tokens=4000)
+            rest = await memory.nodes(cursor=first["next_cursor"], budget_tokens=4000)
+            names = [n["name"] for n in first["items"] + rest["items"]]
+            assert names == ["Émile", "Karim", "Nadia"] and rest["next_cursor"] is None
+            assert [n["name"] for n in (await memory.nodes(prefix="ka"))["items"]] == ["Karim"]
+            await memory.archive(ids[0])
+            assert len((await memory.nodes())["items"]) == 2
+            every = await memory.nodes(include_archived=True, sort="changed", budget_tokens=4000)
+            assert {n["id"] for n in every["items"]} == set(ids)
+            page = await memory.archived(limit=2, budget_tokens=4000)
+            more = await memory.archived(cursor=page["next_cursor"], budget_tokens=4000)
+            assert len(page["items"]) == 2 and len(more["items"]) == 1
+            changes = await memory.timeline(limit=1, budget_tokens=4000)
+            later = await memory.timeline(cursor=changes["next_cursor"], budget_tokens=4000)
+            assert len(changes["items"]) == 1 and len(later["items"]) == 1
+            assert later["next_cursor"] is None
+            with pytest.raises(InvalidRequest) as refused:
+                await memory.nodes(cursor=page["next_cursor"])  # an archive cursor
+            assert refused.value.status == 400
+
+    run(scenario())
+
+
 def test_async_client_maps_statuses_to_errors(app: FastAPI) -> None:
     async def scenario() -> None:
         async with aclient(app, "read", scope="user:alice") as reader:
@@ -115,6 +148,9 @@ def test_async_client_maps_statuses_to_errors(app: FastAPI) -> None:
                 await alice.recall("solar")
             with pytest.raises(AuthError):  # a scope outside the token's bounds
                 await alice.recall("solar", scope="user:bob")
+            with pytest.raises(InvalidRequest) as no_self:  # about_self reaches the service
+                await alice.remember("I answer briefly", about_self=True, scope="user:alice")
+            assert "no self is declared" in str(no_self.value)
 
     run(scenario())
 
@@ -136,12 +172,50 @@ def test_sync_client_round_trip_over_loopback(live: LiveService) -> None:
         assert recalled["items"][0]["id"] == written["fact"]["id"]
         assert memory.expand([written["fact"]["id"]])["items"][0]["node_name"] == "Émilie"
         assert memory.lookup(name="émilie")["records"][0]["id"] == written["node"]["id"]
+        listed = memory.nodes(prefix="EMI", limit=1)
+        assert [n["name"] for n in listed["items"]] == ["Émilie"]
+        assert memory.timeline(limit=1, cursor=None)["items"][0]["change"] == "recorded"
         assert memory.archive(written["fact"]["id"])["archived"] is True
+        assert memory.archived(limit=1)["items"][0]["id"] == written["fact"]["id"]
         assert memory.recall("réponses courtes")["items"] == []
         assert memory.restore(written["fact"]["id"])["archived"] is False
         moved = memory.patch_fact(written["fact"]["id"], scopes=["user:sync/mode:a"], detach=True)
         assert moved["scopes"] == ["user:sync/mode:a"] and moved["node_id"] is None
         assert memory.recall("réponses courtes")["items"] == []  # user:sync no longer sees it
+        node_id = written["node"]["id"]
+        renamed = memory.patch_node(node_id, name="Émilie D.", add_aliases=["Mimi"])
+        assert renamed["name"] == "Émilie D." and set(renamed["aliases"]) == {"Émilie", "Mimi"}
+        assert memory.correction(renamed["correction_id"])["op"] == "update_node"
+        other = memory.remember("Mimi aime le thé", node="Mimi Dupont")["node"]["id"]
+        merged = memory.merge_nodes(node_id, other)
+        assert merged["keep"] == node_id and merged["absorb"] == other
+        assert memory.undo_correction(merged["correction_id"])["status"] == "undone"
+        assert memory.undo_correction(renamed["correction_id"])["status"] == "undone"
+        assert memory.node(node_id)["name"] == "Émilie"
+
+
+def test_async_client_corrects_and_merges_nodes(app: FastAPI) -> None:
+    async def scenario() -> None:
+        async with aclient(app, scope="user:alice") as memory:
+            karim = (await memory.remember("Karim lives in Lyon", node="Karim"))["node"]["id"]
+            kiki = (await memory.remember("Kiki plays golf", node="Kiki"))["node"]["id"]
+            rev = (await memory.node(karim))["rev"]
+            patched = await memory.patch_node(
+                karim, name="Karim B.", keep_old_name=False, kind="person", rev=rev
+            )
+            assert (patched["name"], patched["aliases"], patched["kind"]) == (
+                "Karim B.",
+                [],
+                "person",
+            )
+            await memory.patch_node(kiki, kind="person", remove_aliases=[])
+            merged = await memory.merge_nodes(karim, kiki, revs={karim: patched["rev"]})
+            entry = await memory.correction(merged["correction_id"])
+            assert (entry["op"], entry["status"]) == ("merge_nodes", "applied")
+            undone = await memory.undo_correction(merged["correction_id"])
+            assert undone["status"] == "undone" and undone["undone_by"] == "all"
+
+    run(scenario())
 
 
 def test_sync_client_from_env_and_url_forms(live: LiveService) -> None:

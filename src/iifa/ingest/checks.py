@@ -23,6 +23,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 
 from iifa.language import script_counts, sentences
+from iifa.names import balanced_span
 from iifa.recall.tokenizer import normalize, tokenize
 
 MIN_WORDS = 3
@@ -95,12 +96,23 @@ def _one_name(statement_words: Sequence[str], folded: str, name: str) -> bool:
     return all(present(w) for w in name_words)
 
 
+def written_whole(statement: str, name: str) -> bool:
+    """SPEC 4.2: is ``name`` written in ``statement`` as it is - its words, in
+    order, whole (case and diacritics folded) - whatever the scripts?"""
+    wanted = tokenize(name)
+    found = tokenize(statement)
+    span = len(wanted)
+    return bool(wanted) and any(found[i : i + span] == wanted for i in range(len(found) - span + 1))
+
+
 def shares_script(statement: str, names: Iterable[str]) -> bool:
-    """Is one of ``names`` written in the statement's script? When none is, a
-    statement cannot name its subject whatever it says (the cause the retry
-    note spells out, SPEC 4.2)."""
+    """Is one of ``names`` written in the statement's script, or written in it
+    as it is? When none is, a statement cannot name its subject whatever it
+    says (the cause the retry note spells out, SPEC 4.2)."""
     written = script_of(statement)
-    return any(n.strip() and script_of(n) == written for n in names)
+    return any(
+        n.strip() and (script_of(n) == written or written_whole(statement, n)) for n in names
+    )
 
 
 def scripts_in(text: str) -> set[str]:
@@ -149,9 +161,13 @@ def names_subject(statement: str, names: Iterable[str]) -> bool:
 
     Only the names written in the statement's script count: "Karim" does not
     name the subject of "Карим переехал в Лион." (matching across scripts needs
-    the model's help, an alias, or embeddings at tier 3). A translated statement is
-    the caller's to exempt (P12 judges it)."""
+    the model's help, an alias, or embeddings at tier 3) - unless the name is
+    written in it as it is, whole: "report-2.pdf" names the subject of a Russian
+    sentence that holds it. A translated statement is the caller's to exempt
+    (P12 judges it)."""
     written = script_of(statement)
+    if any(n.strip() and script_of(n) != written and written_whole(statement, n) for n in names):
+        return True
     comparable = [n for n in names if n.strip() and script_of(n) == written]
     if not comparable:
         return False
@@ -181,7 +197,9 @@ def source_spelling(alias: str, text: str) -> str | None:
         return None
     for i in range(len(spans) - len(wanted) + 1):
         if [token for _, _, token in spans[i : i + len(wanted)]] == wanted:
-            return text[spans[i][0] : spans[i + len(wanted) - 1][1]]
+            # SPEC 5.1: a bracket inside the span takes its partner beside it
+            start, end = balanced_span(text, spans[i][0], spans[i + len(wanted) - 1][1])
+            return text[start:end]
     return None
 
 

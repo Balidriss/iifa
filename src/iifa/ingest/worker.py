@@ -13,10 +13,11 @@ and none at all while the harness has said ``yield`` — the call in flight
 finishes, the next one waits until ``resume`` or the yield's timeout.
 
 A **run** processes jobs now, in the caller's thread or in a thread of its own,
-until the queue is empty or a budget (calls, tokens, seconds, jobs) is reached;
-it stops cleanly, puts an interrupted job back untouched, and reports what it
-did. At most one run at a time. The current run and the last ``KEPT_RUNS`` are
-kept in memory, so any client can follow a run it did not start.
+until the queue is empty, a budget (calls, tokens, seconds, jobs) is reached or
+an admin cancels it; it stops cleanly, puts an interrupted job back untouched,
+and reports what it did. At most one run at a time. The current run and the
+last ``KEPT_RUNS`` are kept in memory, so any client can follow a run it did
+not start.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from typing import Any
 from iifa import log
 from iifa.config import BACKGROUND_MODES
 from iifa.ids import new_id
+from iifa.ingest import sessions
 from iifa.ingest.extract import PipelineConfig
 from iifa.ingest.queue import Job, Queue
 from iifa.llm import (
@@ -54,6 +56,7 @@ DEFAULT_YIELD_TIMEOUT = 30.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY = 30.0
 DEFAULT_IDLE_POLL = 1.0
+CANCELLED = "cancelled"  # the limit a cancelled run stops at
 
 
 class BudgetExhausted(RuntimeError):
@@ -210,7 +213,8 @@ def _positive(value: int, kind: str) -> int:
 
 @dataclass
 class Budget:
-    """What a run may spend. ``None`` means no limit on that axis."""
+    """What a run may spend. ``None`` means no limit on that axis. A cancelled
+    budget is spent: the run stops as at any other limit."""
 
     max_calls: int | None = None
     max_tokens: int | None = None
@@ -218,6 +222,7 @@ class Budget:
     calls: int = 0
     tokens: int = 0
     started: float = 0.0
+    cancelled: bool = False
 
     def __post_init__(self) -> None:
         for name, value in (("calls", self.max_calls), ("tokens", self.max_tokens)):
@@ -231,6 +236,8 @@ class Budget:
 
     def exhausted(self, now: float) -> str | None:
         """The first limit reached, or None."""
+        if self.cancelled:
+            return CANCELLED
         if self.max_calls is not None and self.calls >= self.max_calls:
             return "calls"
         if self.max_tokens is not None and self.tokens >= self.max_tokens:
@@ -347,10 +354,11 @@ DONE, FAILED, RETRY, RELEASED = "done", "failed", "retry", "released"
 EMBED_KIND = "embed"
 EMBED_SCOPE = "system:vectors"  # the embed job works on every record; a queue row needs a scope
 # jobs that write embedded text: an embed job follows them (SPEC 6.1)
-WRITING_KINDS = frozenset({"turn", "precompact", "session_end", "dream"})
+WRITING_KINDS = frozenset({"turn", "precompact", "session_end", sessions.SESSION_CLOSE, "dream"})
 
 
 RUN_RUNNING, RUN_DONE = "running", "done"
+RUN_CANCELLING = "cancelling"
 KEPT_RUNS = 20  # finished runs kept in memory beside the current one
 
 
@@ -372,6 +380,8 @@ class RunReport:
     stopped_by: str | None = None
     queue: dict[str, Any] = field(default_factory=dict)
     current_job: str | None = None
+    cancel_requested: bool = False
+    cancelled_by: str | None = None
 
     def record(self, job: Job, outcome: str, result: dict[str, Any] | None = None) -> None:
         """``result`` is what the handler returned: counts and short words, never content."""
@@ -400,6 +410,8 @@ class RunReport:
             "seconds": round(self.seconds, 3),
             "stopped_by": self.stopped_by,
             "current_job": self.current_job,
+            "cancel_requested": self.cancel_requested,
+            "cancelled_by": self.cancelled_by,
             "queue": dict(self.queue),
         }
 
@@ -407,6 +419,8 @@ class RunReport:
 def _jobs_left(report: RunReport, pending: int) -> int:
     """What the run may still take: the pending jobs, capped by ``max_jobs``. An
     estimate: turns arriving meanwhile add to it, a budget may stop the run first."""
+    if report.cancel_requested:
+        return 0  # a cancelled run starts no other job
     max_jobs = report.budget.get("max_jobs")
     if max_jobs is None:
         return pending
@@ -462,6 +476,8 @@ class Worker:
         self._spawn: Callable[[Callable[[], None]], None] = self._spawn_thread
         # a test seam between the mode check and the claim (see _step); never set in service
         self._before_claim: Callable[[], None] | None = None
+        # a test seam: a run is about to claim its next job (see _execute)
+        self._before_run_claim: Callable[[], None] | None = None
         # a test seam: the loop is about to wait because the mode is not auto
         self._waiting_for_auto: Callable[[], None] | None = None
         self.runs = 0
@@ -566,6 +582,7 @@ class Worker:
             "jobs_done": done,
             "jobs_left": left,
             "yielded": yielded,
+            "cancel_requested": report.cancel_requested,
         }
 
     def run_report(self, run_id: str) -> dict[str, Any] | None:
@@ -594,6 +611,27 @@ class Worker:
                 yielded=yielded,
             )
             return data
+
+    def cancel_run(self, run_id: str, *, by: str | None = None) -> str | None:
+        """Ask the run in progress to stop, as at a budget limit: no new job
+        starts, and a job in flight is put back untouched at its next model call
+        (one that makes no call finishes). The mode is unchanged. Returns
+        ``cancelling`` for the run in progress (asking twice is harmless),
+        ``done`` for a finished run, None for a run that is not kept. ``by``
+        (the name of the token) is kept from the first cancel."""
+        with self._cond:
+            report = self._runs.get(run_id)
+            if report is None:
+                return None
+            if not self._is_live(report):
+                return report.status
+            assert self._live is not None
+            if not report.cancel_requested:
+                report.cancel_requested = True
+                report.cancelled_by = by
+            self._live[1].cancelled = True
+        log.event("run_cancel", run=run_id, by=by)
+        return RUN_CANCELLING
 
     def _is_live(self, report: RunReport) -> bool:
         return self._live is not None and self._live[0] is report
@@ -652,6 +690,7 @@ class Worker:
                 return "not_auto"
         if self._before_claim is not None:
             self._before_claim()
+        self._close_idle_sessions()
         job = self.queue.claim()
         if job is None:
             if wait:
@@ -761,12 +800,25 @@ class Worker:
                 if self.mode == PAUSED:
                     report.stopped_by = "paused"
                     break
+                if self._before_run_claim is not None:
+                    self._before_run_claim()
+                self._close_idle_sessions()
                 job = self.queue.claim()
                 if job is None:
                     report.stopped_by = "queue_empty"
                     break
                 with self._cond:
-                    report.current_job = job.id
+                    # a shutdown, a pause or a cancel that landed after the checks
+                    # above: once ``stop``, ``set_mode`` or ``cancel_run`` returns,
+                    # no new job starts (P11, as in ``_step``)
+                    held = self._held_locked(budget)
+                    if held is None:
+                        report.current_job = job.id
+                if held is not None:
+                    self.queue.release(job.id)
+                    log.event("job_released", job=job.id, kind=job.kind, limit=held)
+                    report.stopped_by = held
+                    break
                 outcome, result = self._process(job, session)
                 with self._cond:
                     report.current_job = None
@@ -781,6 +833,16 @@ class Worker:
             if report.stopped_by is None:
                 report.stopped_by = "error"
             self._end(report, budget)
+
+    def _held_locked(self, budget: Budget) -> str | None:
+        """Why a run must not start the job it just claimed; under ``_cond``."""
+        if self._stop:
+            return "shutdown"
+        if self._mode == PAUSED:
+            return "paused"
+        if budget.cancelled:
+            return CANCELLED
+        return None
 
     def _end(self, report: RunReport, budget: Budget) -> None:
         """Close the run; it always stops being the current one."""
@@ -849,6 +911,34 @@ class Worker:
         if job.kind in WRITING_KINDS:
             self.request_embeddings(job.scopes)
         return DONE, result
+
+    def close_idle_sessions(self) -> int:
+        """SPEC 5.8: queue the close of every session idle for longer than the
+        configured minutes (by the store's clock) that no job closes yet - for a
+        host that never calls session end. Enqueue only; returns how many."""
+        minutes = self.pipeline.session_idle_minutes
+        if not self.pipeline.intent or minutes <= 0:
+            return 0
+        before = self.store.now_plus(timedelta(minutes=-minutes))
+        queued = 0
+        for state in sessions.idle(self.store, before):
+            assert state.id is not None  # a stored session
+            job = self.queue.enqueue(
+                sessions.SESSION_CLOSE,
+                {"reason": "idle", "seen": state.last_seen_at},
+                scopes=list(state.scopes),
+                session_id=state.key or None,
+            )
+            sessions.mark_closing(self.store, state.id, job.id)
+            log.event("session_idle", job=job.id)
+            queued += 1
+        return queued
+
+    def _close_idle_sessions(self) -> None:
+        try:
+            self.close_idle_sessions()
+        except Exception as exc:  # pragma: no cover - the loop must survive anything
+            log.event("session_idle_error", error=type(exc).__name__)
 
     def interrupted(self) -> str | None:
         """Why a long job (a dream) should stop at its next step (P11): the service

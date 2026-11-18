@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from iifa import __version__
 from iifa.api.auth import TokenRegistry
 from iifa.api.dream import router as dream_router
+from iifa.api.paging import Cursors
 from iifa.api.routes import router
 from iifa.config import Settings
 from iifa.dream.adjudicate import NameNeighbours, NamesClose, name_neighbours, names_close
@@ -91,7 +92,14 @@ def build_pipeline(settings: Settings) -> PipelineConfig:
         summary_nodes_per_session=settings.summary_nodes_per_session,
         language_overrides=settings.language_overrides,
         owners=settings.owners,
+        assistants=settings.assistants,
+        selves=settings.selves,
+        review_self_rules=settings.review_self_rules,
         replacement_question=settings.replacement_question,
+        restatement_question=settings.restatement_question,
+        value_norm=settings.value_norm,
+        intent=settings.extraction_intent,
+        session_idle_minutes=settings.session_idle_minutes,
     )
 
 
@@ -158,6 +166,7 @@ def create_app(
     app.state.settings = settings
     app.state.store = store
     app.state.registry = TokenRegistry(settings.tokens)
+    app.state.cursors = Cursors.for_store(store)
     gate = Gate({CHAT: settings.chat_concurrency, EMBEDDINGS: settings.embeddings_concurrency})
     app.state.models = build_models(settings, gate)
     app.state.engine = RecallEngine(
@@ -165,6 +174,8 @@ def create_app(
         get_tokenizer(settings.tokenizer),
         max_candidates=settings.recall_candidates,
         neighbour_facts=settings.graph_neighbour_facts,
+        observed_half_life_days=settings.observed_half_life_days,
+        activity_threshold=lambda model: settings.activity_threshold,
         tier=tier_of(app.state.models),
         dense=(
             Dense(

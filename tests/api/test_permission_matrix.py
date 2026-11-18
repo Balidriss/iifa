@@ -20,6 +20,8 @@ PSET = "pset_" + "0" * 26
 DREAM = "dream_" + "0" * 26
 DOP = "dop_" + "0" * 26
 RUN = "run_" + "0" * 26
+CORR = "corr_" + "0" * 26
+EDGE = "edge_" + "0" * 26
 
 # A minimal, well-formed request for each route (so the only reason for a 4xx is auth).
 SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
@@ -27,6 +29,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
     ("GET", "/v1/stats"): ("/v1/stats", {}),
     ("POST", "/v1/recall"): ("/v1/recall", {"json": {"scope": "user:alice", "query": "solar"}}),
     ("POST", "/v1/expand"): ("/v1/expand", {"json": {"scope": "user:alice", "ids": [FACT]}}),
+    ("GET", "/v1/nodes"): ("/v1/nodes", {"params": {"scope": "user:alice"}}),
     ("GET", "/v1/nodes/{node_id}"): (f"/v1/nodes/{NODE}", {"params": {"scope": "user:alice"}}),
     ("GET", "/v1/lookup"): ("/v1/lookup", {"params": {"scope": "user:alice", "external_id": "x"}}),
     ("POST", "/v1/timeline"): ("/v1/timeline", {"json": {"scope": "user:alice"}}),
@@ -41,10 +44,15 @@ SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
         "/v1/link",
         {"json": {"scope": "user:alice", "src": NODE, "dst": NODE, "type": "knows"}},
     ),
+    ("POST", "/v1/edges/{edge_id}"): (f"/v1/edges/{EDGE}", {"json": {"decision": "confirm"}}),
     ("POST", "/v1/archive"): ("/v1/archive", {"json": {"id": FACT}}),
     ("POST", "/v1/restore"): ("/v1/restore", {"json": {"id": FACT}}),
     ("POST", "/v1/forget"): ("/v1/forget", {"json": {"id": FACT}}),
     ("PATCH", "/v1/facts/{fact_id}"): (f"/v1/facts/{FACT}", {"json": {"pinned": True}}),
+    ("PATCH", "/v1/nodes/{node_id}"): (f"/v1/nodes/{NODE}", {"json": {"name": "x"}}),
+    ("POST", "/v1/nodes/merge"): ("/v1/nodes/merge", {"json": {"keep": NODE, "absorb": NODE}}),
+    ("GET", "/v1/corrections/{correction_id}"): (f"/v1/corrections/{CORR}", {}),
+    ("POST", "/v1/corrections/{correction_id}/undo"): (f"/v1/corrections/{CORR}/undo", {}),
     ("POST", "/v1/proposals/{proposal_id}"): (
         f"/v1/proposals/{PROP}",
         {"json": {"decision": "reject"}},
@@ -58,6 +66,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
     ("PUT", "/v1/background"): ("/v1/background", {"json": {"mode": "on_demand"}}),
     ("POST", "/v1/background/run"): ("/v1/background/run", {"json": {"max_jobs": 1}}),
     ("GET", "/v1/background/run/{run_id}"): (f"/v1/background/run/{RUN}", {}),
+    ("POST", "/v1/background/run/{run_id}/cancel"): (f"/v1/background/run/{RUN}/cancel", {}),
     ("POST", "/v1/background/yield"): ("/v1/background/yield", {"json": {"timeout_seconds": 1}}),
     ("POST", "/v1/background/resume"): ("/v1/background/resume", {}),
     ("POST", "/v1/probes"): (
@@ -75,6 +84,7 @@ SAMPLES: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {
     ("POST", "/v1/probes/{set_id}/run"): (f"/v1/probes/{PSET}/run", {}),
     ("DELETE", "/v1/probes/{set_id}"): (f"/v1/probes/{PSET}", {}),
     ("POST", "/v1/dream"): ("/v1/dream", {"json": {"scope": "user:alice", "dry_run": True}}),
+    ("GET", "/v1/dreams"): ("/v1/dreams", {"params": {"scope": "user:alice"}}),
     ("GET", "/v1/dream/{run_id}"): (f"/v1/dream/{DREAM}", {}),
     ("GET", "/v1/dream/{run_id}/plan"): (f"/v1/dream/{DREAM}/plan", {}),
     ("POST", "/v1/dream/{run_id}/undo"): (f"/v1/dream/{DREAM}/undo", {"json": {}}),

@@ -15,6 +15,7 @@ from iifa.ingest.values import (
     parse_date,
     precision,
     same_name,
+    shares_words,
     transliterate,
 )
 
@@ -81,6 +82,52 @@ def test_what_cannot_be_read_as_a_date_is_unknown(a: str, b: str) -> None:
 )
 def test_numbers_in_any_digits(a: str, b: str, verdict: str) -> None:
     assert compare_values(a, b) == verdict
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "verdict"),
+    [
+        ("120 o", "120 B", SAME),
+        ("120o", "120 B", SAME),
+        ("12 Ko", "12 kB", SAME),
+        ("12 ko", "12 KB", SAME),
+        ("3 Mo", "3 MB", SAME),
+        ("2 Go", "2 GB", SAME),
+        ("1 To", "1 TB", SAME),
+        ("120 o", "512 B", DIFFERENT),
+        ("120 o", "120 Ko", UNKNOWN),  # no conversion between prefixes
+        ("4 GiB", "4 GB", UNKNOWN),
+        ("6 mo", "6 MB", UNKNOWN),  # lower-case "mo" is not a unit symbol (a month)
+        ("100 Mo", "100 Mb", UNKNOWN),  # a megabit is not a megaoctet
+        ("100 MB", "100 Mb", UNKNOWN),  # case alone does not make them one
+        ("120 b", "120 B", UNKNOWN),
+        ("42 KG", "42 kg", SAME),  # any other unit is compared folded
+        ("120kB", "120 Ko", SAME),
+    ],
+)
+def test_byte_symbols_of_one_meaning_are_one_unit(a: str, b: str, verdict: str) -> None:
+    """SPEC 5.4: "o" (octet) and "B" (byte) are one unit symbol, with or without
+    a prefix; nothing is converted."""
+    assert compare_values(a, b) == verdict
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "shared"),
+    [
+        ("120 o", "120 octets", True),
+        ("a.txt, b.png et c.zip", "trois fichiers : c.zip, a.txt et b.png", True),
+        ("bureau de Lyon", "bureau de Paris", True),
+        ("Lyon", "Paris", False),
+        ("Documents", "Bureau", False),
+        ("thé vert", "the noir", True),  # folded: case and diacritics off
+        ("", "Lyon", False),
+    ],
+)
+def test_shares_words(a: str, b: str, shared: bool) -> None:
+    """SPEC 5.4: the restatement question is asked only for values sharing at
+    least half of the shorter one's words."""
+    assert shares_words(a, b) is shared
+    assert shares_words(b, a) is shared
 
 
 @pytest.mark.parametrize(

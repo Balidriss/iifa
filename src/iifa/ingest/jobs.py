@@ -7,9 +7,12 @@ through the job's ``ModelSession`` so that P11 holds whatever the job:
   carry (``iifa.ingest.extract``), in the language of that text (P12), with
   provenance (P6) and contradictions superseded (P7); at tier 0 they run the
   deterministic part only (known names mentioned -> co-occurrence edges);
-* ``session_end`` refreshes the summaries of the nodes the session touched
-  (``iifa.ingest.summaries``) and applies edge decay in the session's scopes
-  (SPEC 5.3), with the store's clock.
+* ``session_end`` closes the session's state (``iifa.ingest.consolidate``,
+  SPEC 5.8: its work in progress consolidated, the rest expired), refreshes the
+  summaries of the nodes the session touched (``iifa.ingest.summaries``) and
+  applies edge decay in the session's scopes (SPEC 5.3), with the store's clock;
+* ``session_close`` closes the state of a session nobody ended, once it has
+  been idle long enough (queued by the worker), and nothing else.
 
 ``model_noop`` makes real calls to the configured endpoint and discards the
 answers, so the fake model server's call log can count them in P11 tests.
@@ -20,6 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from iifa import log
+from iifa.ingest.consolidate import close_session
 from iifa.ingest.embed import EMBED, embed
 from iifa.ingest.extract import extract_text, write_view
 from iifa.ingest.parts import (
@@ -34,6 +38,8 @@ from iifa.ingest.parts import (
     turn_text,
 )
 from iifa.ingest.queue import Job
+from iifa.ingest.sessions import SESSION_CLOSE, release_closing
+from iifa.ingest.sessions import load as load_session
 from iifa.ingest.summaries import refresh_summary
 from iifa.ingest.worker import Handler, JobContext
 from iifa.llm import CHAT, EMBEDDINGS
@@ -79,7 +85,8 @@ def _owner_name(ctx: JobContext, scopes: list[str]) -> str | None:
 
 def turn(job: Job, ctx: JobContext) -> dict[str, Any] | None:
     """A recorded turn: one source, extracted (SPEC 8.1)."""
-    source = turn_source(job.payload, _owner_name(ctx, list(job.scopes)))
+    scopes = list(job.scopes)
+    source = turn_source(job.payload, _owner_name(ctx, scopes), ctx.config.assistant(scopes))
     if not source.text:
         return {"skipped": "empty"}
     external = job.payload.get("external_id")
@@ -97,7 +104,8 @@ def turn(job: Job, ctx: JobContext) -> dict[str, Any] | None:
 
 def precompact(job: Job, ctx: JobContext) -> dict[str, Any] | None:
     """The messages a harness is about to drop: one source, extracted in chunks."""
-    source = precompact_source(job.payload, _owner_name(ctx, list(job.scopes)))
+    scopes = list(job.scopes)
+    source = precompact_source(job.payload, _owner_name(ctx, scopes), ctx.config.assistant(scopes))
     if not source.text:
         return {"skipped": "empty"}
     trigger = job.payload.get("trigger")
@@ -117,6 +125,7 @@ def session_end(job: Job, ctx: JobContext) -> dict[str, Any] | None:
     their facts (tier 2), then unconfirmed edges in its scopes decay (SPEC 5.3)."""
     view = write_view(list(job.scopes))
     config = ctx.config
+    closed = close_session(ctx, job.session_id, list(job.scopes), reason="end")
     summaries = {"refreshed": 0, "language_mismatch": 0, "truncated": 0, "skipped": 0, "calls": 0}
     if job.session_id and ctx.models.has_chat:
         touched = ctx.store.nodes_touched_by_session(job.session_id, view)
@@ -142,7 +151,20 @@ def session_end(job: Job, ctx: JobContext) -> dict[str, Any] | None:
         decayed=decay["decayed"],
         pruned=decay["pruned"],
     )
-    return {"summaries": summaries, "edges": decay}
+    return {"session": closed, "summaries": summaries, "edges": decay}
+
+
+def session_close(job: Job, ctx: JobContext) -> dict[str, Any] | None:
+    """A session nobody ended, idle long enough: its state closed (SPEC 5.8)."""
+    reason = str(job.payload.get("reason") or "idle")
+    seen = job.payload.get("seen")
+    if seen is not None:
+        state = load_session(ctx.store, job.session_id, list(job.scopes))
+        if state.id is not None and state.last_seen_at != seen:
+            # a turn of the session came after the close was queued: still active
+            release_closing(ctx.store, state.id)
+            return {"session": {"reason": reason, "session": "active"}}
+    return {"session": close_session(ctx, job.session_id, list(job.scopes), reason=reason)}
 
 
 HANDLERS: dict[str, Handler] = {
@@ -151,6 +173,7 @@ HANDLERS: dict[str, Handler] = {
     TURN: turn,
     PRECOMPACT: precompact,
     SESSION_END: session_end,
+    SESSION_CLOSE: session_close,
     EMBED: embed,
 }
 
@@ -162,6 +185,7 @@ __all__ = [
     "NOOP",
     "OWNER",
     "PRECOMPACT",
+    "SESSION_CLOSE",
     "SESSION_END",
     "TURN",
     "Part",
@@ -171,6 +195,7 @@ __all__ = [
     "precompact",
     "precompact_source",
     "precompact_text",
+    "session_close",
     "session_end",
     "turn",
     "turn_source",

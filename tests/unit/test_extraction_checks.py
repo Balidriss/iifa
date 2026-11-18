@@ -14,6 +14,7 @@ from iifa.ingest.checks import (
     grounded,
     is_complete,
     names_subject,
+    shares_script,
     source_spelling,
     words,
 )
@@ -105,6 +106,31 @@ def test_a_name_in_the_statements_script_is_still_required() -> None:
     assert not names_subject("Он руководит планированием.", ["Karim", "Карим"])
     assert names_subject("Карим руководит планированием.", ["Karim", "Карим"])
     assert names_subject("カリムは設置計画を率いている。", ["カリム"])  # kana name, mixed sentence
+
+
+@pytest.mark.parametrize(
+    ("statement", "name"),
+    [
+        ("report-2.pdf — корректный документ, страниц: 4.", "report-2.pdf"),
+        ("Северная станция работает с Relay Nine.", "Relay Nine"),
+        ("Το Relay Nine λειτουργεί ξανά.", "relay nine"),  # case folded
+    ],
+)
+def test_a_name_written_as_it_is_names_its_subject_in_any_script(statement: str, name: str) -> None:
+    """SPEC 4.2: a name in Latin letters written whole in a Cyrillic or Greek
+    statement names its subject, and the statement shares its script."""
+    assert names_subject(statement, [name])
+    assert shares_script(statement, [name])
+
+
+def test_a_name_in_another_script_still_does_not_name_by_its_sound() -> None:
+    """The rule reads spelling, never sound: Karim is not named by « Карим »."""
+    assert not names_subject("Карим переехал в Лион.", ["Karim"])
+    assert not shares_script("Карим переехал в Лион.", ["Karim"])
+    assert not names_subject("Северная станция работает.", ["Relay Nine"])
+    assert not names_subject(  # whole words only
+        "Relay Nineteen снова работает на северной станции.", ["Relay Nine"]
+    )
 
 
 def test_arabic_attached_prefixes_are_a_known_limitation() -> None:

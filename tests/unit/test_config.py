@@ -134,3 +134,14 @@ permissions = "admin"
     assert settings.tokens[3].permissions == PERMISSIONS
     with pytest.raises(ConfigError, match="needs 'token'"):
         load_settings(env={"IIFA_DB_KEY": "k", "IIFA_TOKENS": '[{"name": "bad"}]'})
+
+
+def test_the_observed_half_life_is_read_from_recall_and_never_negative(tmp_path: Path) -> None:
+    """SPEC 4.2: 7 days by default, 0 turns the decay off, below 0 is refused."""
+    assert Settings(db_path=Path("x.db"), db_key="k").observed_half_life_days == 7.0
+    config = tmp_path / "iifa.toml"
+    config.write_text("[recall]\nobserved_half_life_days = 0\n", encoding="utf-8")
+    settings = load_settings(env={"IIFA_DB_KEY": "k"}, config_file=config)
+    assert settings.observed_half_life_days == 0.0
+    with pytest.raises(ConfigError, match="observed_half_life_days"):
+        Settings(db_path=Path("x.db"), db_key="k", observed_half_life_days=-1)

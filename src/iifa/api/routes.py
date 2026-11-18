@@ -10,13 +10,17 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from iifa import __version__, calibration, log, vectors
 from iifa.api import auth
+from iifa.api.paging import MAX_CURSOR_CHARS, Cursors, read_cursor, view_context
 from iifa.api.schemas import (
     AtRequest,
     BackgroundUpdate,
+    EdgeDecision,
     ExpandRequest,
     FactPatch,
     ForgetRequest,
     LinkRequest,
+    NodeMerge,
+    NodePatch,
     PathRequest,
     PrecompactRequest,
     ProbeSetCreate,
@@ -32,20 +36,39 @@ from iifa.api.schemas import (
     TurnRequest,
     YieldRequest,
 )
-from iifa.ids import kind_of
+from iifa.ids import kind_of, new_id
 from iifa.ingest.jobs import PRECOMPACT, SESSION_END, TURN
+from iifa.ingest.keys import canonical_key
 from iifa.ingest.queue import Job
-from iifa.ingest.worker import Budget, RunRefused, Worker
+from iifa.ingest.schema import COOCCURRENCE
+from iifa.ingest.worker import RUN_CANCELLING, Budget, RunRefused, Worker
 from iifa.llm import ModelClient
+from iifa.names import InvalidName
 from iifa.recall import history, paths
 from iifa.recall.dense import SuppliedVector
 from iifa.recall.engine import RecallEngine
-from iifa.recall.packer import pack
+from iifa.recall.paging import take
 from iifa.recall.probes import run_probe_set
 from iifa.recall.profile import profile_block
+from iifa.recall.tokenizer import normalize
 from iifa.scopes import Visibility
-from iifa.store.models import ProbeSet, Proposal
-from iifa.store.repo import NotFound, ProposalDecided, ProposalNotApplicable, ScopeMismatch, Store
+from iifa.store.corrections import (
+    MERGE_NODES,
+    Correction,
+    CorrectionRefused,
+    Corrections,
+    default_keep,
+)
+from iifa.store.models import Edge, Fact, Node, ProbeSet, Proposal
+from iifa.store.repo import (
+    PROPOSED,
+    NotFound,
+    ProposalDecided,
+    ProposalNotApplicable,
+    ScopeMismatch,
+    Store,
+    checked_name,
+)
 
 router = APIRouter(prefix="/v1")
 
@@ -81,12 +104,29 @@ def _budget(request: Request, requested: int | None) -> int:
     return requested
 
 
+def _cursors(request: Request) -> Cursors:
+    cursors: Cursors = request.app.state.cursors
+    return cursors
+
+
+LIST_LIMIT = 100
+LIST_LIMIT_MAX = 1000
+
+
+def _next_cursor(
+    request: Request, context: dict[str, Any], position: Sequence[Any] | None
+) -> str | None:
+    return None if position is None else _cursors(request).encode(context, position)
+
+
 def _view(principal: auth.Principal, body: Any) -> Visibility:
     return auth.resolve_view(principal, scope=body.scope, scopes=body.scopes, subtree=body.subtree)
 
 
 ScopeQ = Annotated[str | None, Query()]
 ScopesQ = Annotated[list[str] | None, Query()]
+CursorQ = Annotated[str | None, Query(max_length=MAX_CURSOR_CHARS)]
+LimitQ = Annotated[int, Query(ge=1, le=LIST_LIMIT_MAX)]
 
 
 def _query_view(
@@ -212,6 +252,68 @@ def expand(
     return result
 
 
+@router.get("/nodes")
+def list_nodes(
+    request: Request,
+    principal: Annotated[auth.Principal, auth.declare("GET", "/v1/nodes", "read")],
+    scope: ScopeQ = None,
+    scopes: ScopesQ = None,
+    subtree: ScopeQ = None,
+    prefix: Annotated[str | None, Query(min_length=1, max_length=300)] = None,
+    sort: Annotated[Literal["name", "changed"], Query()] = "name",
+    include_archived: bool = False,
+    cursor: CursorQ = None,
+    limit: LimitQ = LIST_LIMIT,
+    budget_tokens: Annotated[int | None, Query(ge=0)] = None,
+) -> dict[str, Any]:
+    """The nodes the view sees, a page at a time (SPEC 8.2): id, name, kind,
+    aliases, live facts, pending proposals and last change, by name or by last
+    change. ``prefix`` matches the start of the name or of an alias, compared in
+    their normalised form (case and Latin diacritics folded). A walk lists the
+    nodes that existed at its first page, with their last change as of then."""
+    view = _query_view(principal, scope, scopes, subtree)
+    budget = _budget(request, budget_tokens)
+    norm = None
+    if prefix is not None:
+        norm = normalize(prefix)
+        if not norm:
+            raise HTTPException(422, "prefix needs a letter or a digit")
+    context = {
+        "route": "nodes",
+        "view": view_context(view),
+        "sort": sort,
+        "prefix": norm,
+        "include_archived": include_archived,
+    }
+    position = read_cursor(_cursors(request), cursor, context, str, str, str)
+    mark = position[0] if position else new_id("node").split("_", 1)[1]
+    rows = _store(request).node_list(
+        view,
+        sort=sort,
+        prefix=norm,
+        include_archived=include_archived,
+        mark=mark,
+        after=(position[1], position[2]) if position else None,
+        limit=limit + 1,
+    )
+    sort_key = "name_norm" if sort == "name" else "changed_at"
+    engine = _engine(request)
+    pairs = [(row, {k: v for k, v in row.items() if k != "name_norm"}) for row in rows]
+    page = take(pairs, limit=limit, budget_tokens=budget, cost=lambda p: engine.cost(p[1]))
+    last = page.last[0] if page.more and page.last else None
+    return {
+        "items": [item for _, item in page.items],
+        "sort": sort,
+        "next_cursor": _next_cursor(
+            request, context, [mark, last[sort_key], last["id"]] if last else None
+        ),
+        "used_tokens": page.used_tokens,
+        "budget_tokens": budget,
+        "omitted": page.omitted,
+        "reason": page.reason,
+    }
+
+
 @router.get("/nodes/{node_id}")
 def get_node(
     request: Request,
@@ -237,9 +339,18 @@ def timeline(
     body: TimelineRequest,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/timeline", "read")],
 ) -> dict[str, Any]:
-    """Fact changes of a node, or of the whole view, inside a date range (P7)."""
+    """Fact changes of a node, or of the whole view, inside a date range (P7),
+    newest first, a page at a time (SPEC 8)."""
     view = _view(principal, body)
     budget = _budget(request, body.budget_tokens)
+    context = {
+        "route": "timeline",
+        "view": view_context(view),
+        "node_id": body.node_id,
+        "since": body.since,
+        "until": body.until,
+    }
+    position = read_cursor(_cursors(request), body.cursor, context, str, str, str)
     try:
         result = history.timeline(
             _engine(request),
@@ -249,11 +360,13 @@ def timeline(
             since=body.since,
             until=body.until,
             limit=body.limit,
+            before=(position[0], position[1], position[2]) if position else None,
         )
     except ValueError as exc:
         raise HTTPException(422, f"invalid date: {exc}") from exc
     if result is None:
         raise HTTPException(404, "no such node")
+    result["next_cursor"] = _next_cursor(request, context, result.pop("next"))
     log.event("timeline", items=len(result["items"]), omitted=result["omitted"], budget=budget)
     return result
 
@@ -334,19 +447,31 @@ def list_archived(
     scope: ScopeQ = None,
     scopes: ScopesQ = None,
     subtree: ScopeQ = None,
+    cursor: CursorQ = None,
+    limit: LimitQ = LIST_LIMIT,
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
+    """Archived nodes, facts and edges the view sees, most recently archived
+    first, a page at a time (SPEC 8)."""
     view = _query_view(principal, scope, scopes, subtree)
     budget = _budget(request, budget_tokens)
+    context = {"route": "archive", "view": view_context(view)}
+    position = read_cursor(_cursors(request), cursor, context, str, str)
     engine = _engine(request)
-    items = _store(request).archived(view)
-    result = pack([engine.cost(i) for i in items], budget)
+    items = _store(request).archived(
+        view, before=(position[0], position[1]) if position else None, limit=limit + 1
+    )
+    page = take(items, limit=limit, budget_tokens=budget, cost=engine.cost)
+    last = page.last if page.more else None
     return {
-        "items": [items[i] for i in result.chosen],
-        "used_tokens": result.used_tokens,
+        "items": page.items,
+        "next_cursor": _next_cursor(
+            request, context, [last["archived_at"], last["id"]] if last else None
+        ),
+        "used_tokens": page.used_tokens,
         "budget_tokens": budget,
-        "omitted": result.omitted,
-        "reason": result.reason,
+        "omitted": page.omitted,
+        "reason": page.reason,
     }
 
 
@@ -364,8 +489,16 @@ def remember(
         scopes = auth.require_write_scopes(principal, body.target_scopes())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if body.about_self:
+        return _remember_self(request, body, scopes)
     if body.node and body.node_id:
         raise HTTPException(422, "give node or node_id, not both")
+    if body.node:
+        try:  # the one name rule (SPEC 5.7), checked before anything is written
+            for name in (body.node.name, *(a for a in body.node.aliases if a.strip())):
+                checked_name(name)
+        except InvalidName as exc:
+            raise HTTPException(422, str(exc)) from exc
     view = Visibility.of_scope(scopes[0]) if len(scopes) == 1 else Visibility.of_scopes(scopes)
 
     node = None
@@ -430,12 +563,106 @@ def remember(
     )
 
 
-@router.post("/link", status_code=201)
+def _remember_self(request: Request, body: RememberRequest, scopes: list[str]) -> RememberResponse:
+    """SPEC 8.3, the agent remembering about itself: on the self's node, origin
+    ``extracted``, provenance ``assistant``. No model is called (P3): the same
+    thing said again is an echo and writes nothing; another value of a key the
+    self holds is written in conflict with it, never closing it."""
+    if body.node or body.node_id:
+        raise HTTPException(422, "about_self names the node: give neither node nor node_id")
+    agent = _worker(request).pipeline.agent(scopes)
+    if agent is None:
+        raise HTTPException(422, "about_self: no self is declared for these scopes")
+    store = _store(request)
+    view = Visibility.of_scope(scopes[0]) if len(scopes) == 1 else Visibility.of_scopes(scopes)
+    key = canonical_key(body.attribute)
+    value = normalize(body.value or "")
+    with store.lock:
+        node = store.find_node(agent.name, Visibility.of_scope(agent.scope))
+        created_node = node is None
+        if node is None:
+            node = store.create_node(
+                scopes=[agent.scope], name=agent.name, kind="other", aliases=agent.aliases
+            )
+        live = store.facts([node.id], view)
+        same_key = [f for f in live if key is not None and canonical_key(f.attribute) == key]
+        echoed = next(
+            (
+                f
+                for f in live
+                if normalize(f.statement) == normalize(body.statement)
+                or (value and f in same_key and normalize(f.value or "") == value)
+            ),
+            None,
+        )
+        held = next((f for f in same_key if f.value), None) if value else None
+        if echoed is None:
+            source = store.add_source(scopes=scopes, kind="remember", text=body.statement)
+            fact = store.add_fact(
+                scopes=scopes,
+                statement=body.statement,
+                origin="extracted",
+                node_id=node.id,
+                source_id=source.id,
+                excerpt=(0, len(body.statement)),
+                attribute=key,
+                value=body.value,
+                valid_from=body.valid_from,
+                valid_to=body.valid_to,
+                confidence=1.0,
+                pinned=body.pinned,
+                external_id=body.external_id,
+                flags=["conflict"] if held is not None else [],
+                conflicts_with=held.id if held is not None else None,
+                provenance="assistant",
+                part_ref=agent.name,
+            )
+    if echoed is not None:
+        log.event("remember", fact=echoed.id, node=node.id, echo=True, scopes=len(scopes))
+        return _remembered(echoed, node, None, created_node, echo=True)
+    _worker(request).request_embeddings(scopes)  # tier 3: enqueue only (SPEC 6.1)
+    log.event("remember", fact=fact.id, node=node.id, created_node=created_node, scopes=len(scopes))
+    return _remembered(fact, node, source.id, created_node)
+
+
+def _remembered(
+    fact: Fact, node: Node, source_id: str | None, created_node: bool, *, echo: bool = False
+) -> RememberResponse:
+    return RememberResponse(
+        fact={
+            "id": fact.id,
+            "kind": "fact",
+            "scopes": list(fact.scopes),
+            "external_id": fact.external_id,
+        },
+        node={"id": node.id, "kind": "node", "scopes": list(node.scopes), "name": node.name},
+        source_id=source_id,
+        created_node=created_node,
+        echo=echo,
+    )
+
+
+def _edge_out(edge: Edge) -> dict[str, Any]:
+    return {
+        "id": edge.id,
+        "kind": "edge",
+        "scopes": list(edge.scopes),
+        "status": edge.status,
+        "external_id": edge.external_id,
+        "rev": edge.decision_rev,  # an edge's API rev is its decision revision (SPEC 4.4)
+    }
+
+
+@router.post("/link", status_code=201, responses={200: {"description": "Live edge confirmed"}})
 def link(
     request: Request,
+    response: Response,
     body: LinkRequest,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/link", "write")],
 ) -> dict[str, Any]:
+    """An explicit, confirmed edge (SPEC 5.2). When the pair already has the live
+    edge of that type the token touches, that edge is confirmed (journalled as a
+    person's decision, SPEC 5.7) and returned rather than a twin added."""
     store = _store(request)
     try:
         scopes = auth.require_write_scopes(principal, body.target_scopes())
@@ -446,6 +673,23 @@ def link(
         ends = store.nodes_by_id([body.src, body.dst], view)
         if body.src not in ends or body.dst not in ends:
             raise HTTPException(404, "no such node")
+        existing = store.live_edge(
+            body.src, body.dst, body.type, view, either_way=body.type == COOCCURRENCE
+        )
+        if (
+            existing is not None
+            and principal.may_touch(existing.scopes)
+            and body.external_id in (None, existing.external_id)
+        ):
+            correction_id = None
+            if existing.status == PROPOSED:
+                existing, entry = Corrections(store).decide_edge(
+                    existing.id, "confirm", token=principal.name
+                )
+                correction_id = entry.id
+            response.status_code = 200
+            log.event("link", edge=existing.id, created=False, correction=correction_id)
+            return {**_edge_out(existing), "created": False, "correction_id": correction_id}
         edge = store.add_edge(
             scopes=scopes,
             src=body.src,
@@ -456,13 +700,38 @@ def link(
             weight=body.weight,
             external_id=body.external_id,
         )
-    log.event("link", edge=edge.id, src=edge.src, dst=edge.dst)
+    log.event("link", edge=edge.id, src=edge.src, dst=edge.dst, created=True)
+    return {**_edge_out(edge), "created": True, "correction_id": None}
+
+
+@router.post("/edges/{edge_id}")
+def decide_edge(
+    request: Request,
+    edge_id: str,
+    body: EdgeDecision,
+    principal: Annotated[auth.Principal, auth.declare("POST", "/v1/edges/{edge_id}", "write")],
+) -> dict[str, Any]:
+    """A person's decision on a proposed edge (SPEC 5.7): ``confirm`` makes it
+    confirmed, ``reject`` archives it - journalled with the token's name, undoable."""
+    store = _store(request)
+    if kind_of(edge_id) != "edge":
+        raise HTTPException(404, "no such edge")
+    with store.lock:
+        _touchable(store, principal, edge_id)
+        try:
+            edge, entry = Corrections(store).decide_edge(
+                edge_id, body.decision, token=principal.name, rev=body.rev
+            )
+        except CorrectionRefused as exc:
+            raise _refused(exc) from exc
+    log.event("decide_edge", edge=edge.id, decision=body.decision, correction=entry.id)
     return {
-        "id": edge.id,
-        "kind": "edge",
-        "scopes": list(edge.scopes),
-        "status": edge.status,
-        "external_id": edge.external_id,
+        **_edge_out(edge),
+        "src": edge.src,
+        "dst": edge.dst,
+        "type": edge.type,
+        "archived": edge.archived_at is not None,
+        "correction_id": entry.id,
     }
 
 
@@ -611,6 +880,12 @@ def decide_proposal(
     return decide_proposal_item(request, principal, proposal_id, body.decision == "accept")
 
 
+MERGE_IN_REVIEW = (
+    "a merge proposal is accepted in review only (POST /v1/review/{id}):"
+    " a person's decision, with the 'review' permission"
+)
+
+
 def decide_proposal_item(
     request: Request,
     principal: auth.Principal,
@@ -618,10 +893,12 @@ def decide_proposal_item(
     accept: bool,
     *,
     from_review: bool = False,
+    keep: str | None = None,
 ) -> dict[str, Any]:
     """The decision on one proposal, shared by ``/v1/proposals`` and the review
-    queue (SPEC 8.6). A merge proposal is never accepted there: only its reviewed
-    ``merge_nodes`` merges (SPEC 4.4b); a reviewer may reject it outright."""
+    queue (SPEC 8.6). A merge proposal is accepted only in the review queue,
+    where accepting it merges the two nodes as a person's decision (SPEC 5.7);
+    ``/v1/proposals``, an agent's ``write`` route, refuses it."""
     store = _store(request)
     if kind_of(proposal_id) != "prop":
         raise HTTPException(404, "no such record")
@@ -633,8 +910,12 @@ def decide_proposal_item(
             raise HTTPException(404, "no such record") from exc
         if proposal.kind == "fact" and not principal.can("review"):
             raise HTTPException(403, "a fact proposal needs the 'review' permission")
-        if from_review and proposal.kind == "merge" and accept:
-            raise HTTPException(409, "a merge is accepted through its dream operation")
+        if keep is not None and not (proposal.kind == "merge" and accept):
+            raise HTTPException(422, "keep is given only to accept a merge proposal")
+        if proposal.kind == "merge" and accept:
+            if not from_review:
+                raise HTTPException(409, MERGE_IN_REVIEW)
+            return _accept_merge(request, principal, proposal, keep)
         if (
             accept
             and proposal.node_id is not None
@@ -646,12 +927,10 @@ def decide_proposal_item(
             proposal = store.decide_proposal(proposal_id, accept=accept)
         except ProposalDecided as exc:
             raise HTTPException(409, f"proposal already {proposal.status}") from exc
+        except InvalidName as exc:
+            raise HTTPException(422, "this alias is not a name (SPEC 5.1): reject it") from exc
         except ProposalNotApplicable as exc:
-            raise HTTPException(
-                409,
-                "a merge proposal is never accepted directly: a dream's merge_nodes, "
-                "approved in review, merges",
-            ) from exc
+            raise HTTPException(409, MERGE_IN_REVIEW) from exc
     if proposal.status == "accepted":
         _worker(request).request_embeddings(list(proposal.scopes))  # a new alias, a new name vector
     log.event("proposal", proposal=proposal.id, kind=proposal.kind, status=proposal.status)
@@ -668,6 +947,218 @@ def decide_proposal_item(
     return out
 
 
+def _accept_merge(
+    request: Request, principal: auth.Principal, proposal: Proposal, keep: str | None
+) -> dict[str, Any]:
+    """A reviewer accepts a merge proposal: the two nodes are merged as a person's
+    decision (SPEC 5.7). Called under the store lock."""
+    if not principal.can("review"):  # the route says so too; a merge never goes without it
+        raise HTTPException(403, "a merge needs the 'review' permission")
+    if proposal.status != "pending":
+        raise HTTPException(409, f"proposal already {proposal.status}")
+    store = _store(request)
+    pair = [proposal.node_id or "", proposal.value]
+    if keep is not None and keep not in pair:
+        raise HTTPException(422, "keep must be one of the two nodes of the proposal")
+    for node_id in pair:
+        _touchable(store, principal, node_id)
+    if keep is None:
+        first, second = store.get_node(pair[0]), store.get_node(pair[1])
+        if first.kind != second.kind:
+            # the kept node keeps its kind (SPEC 5.7): the default must not pick it
+            raise HTTPException(422, {"reason": "keep_required", "records": pair})
+        kept, absorbed = default_keep(store, first, second)
+        keep_id, absorb_id = kept.id, absorbed.id
+    else:
+        keep_id, absorb_id = keep, pair[1] if keep == pair[0] else pair[0]
+    entry = _merge(request, principal, keep_id, absorb_id, proposal=proposal)
+    out = proposal_item(store.get_proposal(proposal.id))
+    out["status"] = "accepted"
+    return {**out, **_merge_out(entry)}
+
+
+def _refused(exc: CorrectionRefused) -> HTTPException:
+    status = 422 if exc.reason in ("no_alias", "no_kind", "same_record") else 409
+    detail: dict[str, Any] = {"reason": exc.reason, "records": exc.records}
+    if exc.revs:
+        detail["revs"] = exc.revs
+    return HTTPException(status, detail)
+
+
+def _merge(
+    request: Request,
+    principal: auth.Principal,
+    keep: str,
+    absorb: str,
+    *,
+    proposal: Proposal | None = None,
+    revs: dict[str, int] | None = None,
+) -> Correction:
+    """The one merge path of a person (SPEC 5.7), under the store lock."""
+    store = _store(request)
+    try:
+        entry = Corrections(store).merge(
+            keep, absorb, token=principal.name, proposal=proposal, revs=revs
+        )
+    except NotFound as exc:
+        raise HTTPException(404, "no such node") from exc
+    except CorrectionRefused as exc:
+        raise _refused(exc) from exc
+    _worker(request).request_embeddings(list(store.scopes_of(keep)))
+    log.event("merge_nodes", correction=entry.id, keep=keep, absorb=absorb)
+    return entry
+
+
+def _merge_out(entry: Correction) -> dict[str, Any]:
+    payload = entry.payload or {}
+    return {
+        "correction_id": entry.id,
+        "keep": payload.get("keep"),
+        "absorb": payload.get("absorb"),
+        "proposal_id": payload.get("proposal"),
+    }
+
+
+@router.patch("/nodes/{node_id}")
+def patch_node(
+    request: Request,
+    node_id: str,
+    body: NodePatch,
+    principal: Annotated[auth.Principal, auth.declare("PATCH", "/v1/nodes/{node_id}", "write")],
+) -> dict[str, Any]:
+    """A person's correction of a node (SPEC 5.7): rename it (the old name stays an
+    alias unless ``keep_old_name`` is false), change its kind, add and remove
+    aliases - journalled with the token's name, undoable."""
+    store = _store(request)
+    if kind_of(node_id) != "node":
+        raise HTTPException(404, "no such node")
+    with store.lock:
+        _touchable(store, principal, node_id)
+        try:
+            node, entry = Corrections(store).patch_node(
+                node_id,
+                token=principal.name,
+                name=body.name,
+                keep_old_name=body.keep_old_name,
+                kind=body.kind,
+                add_aliases=body.add_aliases,
+                remove_aliases=body.remove_aliases,
+                rev=body.rev,
+            )
+        except NotFound as exc:
+            raise HTTPException(404, "no such node") from exc
+        except InvalidName as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except CorrectionRefused as exc:
+            raise _refused(exc) from exc
+    if entry is not None:
+        _worker(request).request_embeddings(list(node.scopes))  # a new name vector
+    log.event("patch_node", node=node.id, correction=entry.id if entry else None)
+    return {
+        "id": node.id,
+        "kind": node.kind,
+        "name": node.name,
+        "aliases": list(node.aliases),
+        "scopes": list(node.scopes),
+        "rev": node.rev,
+        "correction_id": entry.id if entry else None,
+    }
+
+
+@router.post("/nodes/merge")
+def merge_nodes(
+    request: Request,
+    body: NodeMerge,
+    principal: Annotated[auth.Principal, auth.declare("POST", "/v1/nodes/merge", "review")],
+) -> dict[str, Any]:
+    """Merge two nodes a person knows are one (SPEC 5.7): their merge proposal -
+    the pending one, else one recorded now - is accepted through the review
+    path, so the same guard and the same journal apply."""
+    store = _store(request)
+    for node_id in (body.keep, body.absorb):
+        if kind_of(node_id) != "node":
+            raise HTTPException(404, "no such node")
+    if body.revs is not None and not set(body.revs) <= {body.keep, body.absorb}:
+        raise HTTPException(422, "revs names the two nodes only")
+    with store.lock:
+        for node_id in (body.keep, body.absorb):
+            _touchable(store, principal, node_id)
+        entry = _merge(request, principal, body.keep, body.absorb, revs=body.revs)
+    return _merge_out(entry)
+
+
+def _correction(store: Store, principal: auth.Principal, correction_id: str) -> Correction:
+    """The entry, or 404 when it does not exist or the token does not touch every
+    record it names that still exists (one of them at least)."""
+    if kind_of(correction_id) != "corr":
+        raise HTTPException(404, "no such correction")
+    try:
+        entry = Corrections(store).get(correction_id)
+    except NotFound as exc:
+        raise HTTPException(404, "no such correction") from exc
+    existing = list(store.scope_sets(entry.records).values())
+    if not existing or not all(principal.may_touch(s) for s in existing):
+        raise HTTPException(404, "no such correction")
+    return entry
+
+
+def _correction_out(entry: Correction) -> dict[str, Any]:
+    return {
+        "id": entry.id,
+        "op": entry.op,
+        "status": entry.status,
+        "token": entry.token,
+        "created_at": entry.created_at,
+        "payload": entry.payload,
+        "records": list(entry.records),
+        "forgotten": entry.forgotten,
+        "undone_at": entry.undone_at,
+        "undone_by": entry.undone_by,
+    }
+
+
+@router.get("/corrections/{correction_id}")
+def get_correction(
+    request: Request,
+    correction_id: str,
+    principal: Annotated[
+        auth.Principal, auth.declare("GET", "/v1/corrections/{correction_id}", "read")
+    ],
+) -> dict[str, Any]:
+    """One entry of the corrections journal (SPEC 5.7): what was changed, by which
+    token, when, and whether it was undone."""
+    store = _store(request)
+    with store.lock:
+        return _correction_out(_correction(store, principal, correction_id))
+
+
+@router.post("/corrections/{correction_id}/undo")
+def undo_correction(
+    request: Request,
+    correction_id: str,
+    principal: Annotated[
+        auth.Principal, auth.declare("POST", "/v1/corrections/{correction_id}/undo", auth.ANY)
+    ],
+) -> dict[str, Any]:
+    """Revert one correction exactly (SPEC 5.7); refused, naming the records, when
+    a later write depends on it. It needs the permission that made the
+    correction: ``write`` for a patch, ``review`` for a merge."""
+    store = _store(request)
+    with store.lock:
+        entry = _correction(store, principal, correction_id)
+        needed = "review" if entry.op == MERGE_NODES else "write"
+        if not principal.can(needed):
+            raise HTTPException(403, f"undoing this correction needs the '{needed}' permission")
+        try:
+            entry = Corrections(store).undo(entry.id, token=principal.name)
+        except CorrectionRefused as exc:
+            raise _refused(exc) from exc
+        scopes = sorted({s for v in store.scope_sets(entry.records).values() for s in v})
+    _worker(request).request_embeddings(scopes)
+    log.event("undo_correction", correction=entry.id, op=entry.op)
+    return _correction_out(entry)
+
+
 @router.get("/proposals")
 def list_proposals(
     request: Request,
@@ -676,21 +1167,36 @@ def list_proposals(
     scopes: ScopesQ = None,
     subtree: ScopeQ = None,
     kind: Annotated[Literal["alias", "merge", "fact"] | None, Query()] = None,
+    cursor: CursorQ = None,
+    limit: LimitQ = LIST_LIMIT,
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
-    """The pending proposals visible in the view, oldest first, under budget
-    (SPEC 4.4b, 8.3): the only place a fact proposal without a node shows."""
+    """The pending proposals visible in the view, oldest first, a page at a time
+    under budget (SPEC 4.4b, 8.3): the only place a fact proposal without a node
+    shows."""
     view = _query_view(principal, scope, scopes, subtree)
     budget = _budget(request, budget_tokens)
+    context = {"route": "proposals", "view": view_context(view), "kind": kind}
+    position = read_cursor(_cursors(request), cursor, context, str, str)
     engine = _engine(request)
-    items = [proposal_item(p) for p in _store(request).pending_proposals(view, kind=kind)]
-    result = pack([engine.cost(i) for i in items], budget)
+    proposals = _store(request).pending_proposals(
+        view,
+        kind=kind,
+        after=(position[0], position[1]) if position else None,
+        limit=limit + 1,
+    )
+    items = [proposal_item(p) for p in proposals]
+    page = take(items, limit=limit, budget_tokens=budget, cost=engine.cost)
+    last = page.last if page.more else None
     return {
-        "items": [items[i] for i in result.chosen],
-        "used_tokens": result.used_tokens,
+        "items": page.items,
+        "next_cursor": _next_cursor(
+            request, context, [last["created_at"], last["id"]] if last else None
+        ),
+        "used_tokens": page.used_tokens,
         "budget_tokens": budget,
-        "omitted": result.omitted,
-        "reason": result.reason,
+        "omitted": page.omitted,
+        "reason": page.reason,
     }
 
 
@@ -710,6 +1216,8 @@ def proposal_item(proposal: Proposal) -> dict[str, Any]:
         item["attribute"] = data.get("attribute")
         item["fact_value"] = data.get("value")
         item["provenance"] = data.get("provenance")
+        item["why"] = data.get("why")  # SPEC 4.2: "intent:..." when the intent is in doubt
+        item["subject"] = data.get("subject")
     return item
 
 
@@ -848,8 +1356,14 @@ def session_start(
     under budget, deterministic and stable while nothing changes."""
     view = _view(principal, body)
     budget = _budget(request, body.budget_tokens)
+    asked = body.scopes or [body.scope or body.subtree or ""]
+    agent = _worker(request).pipeline.agent(asked) if all(asked) else None
     result = profile_block(
-        _engine(request), view=view, budget_tokens=budget, exclude_ids=body.exclude_ids
+        _engine(request),
+        view=view,
+        budget_tokens=budget,
+        exclude_ids=body.exclude_ids,
+        agent=(agent.name, agent.scope) if agent is not None else None,
     )
     log.event(
         "session_start",
@@ -867,12 +1381,21 @@ def record_turn(
     body: TurnRequest,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/turns", "write")],
 ) -> dict[str, Any]:
-    """Record a turn: one insert into the persisted queue, nothing else (P3)."""
+    """Record a turn: one insert into the persisted queue, nothing else (P3).
+    With ``record: false`` nothing at all: no queue row, no source, no fact."""
     try:
         scopes = auth.require_write_scopes(principal, body.target_scopes())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     worker = _worker(request)
+    if not body.record:
+        log.event("turn_not_recorded")
+        return {
+            "job_id": None,
+            "kind": TURN,
+            "status": "not_recorded",
+            "queue": {"depth": worker.queue.depth(), "mode": worker.mode},
+        }
     payload = {
         "user": body.user,
         "assistant": body.assistant,
@@ -1029,6 +1552,27 @@ def background_run(
     if report is None:
         raise HTTPException(404, "no such run")
     return report
+
+
+@router.post("/background/run/{run_id}/cancel")
+def cancel_background_run(
+    request: Request,
+    run_id: str,
+    principal: Annotated[
+        auth.Principal, auth.declare("POST", "/v1/background/run/{run_id}/cancel", "admin")
+    ],
+) -> dict[str, Any]:
+    """Stop a run early, as at a budget limit: no new job starts, a job in flight
+    is put back untouched at its next model call, and the run ends with
+    ``stopped_by: cancelled``. The mode is unchanged; ``cancelled_by`` names the
+    token."""
+    worker = _worker(request)
+    status = worker.cancel_run(run_id, by=principal.name) if kind_of(run_id) == "run" else None
+    if status is None:
+        raise HTTPException(404, "no such run")
+    if status != RUN_CANCELLING:
+        raise HTTPException(409, f"the run is {status}")
+    return {"run_id": run_id, "status": status}
 
 
 @router.post("/background/yield")
