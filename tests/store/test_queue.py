@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from iifa.ingest.queue import DONE, FAILED, KEEP_DONE, PENDING, RUNNING, Queue
+from iifa.ingest.queue import DONE, FAILED, KEEP_DONE, MAX_INTERRUPTIONS, PENDING, RUNNING, Queue
 from iifa.store.repo import NotFound, Store
 from tests.conftest import FakeClock
 from tests.fixtures.corpus import CANARY
@@ -74,6 +74,8 @@ def test_queue_survives_a_restart_and_recovers_interrupted_jobs(
         pending = queue.jobs(status=PENDING)
         assert [j.id for j in pending] == [kept.id, interrupted.id]
         assert pending[0].payload == {"user": "remember this"}
+        assert all(j.started for j in pending)  # they may have written
+        assert all(j.attempts == 0 for j in pending)  # a crash spends no attempt
         assert all(j.started_at is None for j in pending)
         assert queue.recover() == 0
 
@@ -139,3 +141,51 @@ def test_service_state_round_trip(store: Store) -> None:
     store.set_state("background_mode", "on_demand")
     assert store.get_state("background_mode") == "on_demand"
     assert store.counts()["queue"] == 0
+
+
+def test_a_turn_that_keeps_killing_the_process_fails(store: Store) -> None:
+    """A crash loop ends: an interruption spends no attempt, the error counts
+    them, and the job fails at its MAX_INTERRUPTIONS-th crash."""
+    queue = Queue(store)
+    job = queue.enqueue("turn", {"user": "x"}, scopes=["user:alice"])
+    crashes = 0
+    while queue.get(job.id).status != FAILED:
+        assert queue.claim() is not None
+        queue.recover()
+        crashes += 1
+        assert crashes <= MAX_INTERRUPTIONS
+    assert crashes == MAX_INTERRUPTIONS
+    assert queue.get(job.id).payload == {"user": "x"}  # kept for an operator
+
+
+def test_a_turn_that_failed_once_then_keeps_crashing_fails_too(
+    store: Store, clock: FakeClock
+) -> None:
+    queue = Queue(store)
+    job = queue.enqueue("turn", {"user": "x"}, scopes=["user:alice"])
+    assert queue.claim() is not None
+    queue.fail(job.id, "timeout", retry_at=store.now())
+    crashes = 0
+    while queue.get(job.id).status != FAILED:
+        assert queue.claim() is not None
+        queue.recover()
+        crashes += 1
+        assert crashes <= MAX_INTERRUPTIONS
+    assert crashes == MAX_INTERRUPTIONS  # its failure counts no crash
+    failed = queue.get(job.id)
+    assert failed.error == f"timeout (interrupted {MAX_INTERRUPTIONS})"  # the reason stays
+    assert failed.attempts == 1 and failed.started
+
+
+def test_a_long_failure_reason_never_hides_the_crash_count(store: Store) -> None:
+    queue = Queue(store)
+    job = queue.enqueue("turn", {"user": "x"}, scopes=["user:alice"])
+    assert queue.claim() is not None
+    queue.fail(job.id, "x" * 120, retry_at=store.now())
+    crashes = 0
+    while queue.get(job.id).status != FAILED:
+        assert queue.claim() is not None
+        queue.recover()
+        crashes += 1
+        assert crashes <= MAX_INTERRUPTIONS
+    assert len(queue.get(job.id).error or "") <= 120

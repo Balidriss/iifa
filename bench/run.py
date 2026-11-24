@@ -39,6 +39,7 @@ regenerates every text.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import re
@@ -1109,6 +1110,13 @@ def neighbours(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str,
     return out
 
 
+def without_decay(engine: RecallEngine) -> RecallEngine:
+    """``engine`` as it is, but for the decay of observed facts (SPEC 4.2)."""
+    twin = copy.copy(engine)
+    twin.observed_half_life_days = 0
+    return twin
+
+
 def observed_states(
     store: Store,
     corpus: Corpus,
@@ -1123,7 +1131,9 @@ def observed_states(
     nothing on the thing; then a recall per thing and budget: ``shown`` when the
     newest observation is among the handles with the flag, ``stale_shown`` per
     older observation among them (must be 0), and of those ``stale_flagged``,
-    the ones flagged ``newer_pending``, ``newer_observed`` or ``conflict`` (SPEC 8.5)."""
+    the ones flagged ``newer_pending``, ``newer_observed`` or ``conflict`` (SPEC 8.5).
+    An engine named ``*_no_decay`` reads the same store with
+    ``observed_half_life_days = 0``."""
     out: dict[str, Any] = {
         "things": 0,
         "current": 0,
@@ -1552,7 +1562,11 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
         for name, engine in engines.items():
             systems[name] = iifa_system(store, engine, turns)
         if args.observed:
-            ingestion["observed"] = observed_states(store, corpus, turns, engines, args.budgets)
+            # SPEC 4.2: the same store read with the decay and without it
+            aged = dict(engines)
+            for name, engine in engines.items():
+                aged[f"{name}_no_decay"] = without_decay(engine)
+            ingestion["observed"] = observed_states(store, corpus, turns, aged, args.budgets)
         self_jobs = ingestion.pop("self_jobs")
         if args.self_corpus:
             ingestion["self"] = self_audit(store, corpus, self_jobs, engines, args.budgets, turns)

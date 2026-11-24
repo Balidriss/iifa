@@ -1,13 +1,16 @@
 """The profile block (SPEC 8.1): what a session starts with.
 
 Pinned facts first, then in the agent perspective the self's live rules (its
-commitments and its preferences, SPEC 4.2), then the most central nodes of
-the scope, packed under the budget. The block is **deterministic and
+commitments, then its preferences, SPEC 4.2), then the most central nodes of
+the scope, packed under the budget. The rules ahead of the nodes take at most
+a third of the budget; those that do not fit there come after the nodes, so
+the rules leave the nodes the rest. A rule in an open conflict shows it on
+both sides (SPEC 8.5). The block is **deterministic and
 stable** while nothing changes: its items carry no age, no timestamp and no
-score, its order depends only on the
-records (creation order for pinned facts, centrality then creation order for
-nodes), so the same store answers the same bytes and a harness can keep the
-block in a cacheable prompt prefix. Visibility is applied before anything is
+score, its order depends only on the records (creation order for pinned
+facts, the family then the newest first for the self's rules, centrality
+then creation order for nodes), so the same store answers the same bytes and
+a harness can keep the block in a cacheable prompt prefix. Visibility is applied before anything is
 counted (P9): a node's fact and edge counts include only what the reader sees.
 """
 
@@ -18,7 +21,7 @@ from typing import Any
 
 from iifa.ingest.keys import RULE_FAMILIES, canonical_key, family_of
 from iifa.recall.engine import RecallEngine
-from iifa.recall.handles import summary_line, with_from
+from iifa.recall.handles import summary_line, with_from, with_read_flags
 from iifa.recall.packer import pack
 from iifa.scopes import Visibility
 from iifa.store.models import Fact, Node
@@ -26,6 +29,7 @@ from iifa.store.repo import Store
 from iifa.tokens import Tokenizer
 
 PROFILE_NODES = 20
+RULES_SHARE = 3  # the self's rules ahead of the nodes: at most budget // RULES_SHARE
 
 
 def profile_fact(fact: Fact, node: Node | None, *, pinned: bool = True) -> dict[str, Any]:
@@ -50,17 +54,20 @@ def self_rules(
     store: Store, view: Visibility, name: str, scope: str
 ) -> tuple[Node | None, list[Fact]]:
     """The self's node, when the reader sees it, and its live rules (SPEC 4.2:
-    its commitments and its preferences) that are not pinned, oldest first:
-    an order that depends only on the records."""
+    its commitments, then its preferences) that are not pinned, the newest
+    first in each family: an order that depends only on the records."""
     node = store.find_node(name, Visibility.of_scope(scope))
     if node is None or node.id not in store.nodes_by_id([node.id], view):
         return None, []
     facts = [
-        f
-        for f in store.facts([node.id], view)
-        if family_of(canonical_key(f.attribute)) in RULE_FAMILIES and not f.pinned
+        f for f in store.facts([node.id], view) if _family(f) in RULE_FAMILIES and not f.pinned
     ]
-    return node, sorted(facts, key=lambda f: (f.created_at, f.id))
+    newest = sorted(facts, key=lambda f: (f.created_at, f.id), reverse=True)
+    return node, sorted(newest, key=lambda f: RULE_FAMILIES.index(_family(f)))
+
+
+def _family(fact: Fact) -> str:
+    return family_of(canonical_key(fact.attribute)) or ""
 
 
 def profile_node(node: Node, facts: int, edges: int, tokenizer: Tokenizer) -> dict[str, Any]:
@@ -94,14 +101,25 @@ def profile_block(
     items: list[dict[str, Any]] = [
         profile_fact(f, subjects.get(f.node_id) if f.node_id else None) for f in pinned
     ]
+    rules: list[dict[str, Any]] = []
     if agent is not None:
-        me, rules = self_rules(store, view, *agent)
-        items.extend(profile_fact(f, me, pinned=False) for f in rules if f.id not in exclude)
+        me, held = self_rules(store, view, *agent)
+        read = store.read_flags(held, view)  # the other side of an open conflict
+        rules = [
+            with_read_flags(profile_fact(f, me, pinned=False), read)
+            for f in held
+            if f.id not in exclude
+        ]
+    # SPEC 8.1: the rules that fit in their share go ahead of the nodes, the
+    # others behind them, each group in the rules' own order
+    ahead = set(pack([engine.cost(r) for r in rules], budget_tokens // RULES_SHARE).chosen)
+    items.extend(r for i, r in enumerate(rules) if i in ahead)
     items.extend(
         profile_node(node, facts, edges, engine.tokenizer)
         for node, facts, edges in store.central_nodes(view, max_nodes)
         if node.id not in exclude
     )
+    items.extend(r for i, r in enumerate(rules) if i not in ahead)
     result = pack([engine.cost(item) for item in items], budget_tokens)
     reason = result.reason
     if not items:
@@ -119,4 +137,11 @@ def profile_block(
     }
 
 
-__all__ = ["PROFILE_NODES", "profile_block", "profile_fact", "profile_node", "self_rules"]
+__all__ = [
+    "PROFILE_NODES",
+    "RULES_SHARE",
+    "profile_block",
+    "profile_fact",
+    "profile_node",
+    "self_rules",
+]

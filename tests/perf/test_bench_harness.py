@@ -28,8 +28,10 @@ from bench.synthetic import (
 )
 
 from iifa.ingest.schema import parse_answer
+from iifa.recall.engine import RecallEngine
 from iifa.scopes import Visibility
 from iifa.store.repo import Store
+from iifa.tokens import ConservativeTokenizer
 from tests.fakes.openai_server import FakeOpenAIServer, Reply, Respond
 
 SMALL = ["--months", "3", "--chatter", "0.5", "--budgets", "150,600", "--repeat", "1", "--quiet"]
@@ -1211,6 +1213,21 @@ def test_the_oracle_keeps_the_newest_observation_and_what_each_thing_is_for(
     assert seen["things"] == 3 and seen["current"] == 3 and seen["kept"] == 3
     assert seen["stale"] == seen["closed"] == seen["missing"] == 0
     assert seen["recall"]["iifa_tier2"]["600"] == {"shown": 3, "stale_shown": 0, "stale_flagged": 0}
+    # the same store read without the decay, beside it
+    assert set(seen["recall"]) == {"iifa_tier2", "iifa_tier2_no_decay"}
+    assert seen["recall"]["iifa_tier2_no_decay"]["600"]["shown"] == 3
+
+
+def test_the_engine_without_decay_differs_from_its_engine_by_the_decay_alone(
+    store: Store,
+) -> None:
+    engine = RecallEngine(
+        store, ConservativeTokenizer(), tier=3, activity_threshold=lambda model: 0.65
+    )
+    twin = harness.without_decay(engine)
+    assert twin.observed_half_life_days == 0 and engine.observed_half_life_days > 0
+    changed = {k for k, v in vars(engine).items() if vars(twin)[k] is not v}
+    assert changed == {"observed_half_life_days"}
 
 
 def test_self_adds_a_scope_of_its_own_and_leaves_the_default_corpus_untouched() -> None:

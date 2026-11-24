@@ -76,6 +76,7 @@ From Docker, a model server on the host is
 | `IIFA_ASSISTANTS` | a JSON object like `{"user:alice": "NOVA"}`: the name of the assistant answering in a scope (default `Assistant`); see [Owners and languages](#owners-and-languages) |
 | `IIFA_SELVES` | a JSON object like `{"user:alice": {"name": "NOVA", "aliases": ["Nova"]}}`: the memory of a scope is also the agent's own; see [Owners and languages](#owners-and-languages) |
 | `IIFA_REVIEW_SELF_RULES` | `on` to make the agent's own commitments and preferences wait in the review queue instead of being written by a turn (default off); see [Owners and languages](#owners-and-languages) |
+| `IIFA_DETECT_SECRETS_BY_WORDING` | `on` to have the service itself also read passwords, codes and keys from their wording ("my password is ...", `DB_PASSWORD=`), at your own risk (default off); see [Security](security.md#storage) |
 | `IIFA_REPLACEMENT_QUESTION` | `off` to stop asking the model whether a new role, team or preference replaces the old one (default on) |
 | `IIFA_RESTATEMENT_QUESTION` | `off` to stop asking the model whether a changed value that shares words with the one held tells it again (default on) |
 | `IIFA_VALUE_NORM` | `on` to ask the model for each value's comparison form, so that a value restated in another language is linked without a second call (default off) |
@@ -136,6 +137,9 @@ session_idle_minutes = 120         # a session nobody ends is closed (and its wo
                                    # progress consolidated) after this idle time; 0: never
 review_self_rules = false          # true: what a declared self commits to or prefers
                                    # waits in the review queue before it is memory
+detect_secrets_by_wording = false  # true: the service also reads secrets from their
+                                   # wording, at your risk (English, French, German,
+                                   # Spanish, a little Russian; may drop ordinary facts)
 
 [extraction.language_overrides]
 "user:alice/agent:notes" = "fr"    # a scope may force the language of what is written into it
@@ -267,13 +271,23 @@ kept. Three guards hold:
 - the agent saying again what memory already holds about it adds nothing;
 - the agent never closes what the owner said about it, nor the reverse: a
   correction ("no, it was not fixed") stays visible beside the agent's fact
-  for a reviewer to settle.
+  for a reviewer to settle;
+- a rule the model files as a preference in one turn and as a commitment in
+  the next is one rule: the same value on the same topic writes nothing,
+  another value is kept beside the first with a visible `conflict`, and
+  neither is closed.
 
 A work session's closing episode is then the agent's own ("NOVA planned
 the spring garden with Alice"), the profile block at the start of a session
 carries the agent's commitments and preferences, and the agent can store something about
 itself with `remember` and `about_self: true` (`memory_remember` takes the
-same flag).
+same flag). In the profile the agent's rules leave room for the central
+nodes: ahead of them they use at most a third of the budget (commitments
+first, the newest first), and the others follow the nodes if room is left.
+
+The memory may also be rooted at the agent: declare the owner and the self on
+a scope such as `agent:nova` and the owner is a node inside it. No rule reads
+the kind of a scope segment.
 
 **Read the agent's rules before it follows them.** A commitment is carried
 into every later session. With `review_self_rules = true` under
@@ -350,7 +364,7 @@ only:
 | `merge_threshold` | two existing near nodes become a merge proposal (same scopes only) |
 | `link_threshold` | two close summaries get a proposed `similar_to` edge |
 | `key_threshold` | a new attribute name close to one the subject already has takes it (off unless set) |
-| `activity_threshold` | a request matches an activity the agent did by meaning, not only by a shared word (off unless set; `IIFA_ACTIVITY_THRESHOLD`; with `bge-m3`, 0.65 measured, see below) |
+| `activity_threshold` | a request matches an activity the agent did by meaning, not only by a shared word (off unless set; `IIFA_ACTIVITY_THRESHOLD`; with `bge-m3`, 0.60 to 0.65 measured, see below) |
 
 `bge-m3` (recommended) and `qwen3-embedding:0.6b` have built-in values. For any
 other model, set `resolve_threshold`, `merge_threshold` and `link_threshold`
@@ -359,12 +373,15 @@ off, and `/v1/health` says `uncalibrated`.
 
 `activity_threshold` has no built-in value. Measured with `bge-m3` on the
 `--self` bench corpus (`python bench/run.py --self --embeddings-url ...
---embeddings-model bge-m3`, the report's `vector_probes`): requests in other
-words reached their activity at 0.71 to 0.75, unrelated requests stayed at
-0.58 or below, so 0.65 matched the first and none of the second. A request
-that shares neither a word nor its domain with the activity ("the update
-text for the app store" for release notes) was not matched at any safe
-value. Eight probes are few: set it knowingly.
+--embeddings-model bge-m3`, the report's `vector_probes`, 27 requests):
+twelve requests in other words reached their activity at 0.52 to 0.75,
+fifteen unrelated requests stayed at 0.58 or below, so no value separates
+the two. 0.60 matched six of the twelve and no unrelated request; 0.65
+matched four and none; 0.55 matched ten and two unrelated ones. The
+requests left out are those sharing neither a word nor its domain with
+the activity ("the update text for the app store" for release notes).
+A threshold here trades half of the reworded requests for no wrong
+match: set it knowingly.
 
 ```toml
 [embeddings]

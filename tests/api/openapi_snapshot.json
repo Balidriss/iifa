@@ -1953,7 +1953,7 @@
   "info": {
     "description": "Rich long-term memory for your agent, delivered under a token budget you set.",
     "title": "iifa",
-    "version": "0.1.0a3"
+    "version": "0.1.0a4"
   },
   "openapi": "3.1.0",
   "paths": {

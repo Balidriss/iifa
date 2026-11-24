@@ -713,3 +713,33 @@ def test_a_rule_read_on_a_page_keeps_its_own_reason(
     run_all(client, app)
     assert [p.payload["why"] for p in proposals(app)] == ["self:outside"]
     assert live_facts(app) == []
+
+
+def test_an_accepted_rule_beside_another_value_of_its_topic_is_a_visible_conflict(
+    client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
+) -> None:
+    """One topic under the two rule families with two values: the accept
+    closes nothing there, and the conflict is shown on the accepted rule."""
+    fake_openai.script(
+        chat=[
+            rule("short", "I keep answers short", key="preference.answers", said="NOVA is brief."),
+            rule(
+                "full detail",
+                "I will answer in full detail",
+                key="commitment.answers",
+                said="NOVA commits to answering in full detail.",
+            ),
+            same_rule("different"),
+        ]
+    )
+    ingest(client, app, "Be short.", "I keep answers short.")
+    decide(client, proposals(app)[0].id, "accept")
+    (preference,) = live_facts(app)
+    ingest(client, app, "More detail.", "I will answer in full detail.")
+    (waiting,) = review_items(client)
+    assert "replaces" not in waiting  # nothing is closed by this accept
+    decide(client, waiting["id"], "accept")
+    held = {f.attribute: f for f in live_facts(app)}
+    assert set(held) == {"preference.answers", "commitment.answers"}
+    accepted = held["commitment.answers"]
+    assert "conflict" in accepted.flags and accepted.conflicts_with == preference.id

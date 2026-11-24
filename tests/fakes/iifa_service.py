@@ -122,7 +122,7 @@ QUEUE = {"depth": 1, "mode": "auto"}
 
 HEALTH_BODY = {
     "status": "ok",
-    "version": "0.1.0a3",
+    "version": "0.1.0a4",
     "tier": 0,
     "backends": {"chat": None, "embeddings": None},
     "queue": {

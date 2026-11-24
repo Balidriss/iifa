@@ -319,6 +319,10 @@ def _plans(
             read_at=read_at,
             external=source.external,  # P6: the parts' offsets are not kept
             activities=state.activities,  # SPEC 5.8: the episode's links
+            # P5: the adjudications see the masked trace, never the source (a
+            # secret only the turn's model saw is not known any more): without
+            # a trace, the names alone
+            context=" ".join(t.excerpt for t in state.turns if t.source_id == source_id),
         )
         plans.append((extractor, source_id, text, plan))
     return plans

@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from iifa import log, vectors
 from iifa.calibration import Thresholds, key_threshold_for, thresholds_for
+from iifa.ingest import credentials, schema, sets
 from iifa.ingest import intent as intent_reading
-from iifa.ingest import schema, sets
 from iifa.ingest import sessions as session_state
 from iifa.ingest.activity import grounded_activity
 from iifa.ingest.checks import (
@@ -48,6 +48,7 @@ from iifa.ingest.keys import (
     key_text,
     replacement_asked,
     rule_topic,
+    rule_twin,
     same_key,
     single_valued,
     supersedable,
@@ -199,6 +200,8 @@ class PipelineConfig:
     # SPEC 4.6: (scope, name, aliases) - the agent perspective's self
     selves: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     review_self_rules: bool = False  # SPEC 4.2: a self's rules wait in review
+    # SPEC P5: the service also reads secrets from their wording (a heuristic, off)
+    detect_secrets_by_wording: bool = False
     replacement_question: bool = True  # SPEC 5.4: on by default (measured)
     restatement_question: bool = True  # SPEC 5.4: a value told again in other words
     value_norm: bool = False  # SPEC 5.4: ask and compare each value's comparison form
@@ -368,6 +371,9 @@ class ExtractionReport:
     activity_refused: int = 0
     activity_linked: int = 0
     empty_answers: int = 0  # SPEC 4.2: chunks the model found nothing durable in
+    # SPEC P5: secrets found in the source, and items dropped for carrying one
+    secrets_found: int = 0
+    secrets_dropped: int = 0
     aliases_kept: int = 0
     aliases_proposed: int = 0
     aliases_invented: int = 0
@@ -412,6 +418,7 @@ class ExtractionReport:
             "source_forms": self.source_forms,
             "adjudications": [dict(a) for a in self.adjudications],
             "empty_answers": self.empty_answers,
+            "secrets": {"found": self.secrets_found, "dropped": self.secrets_dropped},
             "facts": {
                 "written": self.facts_written,
                 "duplicate": self.facts_duplicate,
@@ -591,6 +598,9 @@ class Extractor:
         # node the source's activity was written as
         self._activity: tuple[str, Node | None] | None = None
         self._carried: Node | None = None
+        self._secrets: tuple[str, ...] = ()  # SPEC P5: the source's secrets
+        self._shown: str | None = None  # SPEC P5: what a close's adjudication shows
+        self._strong: tuple[str, ...] = ()  # SPEC P5: the secrets the owner's words lose
         self._activity_written: str | None = None
         # SPEC 5.8: at a close, every activity of the session (the episode's links)
         self._episode_activities: list[str] = []
@@ -643,6 +653,11 @@ class Extractor:
             self._carried = self._current_activity(state)
         if report.tier == 2:
             answers = self._extract_all(text, languages, forced)
+            # SPEC P5: no secret of the source goes further than the extraction call
+            self._secrets = credentials.collect(
+                text, [a for _, a in answers], wording=self.config.detect_secrets_by_wording
+            )
+            self._scrub(text, answers)
             given = answers  # the intent reading keeps content only
             if state is not None:
                 reading = self._read_intent(answers, state, reference)
@@ -650,6 +665,10 @@ class Extractor:
             self._activity = self._activity_of(given, text)
         else:
             report.chunks = len(chunks(text, self.config.chunk_chars, limit=self.config.max_chunks))
+            self._secrets = credentials.collect(
+                text, [], wording=self.config.detect_secrets_by_wording
+            )
+        report.secrets_found = credentials.distinct(self._secrets)
 
         # every model call is done (extraction, then adjudication): now write once
         plan = self._plan(text, answers, forced)
@@ -810,10 +829,18 @@ class Extractor:
                 )
             retried = ask(" ".join(notes))
             if retried.usable:
+                # SPEC P5: a secret either answer saw (listed, or under a
+                # credential key) stays one
+                retried.secrets = list(
+                    dict.fromkeys([*credentials.named_values(answer), *retried.secrets])
+                )
                 answer = retried
         self.report.rejected.add(answer.rejected)
         still = self._fragments(answer, piece, offset, text)
         if still:
+            # SPEC P5: a fragment dropped still names the secret it held
+            gone = Answer(facts=[f for i, f in enumerate(answer.facts) if i in still])
+            answer.secrets = list(dict.fromkeys([*answer.secrets, *credentials.named_values(gone)]))
             answer.facts = [f for i, f in enumerate(answer.facts) if i not in still]
             self.report.facts_incomplete += len(still)
             self.report.facts_cross_script += sum(1 for c in still.values() if c == CROSS_SCRIPT)
@@ -1940,6 +1967,8 @@ class Extractor:
         5.1, a known subject the source does not name) is shown with the
         sentence its fact quotes, or the start of the source."""
         batch = []
+        # SPEC P5: never shown again (at a close, the masked trace stands for the source)
+        text = self._shown if self._shown is not None else credentials.mask(text, self._secrets)
         for resolution in ambiguous:
             snippet = _context(text, resolution.mention)
             if not snippet:
@@ -2166,6 +2195,8 @@ class Extractor:
                 if observed and not echo:
                     self._seen_again(live, old.same_as or old.id)
                 return None
+        if (twin := self._rule_twin(live, fact, fate, echo))[1]:
+            return None  # SPEC 4.2: the rule held under the other family, said again
         # SPEC 5.4: a bare family key ("preference" without a topic) never drives a
         # supersession or a conflict; when we cannot tell, we do not supersede
         speaking = fate.speaker_free
@@ -2212,7 +2243,7 @@ class Extractor:
             self._flag_refused(judged.kept, refused)
             self._reach_duplicates(node_id, fact, language, fate, judged.kept)
             return None
-        conflicts_with = refused or judged.conflicts_with
+        conflicts_with = refused or judged.conflicts_with or twin[0]
         if conflicts_with is not None and CONFLICT not in flags:
             flags.append(CONFLICT)
         written = store.add_fact(
@@ -2245,6 +2276,29 @@ class Extractor:
         self._close(judged.superseded, fact.valid_from, written.id)
         self._reach_duplicates(node_id, fact, language, fate, written.id)
         return written
+
+    def _rule_twin(
+        self, live: Sequence[Fact], fact: ProposedFact, fate: _Fate, echo: bool
+    ) -> tuple[str | None, bool]:
+        """SPEC 4.2, one topic under the two rule families: the live fact of the
+        self that holds this rule's topic under the other family with another
+        value (the new rule is written in conflict with it, closing nothing),
+        and whether one holds it with the same value (the rule is said again:
+        nothing is written; counted, as the self's echo when the self said
+        it). While the self holds the rule's own key, the same value under
+        the other family decides nothing: the key's own rule runs (a
+        commitment still replaces the commitment of its topic)."""
+        key, value = canonical_key(fact.attribute), normalize(fact.value or "")
+        if not fate.about_agent or not value:
+            return None, False
+        twins = [old for old in live if old.value and rule_twin(key, canonical_key(old.attribute))]
+        if any(normalize(old.value or "") == value for old in twins):
+            if any(old.value and canonical_key(old.attribute) == key for old in live):
+                return None, False
+            self.report.facts_duplicate += 1
+            self.report.facts_self_echo += echo
+            return None, True
+        return (twins[0].id if twins else None), False
 
     def _echoed(self, judged: _Judgement) -> bool:
         """SPEC 4.2: the self's own fact said again (the same value of the same
@@ -2584,6 +2638,57 @@ class Extractor:
         part = self.source.part_of(locate(self.source.text, fact.quote, hint=offset))
         return part is not None and part.provenance == EXTERNAL and part.kind == TOOL
 
+    def _scrub(self, text: str, answers: list[tuple[int, Answer]], *, whole: bool = False) -> None:
+        """SPEC P5: the source's secrets out of every answer. A value the
+        service read only in an external part (no credential wording around it
+        in the conversation's own parts, no answer naming it, no key shape) is
+        weak: it never drops what the owner's own words say (P6). ``whole``:
+        the parts are not known (a session's close keeps only its notes'
+        spans), so nothing is weak."""
+        # a tool's output is the host's own (a key it printed is a key); a page
+        # or a document is outside content
+        inside = [
+            text[p.start : p.end]
+            for p in self.source.parts
+            if p.provenance != EXTERNAL or p.kind == TOOL
+        ]
+        outside = [
+            text[p.start : p.end]
+            for p in self.source.parts
+            if p.provenance == EXTERNAL and p.kind != TOOL
+        ]
+        # a value the model names is strong unless a page writes it too: a page
+        # that makes the model list "Lisbon" gets a weak value (P6)
+        named = {
+            v
+            for v in credentials.claimed([a for _, a in answers])
+            if not any(credentials.written_in(part, v) for part in outside)
+        }
+        # the conversation's own wording always tells which values are its
+        # secrets: it only classifies what was found ("my new password is
+        # Hunter22" keeps a listed value strong when a reset email repeats
+        # it; "I moved to Porto" does not), it finds nothing new
+        read = {v.casefold() for part in inside for v in credentials.detect(part, wording=True)}
+        weak = [
+            s
+            for s in self._secrets
+            if s.casefold() not in named and s.casefold() not in read and not credentials.shaped(s)
+        ]
+
+        if whole:
+            weak = []
+        self._strong = tuple(s for s in self._secrets if s not in weak)
+
+        for offset, answer in answers:
+
+            def owned(fact: ProposedFact, hint: int = offset) -> bool:
+                span = locate(text, fact.quote, hint=hint)
+                return self.source.provenance_of(span) == OWNER
+
+            self.report.secrets_dropped += credentials.scrub(
+                answer, self._secrets, weak=weak, owned=owned
+            )
+
     def _write_intent(
         self,
         source_id: str,
@@ -2648,7 +2753,8 @@ class Extractor:
             )
         trace: tuple[str, str] | None = None
         if session_id and outcome.kept and not self._unmeant:
-            excerpt = session_state.trace_of(text, self.source.parts)
+            # P6: a weak secret is the page's reading: the owner's words keep it
+            excerpt = session_state.trace_of(text, self.source.parts, secrets=self._strong)
             trace = (source_id, excerpt) if excerpt else None
         session_state.save(
             self.store,
@@ -2680,6 +2786,7 @@ class Extractor:
         read_at: str | None = None,
         external: str = UNVOUCHED,
         activities: Sequence[str] = (),
+        context: str | None = None,
     ) -> _Plan:
         """Plan answers that were read already (a session's consolidation, SPEC
         5.8): no extraction call, the same resolution, contradiction and
@@ -2698,6 +2805,23 @@ class Extractor:
         self._part_tokens = {}
         self._read_at = read_at
         self._session_id = session_id
+        # SPEC P5: the adjudications of a close show the session's masked trace
+        # of the source, never the source (a secret only the turn's model saw
+        # is not known any more)
+        # a close reads only its notes' own spans: a page's value of the
+        # source never becomes strong there (P6)
+        read = "\n".join(
+            text[p.start : p.end] for p in parts if p.provenance != EXTERNAL or p.kind == TOOL
+        )
+        self._secrets = credentials.collect(
+            text,
+            [a for _, a in answers],
+            read=read,
+            wording=self.config.detect_secrets_by_wording,
+        )
+        self._scrub(text, answers, whole=True)
+        self.report.secrets_found = credentials.distinct(self._secrets)
+        self._shown = context
         self.report.tier = 2 if self.ctx.models.has_chat else 0
         return self._plan(text, answers, self.config.forced_language(self.scopes))
 

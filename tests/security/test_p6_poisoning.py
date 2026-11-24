@@ -126,10 +126,12 @@ def test_p6_a_hostile_page_yields_no_fact_about_the_owner_only_proposals(
         external=[{"kind": "web", "text": HOSTILE_PAGE, "ref": "https://guide.invalid"}],
     )
     assert result["facts"]["written"] == 0
-    assert result["facts"]["proposed"] == 3
+    # P5: the planted password is a secret, not even a proposal
+    assert result["secrets"] == {"found": 1, "dropped": 1}
+    assert result["facts"]["proposed"] == 2
     assert all_facts(app) == []
     proposals = fact_proposals(app)
-    assert len(proposals) == 3 and all(p.status == "pending" for p in proposals)
+    assert len(proposals) == 2 and all(p.status == "pending" for p in proposals)
     assert all(p.node_id is None for p in proposals)  # no owner declared: no node
     assert {p.payload["provenance"] for p in proposals} == {"external"}
     # P8: the page went to the model inside the source markers, labelled as external

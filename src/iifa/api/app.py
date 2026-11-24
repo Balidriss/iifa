@@ -95,6 +95,7 @@ def build_pipeline(settings: Settings) -> PipelineConfig:
         assistants=settings.assistants,
         selves=settings.selves,
         review_self_rules=settings.review_self_rules,
+        detect_secrets_by_wording=settings.detect_secrets_by_wording,
         replacement_question=settings.replacement_question,
         restatement_question=settings.restatement_question,
         value_norm=settings.value_norm,
@@ -176,6 +177,7 @@ def create_app(
         neighbour_facts=settings.graph_neighbour_facts,
         observed_half_life_days=settings.observed_half_life_days,
         activity_threshold=lambda model: settings.activity_threshold,
+        secrets_by_wording=settings.detect_secrets_by_wording,
         tier=tier_of(app.state.models),
         dense=(
             Dense(

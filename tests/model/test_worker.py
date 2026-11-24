@@ -587,6 +587,7 @@ def test_start_recovers_and_stop_releases_the_current_job(harness: Harness) -> N
     assert harness.fake.calls == []
     harness.worker.stop()
     assert harness.worker.status()["worker"] == "stopped"
+    # a crash spends no attempt (a turn's crashed run is marked interrupted)
     assert harness.status_of(orphan) == PENDING and harness.queue.get(orphan.id).attempts == 0
     assert harness.fake.calls == []  # loses nothing, calls nothing
     harness.worker.resume()

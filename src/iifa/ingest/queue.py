@@ -14,10 +14,12 @@ after, so the queue never becomes a second, unindexed copy of what was said
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from iifa import log
 from iifa.ids import new_id
 from iifa.scopes import validate_scope
 from iifa.store.repo import NotFound, Store
@@ -29,6 +31,19 @@ FAILED = "failed"
 STATUSES = (PENDING, RUNNING, DONE, FAILED)
 
 KEEP_DONE = 200  # done rows kept for inspection (payload already cleared)
+# the kinds that carry words: the only ones ``forget`` drops
+WORD_KINDS = ("turn", "precompact")
+INTERRUPTED = "interrupted"  # a run a crash cut: counted in the error, never an attempt
+MAX_INTERRUPTIONS = 3  # the crash a job fails at (a crash loop ends)
+
+
+class JobStarted(RuntimeError):
+    """A running or done job cannot be dropped: the worker has read its
+    payload, and what it wrote is forgotten by its source."""
+
+    def __init__(self, job_id: str, status: str) -> None:
+        super().__init__(job_id)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -46,6 +61,12 @@ class Job:
     not_before: str | None
     started_at: str | None
     finished_at: str | None
+
+    @property
+    def started(self) -> bool:
+        """Did the job run before (failed, or interrupted by a crash)? It may
+        then have written."""
+        return self.attempts > 0 or interruptions(self.error) > 0
 
 
 class Queue:
@@ -176,14 +197,39 @@ class Queue:
             return self.get(job_id)
 
     def recover(self) -> int:
-        """At startup: whatever was ``running`` when the process died runs again."""
+        """At startup: whatever was ``running`` when the process died runs again.
+        It is marked ``interrupted`` (its error counts the crashes, beside a
+        failure's reason), without spending an attempt: a job that carries
+        words may have written before the process died (``Job.started``). A
+        job that keeps killing the process fails at its third crash."""
         store = self._store
+        failed = recovered = 0
         with store.lock, store.transaction():
-            cursor = store.execute(
-                "UPDATE queue SET status = ?, started_at = NULL WHERE status = ?",
-                (PENDING, RUNNING),
-            )
-            return int(cursor.rowcount)
+            rows = store.execute(
+                "SELECT id, error FROM queue WHERE status = ?", (RUNNING,)
+            ).fetchall()
+            for row in rows:
+                # the interruptions are counted in the error, beside a failure's
+                # reason; a job that keeps killing the process fails at its
+                # MAX_INTERRUPTIONS-th crash
+                count = interruptions(row["error"]) + 1
+                error = _with_interruptions(row["error"], count)
+                if count >= MAX_INTERRUPTIONS:
+                    store.execute(
+                        "UPDATE queue SET status = ?, error = ?, started_at = NULL,"
+                        " finished_at = ? WHERE id = ?",
+                        (FAILED, error, store.now(), row["id"]),
+                    )
+                    failed += 1
+                else:
+                    store.execute(
+                        "UPDATE queue SET status = ?, error = ?, started_at = NULL WHERE id = ?",
+                        (PENDING, error, row["id"]),
+                    )
+                    recovered += 1
+        if failed:
+            log.event("queue_crash_loop", failed=failed)
+        return recovered
 
     def retry(self, job_id: str) -> Job:
         """An operator's second chance for a ``failed`` job."""
@@ -197,6 +243,23 @@ class Queue:
                 (PENDING, job_id),
             )
             return self.get(job_id)
+
+    def drop(self, job_id: str) -> Job:
+        """An operator's hard delete of one job that is not running (P5): its row
+        and payload are deleted (``secure_delete`` zeroes the pages) and the WAL
+        is checkpointed, so a turn queued by mistake never becomes memory.
+        Returns the job as it was (``started``: it ran before, failed or
+        interrupted, and may have written); ``JobStarted`` for one that is
+        running or done (checked in the same transaction as the delete)."""
+        store = self._store
+        with store.lock:
+            with store.transaction():
+                job = self._require(job_id)
+                if job.status in (RUNNING, DONE):
+                    raise JobStarted(job_id, job.status)
+                store.execute("DELETE FROM queue WHERE id = ?", (job_id,))
+            store.checkpoint("TRUNCATE")
+        return job
 
     # ------------------------------------------------------------------ reading
 
@@ -257,6 +320,32 @@ class Queue:
                 (kind, PENDING, RUNNING),
             ).fetchone()
             return row is not None
+
+
+_INTERRUPTIONS = re.compile(r"^(.*?)\s*\(interrupted (\d+)\)$|^interrupted$", re.DOTALL)
+
+
+def interruptions(error: str | None) -> int:
+    """How many crashes cut the job's runs, as its error counts them."""
+    if not error:
+        return 0
+    match = _INTERRUPTIONS.match(error)
+    if match is None:
+        return 0
+    return int(match.group(2)) if match.group(2) else 1
+
+
+def _with_interruptions(error: str | None, count: int) -> str:
+    """The error with its count of interruptions: ``interrupted`` for the
+    first of a job that never failed, else the failure's reason and the count."""
+    base = error or ""
+    match = _INTERRUPTIONS.match(base)
+    if match is not None:
+        base = match.group(1) or ""
+    if not base and count == 1:
+        return INTERRUPTED
+    suffix = f" (interrupted {count})"
+    return (base or INTERRUPTED)[: 120 - len(suffix)] + suffix  # the count always survives
 
 
 def _job_from_row(row: Any) -> Job:

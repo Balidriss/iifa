@@ -481,7 +481,9 @@ def _register_writes(server: MCPServer, tools: _Tools) -> None:
             name="memory_forget",
             description=(
                 "IRREVERSIBLY delete a node, fact, edge or source and everything hanging off "
-                "it, then scrub the file. Only for a person's request to be forgotten; prefer "
+                "it, then scrub the file; or, as id, the job_id of a turn or a compaction "
+                "that has not run, so it never becomes memory (started: true when it ran "
+                "before and may have written). Only for a person's request to be forgotten; prefer "
                 "memory_archive in every other case. Needs a token with the forget permission."
             ),
             annotations=_DESTRUCTIVE,

@@ -131,6 +131,9 @@ class Settings:
     # SPEC 4.2: a self's commitments and preferences wait in review before they
     # are written
     review_self_rules: bool = False
+    # SPEC P5: the service also reads secrets from their wording (a heuristic,
+    # off by default: it may take an ordinary word for a secret)
+    detect_secrets_by_wording: bool = False
     # SPEC 5.6: the dream's own model (rule 10), its probe tolerance (rule 9), the
     # merge candidates adjudicated per unit (0: none), the prompt budget of one
     # call (counted with ``tokenizer``) and the review policy per
@@ -527,6 +530,10 @@ def load_settings(
         selves=_owners(env.get("IIFA_SELVES"), extraction.get("selves", {}), what="self"),
         review_self_rules=_flag(
             env.get("IIFA_REVIEW_SELF_RULES"), extraction.get("review_self_rules", False)
+        ),
+        detect_secrets_by_wording=_flag(
+            env.get("IIFA_DETECT_SECRETS_BY_WORDING"),
+            extraction.get("detect_secrets_by_wording", False),
         ),
         replacement_question=_flag(
             env.get("IIFA_REPLACEMENT_QUESTION"), extraction.get("replacement_question", True)

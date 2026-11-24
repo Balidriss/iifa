@@ -373,6 +373,9 @@ class Answer:
     # given or refused); ``activity_given``: the key was there, valid or null
     activity: ProposedActivity | None = None
     activity_given: bool = False
+    # SPEC 4.2: the secrets the model saw in the source, exactly as written
+    # (kept by ``iifa.ingest.credentials`` only when the source writes them)
+    secrets: list[str] = field(default_factory=list)
 
     @property
     def empty(self) -> bool:
@@ -382,12 +385,17 @@ class Answer:
 ANSWER_KEYS = ("nodes", "facts", "edges")
 INTENT_KEYS = ("frame", "frame_holds", "frame_ends")
 ACTIVITY_KEY = "activity"
+SECRETS_KEY = "secrets"
+_NO_SECRET = frozenset({"", "none", "null", "n/a", "na", "nil", "-", "aucun", "keine", "ninguno"})
+MAX_SECRETS = 5000  # a list only removes from memory: a pasted list of codes fits
+SECRET_CHARS = 8192  # a private key block
 ADJUDICATION_KEYS = ("decisions",)
 VALUE_VERDICT_KEYS = ("verdicts",)
 VALUE_VERDICTS = ("same", "different", "unsure")
 REPLACEMENT_KEYS = ("replacements",)
 REPLACEMENT_VERDICTS = ("same", "replaces", "both", "unsure")
 RESTATEMENT_KEYS = ("restatements",)
+OPTIONAL_KEYS = (ACTIVITY_KEY, SECRETS_KEY)
 
 _THINKING = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.DOTALL | re.IGNORECASE)
 _THINK_TAG = re.compile(r"</?(think|thinking|reasoning)>", re.IGNORECASE)
@@ -450,9 +458,10 @@ def parse_answer(content: str) -> Answer:
         return Answer(rejected=Rejections(answer=1), usable=False)
     answer = Answer()
     for key in list(data):
-        if key not in ANSWER_KEYS and key not in INTENT_KEYS and key != ACTIVITY_KEY:
+        if key not in ANSWER_KEYS and key not in INTENT_KEYS and key not in OPTIONAL_KEYS:
             answer.rejected.keys += 1
     _intent(data, answer)
+    _secrets(data, answer)
     _activity(data, answer)
     answer.nodes = _items(data.get("nodes"), ProposedNode, MAX_NODES, answer.rejected, "nodes")
     answer.facts = _items(data.get("facts"), ProposedFact, MAX_FACTS, answer.rejected, "facts")
@@ -475,6 +484,32 @@ def _intent(data: dict[str, Any], answer: Answer) -> None:
             setattr(answer, name, flag)
         elif flag is not None:
             answer.rejected.keys += 1
+
+
+def _secrets(data: dict[str, Any], answer: Answer) -> None:
+    """The secrets the answer lists (SPEC 4.2): strings, at most ``MAX_SECRETS``
+    of at most ``SECRET_CHARS`` characters. Anything else is rejected and
+    counted; a valid list only removes words from memory, never adds any."""
+    raw = data.get(SECRETS_KEY)
+    if raw is None:
+        return
+    if isinstance(raw, str):
+        if raw.strip().casefold() in _NO_SECRET:
+            return  # "none": the model's way of writing []
+        raw = [raw]  # one secret written without its list
+    if not isinstance(raw, list):
+        answer.rejected.keys += 1
+        return
+    for item in raw[:MAX_SECRETS]:
+        if isinstance(item, int) and not isinstance(item, bool):
+            item = str(item)  # a code written as a number  # noqa: PLW2901
+        if isinstance(item, str) and item.strip().casefold() in _NO_SECRET:
+            continue  # ["none"]: the model's way of writing []
+        if isinstance(item, str) and 0 < len(item.strip()) <= SECRET_CHARS:
+            answer.secrets.append(item.strip())
+        else:
+            answer.rejected.keys += 1
+    answer.rejected.keys += max(0, len(raw) - MAX_SECRETS)
 
 
 def _activity(data: dict[str, Any], answer: Answer) -> None:

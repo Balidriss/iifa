@@ -102,7 +102,7 @@ These are the moments a harness calls on its own (the adapters do it for you).
 
 | Route | Permission | What |
 |---|---|---|
-| `POST /session/start` | read | the **profile block**: pinned facts, then the agent's own commitments and preferences when a self is declared, then the most central nodes, under budget. Stable while nothing changes |
+| `POST /session/start` | read | the **profile block**: pinned facts, then the agent's own commitments and preferences when a self is declared (commitments first, the newest first; at most a third of the budget ahead of the nodes, the others after them), then the most central nodes, under budget. Stable while nothing changes |
 | `POST /turns` | write | record a turn: the owner's words (`user`), the `assistant` answer, `tool_summaries` and `external` parts. One insert into the queue, answered in milliseconds; read in the background |
 | `POST /precompact` | write (+ read for the block) | the messages a harness is about to drop go to the queue; what must survive comes back under budget |
 | `POST /session/end` | write | the session's flush: summaries of what it touched, edge decay, in the background |
@@ -175,7 +175,7 @@ order holds while you page; a new walk shows what came since.
 | `GET /corrections/{id}` | read | one correction: what was asked, by which token, when, whether it was undone |
 | `POST /corrections/{id}/undo` | write (**review** for a merge) | revert a correction exactly (an edge decision: the edge is proposed again, or live again); 409 `depends` naming the records when a later write depends on it (undo the later one first) |
 | `POST /archive`, `POST /restore` | write | hide a record everywhere, and bring it back unchanged |
-| `POST /forget` | **forget** | delete for good, with counts of what went |
+| `POST /forget` | **forget** | delete for good, with counts of what went; also takes, as `id`, the `job_id` (`job_...`) of a turn or a compaction that has not run yet (the job and its text are deleted; `started: true` when it ran before, failed or interrupted, and may have written; 409 once it runs or has run: forget its source) |
 
 ```bash
 curl -s -H "$H" -H "$J" localhost:8765/v1/remember -d '{

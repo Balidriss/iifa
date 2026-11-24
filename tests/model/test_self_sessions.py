@@ -401,3 +401,283 @@ def test_remember_about_the_self_is_refused_without_a_self_or_with_a_node(
             assert remember_self(other, "NOVA answers briefly.").status_code == 422
     finally:
         plain.state.store.close()
+
+
+# --------------------------------------------------------------------------- one topic, two families
+
+
+def rule(key: str, value: str, quote: str, statement: str) -> Reply:
+    return answer(
+        facts=[
+            {
+                "subject": SELF,
+                "statement": statement,
+                "attribute": key,
+                "value": value,
+                "quote": quote,
+            }
+        ]
+    )
+
+
+def turn(client: TestClient, app: FastAPI, user: str, assistant: str) -> dict[str, Any]:
+    post_turn(client, user, assistant)
+    jobs = run_all(client, app)["jobs"]
+    result: dict[str, Any] = next(j["result"] for j in jobs if j["kind"] == "turn")
+    return dict(result["facts"])
+
+
+def test_a_rule_filed_under_the_other_family_with_the_same_value_is_an_echo(
+    tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
+) -> None:
+    """The model files one rule as a preference in one turn and as a commitment
+    in the next: without any review setting, that is still one rule."""
+    application = make(tmp_path, fake_openai, clock, extraction_intent=False)
+    try:
+        with TestClient(application, headers=auth("all")) as client:
+            fake_openai.script(
+                chat=[
+                    rule(
+                        "preference.answers",
+                        "short answers",
+                        "I will keep my answers short",
+                        "NOVA prefers to keep its answers short.",
+                    ),
+                    rule(
+                        "commitment.answers",
+                        "short answers",
+                        "my answers stay short",
+                        "NOVA commits to short answers.",
+                    ),
+                    # said by the owner this time: still the rule held
+                    rule(
+                        "commitment.answers",
+                        "short answers",
+                        "keep your answers short",
+                        "NOVA must keep its answers short.",
+                    ),
+                ]
+            )
+            turn(client, application, "Hi.", "I will keep my answers short.")
+            again = turn(client, application, "Hi.", "As agreed, my answers stay short.")
+            assert (again["written"], again["self_echo"], again["conflict"]) == (0, 1, 0)
+            owner = turn(client, application, "Please keep your answers short.", "Noted.")
+            assert (owner["written"], owner["conflict"]) == (0, 0)
+            # the owner's words are not the self's echo: a plain duplicate
+            assert (owner["duplicate"], owner["self_echo"]) == (1, 0)
+            (held,) = live_facts(application)
+            assert held.attribute == "preference.answers" and "conflict" not in held.flags
+    finally:
+        application.state.store.close()
+
+
+def test_another_value_under_the_other_family_is_a_visible_conflict_never_a_close(
+    tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
+) -> None:
+    """A preference and a commitment of one topic with two values: nothing tells
+    whether one refines or contradicts the other, so neither is closed."""
+    application = make(tmp_path, fake_openai, clock, extraction_intent=False)
+    try:
+        with TestClient(application, headers=auth("all")) as client:
+            fake_openai.script(
+                chat=[
+                    rule(
+                        "preference.answers",
+                        "short answers",
+                        "I will keep my answers short",
+                        "NOVA prefers to keep its answers short.",
+                    ),
+                    rule(
+                        "commitment.answers",
+                        "full detail",
+                        "I will answer in full detail",
+                        "NOVA commits to answering in full detail.",
+                    ),
+                    # another topic: no conflict with either
+                    rule(
+                        "commitment.reports",
+                        "full detail",
+                        "reports get full detail",
+                        "NOVA commits to full detail in reports.",
+                    ),
+                    # the reverse order: a preference beside a commitment held
+                    rule(
+                        "preference.reports",
+                        "one page",
+                        "I prefer one-page reports",
+                        "NOVA prefers one-page reports.",
+                    ),
+                ]
+            )
+            turn(client, application, "Hi.", "I will keep my answers short.")
+            other = turn(client, application, "More detail.", "I will answer in full detail.")
+            assert (other["written"], other["conflict"], other["superseded"]) == (1, 1, 0)
+            apart = turn(client, application, "And reports?", "Yes, reports get full detail.")
+            assert (apart["written"], apart["conflict"]) == (1, 0)
+            back = turn(client, application, "Hm.", "Though I prefer one-page reports.")
+            assert (back["written"], back["conflict"], back["superseded"]) == (1, 1, 0)
+            held = {f.attribute: f for f in live_facts(application)}
+            assert set(held) == {
+                "preference.answers",
+                "commitment.answers",
+                "commitment.reports",
+                "preference.reports",
+            }
+            newer = held["commitment.answers"]
+            assert "conflict" in newer.flags
+            assert newer.conflicts_with == held["preference.answers"].id
+            assert held["preference.reports"].conflicts_with == held["commitment.reports"].id
+            # both start the next session, the conflict shown
+            items = client.post(
+                "/v1/session/start", json={"scope": SCOPE, "budget_tokens": 2000}
+            ).json()["items"]
+            shown = {i["attribute"]: i["flags"] for i in items if i["kind"] == "fact"}
+            assert set(shown) == set(held)
+            # on both sides of each pair, though only the newer fact stores it
+            for key in ("commitment.answers", "preference.answers", "preference.reports"):
+                assert "conflict" in shown[key], key
+            assert "conflict" in shown["commitment.reports"]
+    finally:
+        application.state.store.close()
+
+
+def test_a_commitment_still_replaces_the_commitment_of_its_topic_beside_a_twin(
+    tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
+) -> None:
+    """The value the preference holds, said as a commitment while another
+    commitment is live: not an echo of the preference - the commitment of
+    the topic changes, as it does with no preference beside it."""
+    application = make(tmp_path, fake_openai, clock, extraction_intent=False)
+    try:
+        with TestClient(application, headers=auth("all")) as client:
+            fake_openai.script(
+                chat=[
+                    rule(
+                        "preference.answers",
+                        "short answers",
+                        "I will keep my answers short",
+                        "NOVA prefers to keep its answers short.",
+                    ),
+                    rule(
+                        "commitment.answers",
+                        "full detail",
+                        "I will answer in full detail",
+                        "NOVA commits to answering in full detail.",
+                    ),
+                    rule(
+                        "commitment.answers",
+                        "short answers",
+                        "from now on I commit to short answers",
+                        "NOVA commits to short answers.",
+                    ),
+                ]
+            )
+            turn(client, application, "Hi.", "I will keep my answers short.")
+            turn(client, application, "More detail.", "I will answer in full detail.")
+            back = turn(client, application, "Too long.", "From now on I commit to short answers.")
+            assert (back["written"], back["superseded"], back["conflict"]) == (1, 1, 0)
+            held = {f.attribute: f for f in live_facts(application)}
+            assert set(held) == {"preference.answers", "commitment.answers"}
+            assert held["commitment.answers"].value == "short answers"
+            assert "conflict" not in held["commitment.answers"].flags
+    finally:
+        application.state.store.close()
+
+
+def test_remember_about_the_self_reads_the_two_rule_families_as_one_topic(
+    client: TestClient, app: FastAPI
+) -> None:
+    first = remember_self(
+        client, "NOVA answers in short paragraphs.", attribute="preference.answers", value="short"
+    ).json()["fact"]["id"]
+    again = remember_self(
+        client, "NOVA commits to short answers.", attribute="commitment.answers", value="short"
+    ).json()
+    assert again["echo"] is True and again["fact"]["id"] == first
+    other = remember_self(
+        client, "NOVA commits to long answers.", attribute="commitment.answers", value="long"
+    ).json()
+    assert other["echo"] is False
+    new = app.state.store.get_fact(other["fact"]["id"])
+    assert "conflict" in new.flags and new.conflicts_with == first
+    assert app.state.store.get_fact(first).valid_to is None
+    # the same value on another topic is another rule
+    apart = remember_self(
+        client, "NOVA writes short reports.", attribute="commitment.reports", value="short"
+    ).json()
+    assert apart["echo"] is False
+    assert "conflict" not in app.state.store.get_fact(apart["fact"]["id"]).flags
+    # the preference's value said as a commitment while another commitment is
+    # held: not an echo of the preference, a conflict with that commitment
+    back = remember_self(
+        client, "NOVA commits to brevity again.", attribute="commitment.answers", value="short"
+    ).json()
+    assert back["echo"] is False
+    again = app.state.store.get_fact(back["fact"]["id"])
+    assert "conflict" in again.flags and again.conflicts_with == other["fact"]["id"]
+
+
+# --------------------------------------------------------------------------- the profile's bound
+
+
+def test_the_selfs_rules_never_push_the_central_nodes_out_of_a_small_profile(
+    client: TestClient, app: FastAPI
+) -> None:
+    """Commitments first, then preferences, the newest first in each; ahead of
+    the nodes they take at most a third of the budget, the others come after
+    the nodes and take what is left."""
+    topics = [f"topic{i:02d}" for i in range(12)]
+    for topic in topics:
+        made = remember_self(
+            client,
+            f"NOVA prefers to handle {topic} with care, slowly and in the order given.",
+            attribute=f"preference.{topic}",
+            value=f"care {topic}",
+        )
+        assert made.status_code == 201, made.text
+    for topic in ("bookings", "dates"):
+        remember_self(
+            client,
+            f"NOVA confirms {topic} with the owner before acting on them.",
+            attribute=f"commitment.{topic}",
+            value=f"confirm {topic}",
+        )
+    for name in ("Solar", "Lumen", "Harbor"):
+        client.post(
+            "/v1/remember",
+            json={
+                "scope": SCOPE,
+                "statement": f"{name} is a project of Alice.",
+                "node": {"name": name, "kind": "project"},
+            },
+        )
+    engine = app.state.engine
+    whole = client.post("/v1/session/start", json={"scope": SCOPE, "budget_tokens": 8000}).json()
+    assert whole["omitted"] == 0
+    rules = [i for i in whole["items"] if i["kind"] == "fact"]
+    assert [i["attribute"] for i in rules] == [
+        "commitment.dates",
+        "commitment.bookings",
+        *(f"preference.{t}" for t in reversed(topics)),
+    ]
+    nodes = [i["id"] for i in whole["items"] if i["kind"] == "node"]
+    assert len(nodes) == 4  # the three projects and the self
+    budget = sum(engine.cost(i) for i in whole["items"]) // 2
+    body = {"scope": SCOPE, "budget_tokens": budget}
+    small = client.post("/v1/session/start", json=body).json()
+    assert small == client.post("/v1/session/start", json=body).json()  # still deterministic
+    kinds = [i["kind"] for i in small["items"]]
+    first_node = kinds.index("node")
+    ahead = small["items"][:first_node]
+    assert ahead and all(i["kind"] == "fact" for i in ahead)
+    assert sum(engine.cost(i) for i in ahead) <= budget // 3
+    assert [i["attribute"] for i in ahead[:2]] == ["commitment.dates", "commitment.bookings"]
+    # every node is there: no rule took its place
+    assert [i["id"] for i in small["items"] if i["kind"] == "node"] == nodes
+    # the rules that did not fit ahead come after the nodes, in the same order
+    behind = small["items"][first_node + len(nodes) :]
+    assert behind and all(i["kind"] == "fact" for i in behind)
+    order = [i["id"] for i in rules]
+    shown = [i["id"] for i in small["items"] if i["kind"] == "fact"]
+    assert shown == [i for i in order if i in shown]
+    assert small["used_tokens"] <= budget and small["omitted"] > 0

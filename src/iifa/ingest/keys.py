@@ -123,6 +123,14 @@ def rule_topic(key: str | None) -> str | None:
     return key.partition(".")[2] or None
 
 
+def rule_twin(key: str | None, other: str | None) -> bool:
+    """SPEC 4.2: are these two (canonical) keys one topic under the two rule
+    families (``preference.answers`` and ``commitment.answers``)? Never the
+    same key twice, never a bare family key."""
+    topic = rule_topic(key)
+    return topic is not None and key != other and rule_topic(other) == topic
+
+
 def supersedable(key: str | None) -> bool:
     """May a new value of this (canonical) key close an old one? Not without a key,
     and not for a bare family key: every preference would share it."""
