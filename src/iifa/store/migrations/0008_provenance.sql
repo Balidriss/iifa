@@ -1,4 +1,4 @@
--- Schema version 8: who said it (P6) and fact proposals (SPEC 4.4b).
+-- Schema version 8: who said it (P6) and fact proposals.
 --
 -- facts.provenance is the part of the source a fact's quote lies in: 'owner',
 -- 'assistant' or 'external' (a tool result, a web page, a document); NULL for

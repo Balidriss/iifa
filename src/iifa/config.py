@@ -29,11 +29,11 @@ PERMISSIONS: frozenset[str] = frozenset({"read", "write", "forget", "dream", "re
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 BACKGROUND_MODES: tuple[str, ...] = ("auto", "paused", "on_demand")
-MIN_ANSWER_TOKENS = 512  # the answer cap's base (SPEC 7.4b): a bound below it caps nothing
-RISK_CLASSES: tuple[str, ...] = ("low", "medium", "high")  # SPEC 5.6 rule 5
+MIN_ANSWER_TOKENS = 512  # the answer cap's base: a bound below it caps nothing
+RISK_CLASSES: tuple[str, ...] = ("low", "medium", "high")
 REVIEW_ACTIONS: tuple[str, ...] = ("auto", "review")
-MAX_ADJUDICATIONS_PER_UNIT = 20  # SPEC 5.6: merge candidates asked about per unit
-MIN_PROMPT_TOKENS = 1000  # SPEC 5.6: below it no dream prompt fits its own rules
+MAX_ADJUDICATIONS_PER_UNIT = 20  # merge candidates asked about per unit
+MIN_PROMPT_TOKENS = 1000  # below it no dream prompt fits its own rules
 
 
 class ConfigError(ValueError):
@@ -70,7 +70,7 @@ class Settings:
     checkpoint_interval: float = 0.5
     recall_candidates: int = 200
     graph_neighbour_facts: int = 3
-    # SPEC 4.2: an observed fact's recall score halves every this many days (0: off)
+    # an observed fact's recall score halves every this many days (0: off)
     observed_half_life_days: float = 7.0
     mcp_http: bool = True
     mcp_expose_forget: bool = False
@@ -95,12 +95,12 @@ class Settings:
     answer_max_tokens: int = 4096
     recall_dense: bool = True
     query_timeout: float = 1.5
-    # None: from the embedding model's profile (SPEC 6.1, iifa.calibration)
+    # None: from the embedding model's profile (iifa.calibration)
     resolve_threshold: float | None = None
     merge_threshold: float | None = None
     link_threshold: float | None = None
-    key_threshold: float | None = None  # SPEC 5.4: attribute keys aligned by embeddings
-    # SPEC 5.5: the cosine at which a request matches an activity by vectors;
+    key_threshold: float | None = None  # attribute keys aligned by embeddings
+    # the cosine at which a request matches an activity by vectors;
     # None (the default): only words match, until measured
     activity_threshold: float | None = None
     embed_batch: int = 32
@@ -110,31 +110,31 @@ class Settings:
     edge_prune_below: float = 0.1
     summary_nodes_per_session: int = 20
     language_overrides: tuple[tuple[str, str], ...] = ()
-    # SPEC 5.4: role, team and preferences asked "replaces, or both true?" - on
+    # role, team and preferences asked "replaces, or both true?" - on
     # by default (measured on qwen3.5:9b with the source's quotes)
     replacement_question: bool = True
-    # SPEC 5.4: within one language, a change whose values share words asked
+    # within one language, a change whose values share words asked
     # "the same value told again?" - only "same" changes anything
     restatement_question: bool = True
-    # SPEC 5.4: ask each value's comparison form - off by default
+    # ask each value's comparison form - off by default
     value_norm: bool = False
-    # SPEC 4.2 and 5.8: intent before content (frame, modality, duration) and the
+    # intent before content (frame, modality, duration) and the
     # minutes after which a session nobody ended is closed (0: never)
     extraction_intent: bool = True
     session_idle_minutes: float = 120.0
-    # SPEC 4.6: (scope, name, aliases) - who the memory of a scope belongs to
+    # (scope, name, aliases) - who the memory of a scope belongs to
     owners: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
-    # SPEC 4.6: (scope, name) - the name of the assistant answering in a scope
+    # (scope, name) - the name of the assistant answering in a scope
     assistants: tuple[tuple[str, str], ...] = ()
-    # SPEC 4.6: (scope, name, aliases) - the agent whose own memory a scope also is
+    # (scope, name, aliases) - the agent whose own memory a scope also is
     selves: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
-    # SPEC 4.2: a self's commitments and preferences wait in review before they
+    # a self's commitments and preferences wait in review before they
     # are written
     review_self_rules: bool = False
-    # SPEC P5: the service also reads secrets from their wording (a heuristic,
+    # P5: the service also reads secrets from their wording (a heuristic,
     # off by default: it may take an ordinary word for a secret)
     detect_secrets_by_wording: bool = False
-    # SPEC 5.6: the dream's own model (rule 10), its probe tolerance (rule 9), the
+    # the dream's own model, its probe tolerance, the
     # merge candidates adjudicated per unit (0: none), the prompt budget of one
     # call (counted with ``tokenizer``) and the review policy per
     # scope: (scope, risk, auto | review), nearest wins
@@ -230,7 +230,7 @@ class Settings:
                 )
 
     def _validate_owners(self) -> None:
-        """SPEC 4.6: who the memory of a scope belongs to, by name."""
+        """Who the memory of a scope belongs to, by name."""
         for scope, name, aliases in self.owners:
             if scope == ROOT_SCOPE:
                 raise ConfigError(
@@ -244,12 +244,12 @@ class Settings:
             if not name.strip() or any(not a.strip() for a in aliases):
                 raise ConfigError(f"owner of {scope!r}: a name (and aliases) must not be empty")
             if any(plain_name(n) != " ".join(n.split()) for n in (name, *aliases)):
-                raise ConfigError(  # SPEC 5.1: what the store would refuse or rewrite
+                raise ConfigError(  # what the store would refuse or rewrite
                     f"owner of {scope!r}: a name is plain text with balanced brackets"
                 )
 
     def _validate_assistants(self) -> None:
-        """SPEC 4.6: the assistant's name labels its part of a source, so it is
+        """The assistant's name labels its part of a source, so it is
         plain text and never a label of the service's own nor the name or an
         alias of an owner of that scope - a quote's label must tell whose
         words it is."""
@@ -278,7 +278,7 @@ class Settings:
                     )
 
     def _validate_selves(self) -> None:
-        """SPEC 4.6: a self is the assistant of its scope, so its name and its
+        """A self is the assistant of its scope, so its name and its
         aliases obey the assistant's rules; never on ``*`` (one agent would own
         every scope's memory), never against an assistant of another name
         declared on the same scope."""
@@ -314,7 +314,7 @@ class Settings:
                     )
 
     def _validate_embeddings(self) -> None:
-        """SPEC 6.1: the thresholds are cosines in 0..1; a merge proposal must be
+        """The thresholds are cosines in 0..1; a merge proposal must be
         stricter than a resolution candidate."""
         if self.query_timeout <= 0:
             raise ConfigError("embeddings query_timeout must be a positive number of seconds")
@@ -335,7 +335,7 @@ class Settings:
             raise ConfigError("embeddings batch must be at least 1")
 
     def _validate_dream(self) -> None:
-        """SPEC 5.6: the probe tolerance is a fraction; the review policy names a
+        """The probe tolerance is a fraction; the review policy names a
         scope, a risk class and what happens to it."""
         if not (0 <= self.dream_probe_tolerance < 1):
             raise ConfigError("dream probe_tolerance must be within 0..1")
@@ -560,7 +560,7 @@ def load_settings(
 
 def _review(file_value: object) -> tuple[tuple[str, str, str], ...]:
     """``{"user:alice": {"medium": "review"}}`` from the file: what the dream does
-    with each risk class in a scope (SPEC 5.6 rule 5)."""
+    with each risk class in a scope."""
     if not isinstance(file_value, Mapping):
         raise ConfigError("dream review must be a table of scope to {low, medium, high}")
     out: list[tuple[str, str, str]] = []
@@ -587,7 +587,7 @@ def _owners(
 ) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
     """``{"user:alice": {"name": "Alice", "aliases": ["Алиса"]}}`` (or just a
     name) from the environment (JSON) or the file (a table): who the memory of a
-    scope belongs to, or the self whose own memory it also is (SPEC 4.6)."""
+    scope belongs to, or the self whose own memory it also is."""
     plural = "selves" if what == "self" else f"{what}s"
     raw: object = file_value
     if env_value is not None and env_value.strip():
@@ -615,7 +615,7 @@ def _owners(
 
 def _assistants(env_value: str | None, file_value: object) -> tuple[tuple[str, str], ...]:
     """``{"user:alice": "NOVA"}`` (or ``{"name": "NOVA"}``) from the environment
-    (JSON) or the file (a table): the assistant answering in a scope (SPEC 4.6)."""
+    (JSON) or the file (a table): the assistant answering in a scope."""
     raw: object = file_value
     if env_value is not None and env_value.strip():
         try:
@@ -634,7 +634,7 @@ def _assistants(env_value: str | None, file_value: object) -> tuple[tuple[str, s
 
 
 def _extra(env_value: str | None, file_value: object, kind: str) -> dict[str, Any]:
-    """Extra request parameters of one endpoint (SPEC 7.4b), from the environment
+    """Extra request parameters of one endpoint, from the environment
     (a JSON object) or the file (a table)."""
     raw: object = file_value
     if env_value is not None and env_value.strip():

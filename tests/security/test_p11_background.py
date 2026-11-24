@@ -1,5 +1,5 @@
 """P11 - the harness owns the model's time, proven through the HTTP API against
-the fake model server's call log (SPEC 12): paused means zero calls, on_demand
+the fake model server's call log: paused means zero calls, on_demand
 means none outside a run, a run stops at its budget, yield is honoured, and a
 paused service comes back paused with its queue intact."""
 
@@ -130,7 +130,7 @@ def test_p11_a_paused_service_comes_back_paused_with_its_queue(
         assert fake_openai.calls == []
         second.state.worker._waiting_for_auto = None
         assert client.put("/v1/background", json={"mode": "auto"}).json()["mode"] == "auto"
-        # the turn queued an embed job behind the noop (SPEC 6.1; its open state
+        # the turn queued an embed job behind the noop (its open state
         # is pinned by the next test): everything drains once resumed
         assert wait_until(lambda: second.state.queue.stats()["depth"] == 0, timeout=30)
         assert job_status(second, job) == DONE
@@ -143,8 +143,8 @@ def test_p11_a_turns_embed_job_counts_in_the_queue_until_it_is_done(
     settings: Settings, clock: FakeClock, fake_openai: FakeOpenAIServer
 ) -> None:
     """What the test above once missed, made deterministic: with an embeddings
-    endpoint, a turn queues an embed job behind the jobs already waiting (SPEC
-    6.1); when the last of those is done, the embed job may still be open, and
+    endpoint, a turn queues an embed job behind the jobs already waiting; when the last
+    of those is done, the embed job may still be open, and
     the queue depth counts it until it finishes. The embed handler is held on an
     event (no timing), so the state the race produced is reached every time.
     The order is fixed too: the embed job is queued when the turn's extraction

@@ -31,7 +31,7 @@ from iifa.vectors import rrf
 
 TIER = 0  # with no model at all; the app sets ``RecallEngine.tier`` to 2 with a chat endpoint
 REINFORCEMENT_MEMORY = 4096
-# SPEC 5.5: a request for an activity - activities matched, and what each block holds
+# a request for an activity - activities matched, and what each block holds
 MAX_ACTIVITIES = 3
 _LIFECYCLE = WORD_KINDS  # P5: the sources a turn's words were extracted from
 ACTIVITY_RULES = 10
@@ -42,8 +42,8 @@ TASK = "task"
 EPISODE = "episode"
 USES = "uses"
 INSTANCE_OF = "instance_of"
-TIMELINE = 3  # SPEC 5.5: the episodes a family's block shows, the most recent first
-BLOCK_SHARE = 2 / 3  # SPEC 5.5: the share of the budget the activity blocks may take
+TIMELINE = 3  # the episodes a family's block shows, the most recent first
+BLOCK_SHARE = 2 / 3  # the share of the budget the activity blocks may take
 
 
 @dataclass(frozen=True)
@@ -57,11 +57,11 @@ class Candidate:
     node: Node | None = None
     why: str = ""
     terms: frozenset[str] = frozenset()  # the query words the lexical side matched
-    activity: bool = False  # SPEC 5.5: brought by an activity's block
+    activity: bool = False  # brought by an activity's block
 
 
 def preferred(members: Sequence[Fact], language: str) -> Fact:
-    """The one fact of an equivalence group recall injects (SPEC 5.4): the one in
+    """The one fact of an equivalence group recall injects: the one in
     the query's language, else the most precise (a full date before a month),
     else the group's first (members come oldest first)."""
     pool = [m for m in members if m.language == language] or list(members)
@@ -83,7 +83,7 @@ class _Hit:
 
 
 def _fuse(lexical: list[_Hit], dense: list[DenseHit]) -> list[_Hit]:
-    """Reciprocal rank fusion of the lexical and dense rankings (SPEC 6.1); the
+    """Reciprocal rank fusion of the lexical and dense rankings; the
     ``why`` keeps what each side saw."""
     if not dense:
         return lexical
@@ -121,19 +121,19 @@ class RecallEngine:
         secrets_by_wording: bool = False,
     ) -> None:
         self.store = store
-        self.secrets_by_wording = secrets_by_wording  # SPEC P5: detect_secrets_by_wording
+        self.secrets_by_wording = secrets_by_wording  # P5: detect_secrets_by_wording
         self.tokenizer = tokenizer
         self.max_candidates = max_candidates
         self.neighbour_facts = neighbour_facts
         self.max_neighbours = max_neighbours
         self.tier = tier
-        self.dense = dense  # tier 3 (SPEC 6.1); None without an embeddings endpoint
-        self.subject_anchoring = subject_anchoring  # SPEC 5.5
-        self.observed_half_life_days = observed_half_life_days  # SPEC 4.2; 0: no decay
-        # SPEC 5.5, tier 3: how close a vector neighbour matches an activity, per
+        self.dense = dense  # tier 3; None without an embeddings endpoint
+        self.subject_anchoring = subject_anchoring
+        self.observed_half_life_days = observed_half_life_days  # 0: no decay
+        # tier 3: how close a vector neighbour matches an activity, per
         # embedding model (None: uncalibrated, vectors match no activity)
         self.activity_threshold = activity_threshold
-        # SPEC 5.3: which edge surfaced which handle, so that an expand of that
+        # which edge surfaced which handle, so that an expand of that
         # handle reinforces the edge. Bounded, per process, best effort.
         self._via: OrderedDict[str, str] = OrderedDict()
         self._via_lock = threading.Lock()
@@ -189,7 +189,7 @@ class RecallEngine:
         exclude_ids: Sequence[str] = (),
         query_vector: SuppliedVector | None = None,
     ) -> tuple[dict[str, Any], int]:
-        """``recall``, and the summary tokens of what it returned (SPEC 11.2): for
+        """``recall``, and the summary tokens of what it returned: for
         each node handle whose line is a summary, what that line costs above the
         line of a node without one - never negative, at most the bound. For the
         probes only: the answer an agent receives is unchanged."""
@@ -199,7 +199,7 @@ class RecallEngine:
         dense = OFF
         degraded: str | None = None
         note: str | None = None
-        near: set[str] = set()  # SPEC 5.5: records close enough to match an activity
+        near: set[str] = set()  # records close enough to match an activity
         if self.dense is not None:
             wanted = self.dense.query_vector(query, query_vector)
             dense, degraded, note = wanted.dense, wanted.degraded, wanted.note
@@ -234,7 +234,7 @@ class RecallEngine:
         }, summary_tokens
 
     def _near(self, found: Sequence[DenseHit]) -> set[str]:
-        """SPEC 5.5, tier 3: the node records at least as close to the request as
+        """Tier 3: the node records at least as close to the request as
         the embedding model's activity threshold (none: no record)."""
         model = self.dense.model if self.dense is not None else None
         limit = self.activity_threshold(model) if self.activity_threshold and model else None
@@ -257,7 +257,7 @@ class RecallEngine:
                 self._via.popitem(last=False)
 
     def _reinforce(self, item_ids: Sequence[str]) -> list[str]:
-        """The expand signal (SPEC 5.3): every delivered item a recall reached
+        """The expand signal: every delivered item a recall reached
         through an edge reinforces that edge, once per recall."""
         reinforced: list[str] = []
         for item_id in item_ids:
@@ -278,9 +278,9 @@ class RecallEngine:
         costs: list[int] = []
         remaining = budget_tokens
         cache: dict[str, Fact] = {}
-        read: dict[str, set[str]] = {}  # SPEC 8.5: flags computed at read
-        linked: dict[str, list[dict[str, str]]] = {}  # SPEC 8.5: what expand adds
-        blocks, capped = 0, 0  # SPEC 5.5: what the activity blocks took, and left out
+        read: dict[str, set[str]] = {}  # flags computed at read
+        linked: dict[str, list[dict[str, str]]] = {}  # what expand adds
+        blocks, capped = 0, 0  # what the activity blocks took, and left out
         index = 0
         while index < len(candidates) and remaining >= self.min_handle_cost:
             batch = candidates[index : index + BATCH]
@@ -302,7 +302,7 @@ class RecallEngine:
                     payload["expand_tokens"] += self.tokenizer.count(handles.serialized(extra))
                 cost = self.cost(payload)
                 if candidate.activity and blocks + cost > budget_tokens * BLOCK_SHARE:
-                    capped += 1  # SPEC 5.5: the blocks take BLOCK_SHARE of the budget at most
+                    capped += 1  # the blocks take BLOCK_SHARE of the budget at most
                     continue
                 payloads.append(payload)
                 costs.append(cost)
@@ -397,7 +397,7 @@ class RecallEngine:
         out = sorted(self._aged(out, now), key=lambda c: (-c.score, c.id))
         out = self._behind_their_facts(out, view)
         out = self._with_named_subject(out, list(nodes.values()), query, view, fact_candidate)
-        # SPEC 5.5: a request for an activity brings its blocks ahead of all
+        # a request for an activity brings its blocks ahead of all
         blocks = self._activity_blocks(hits, nodes, query, view, near or set())
         start = self._anchored_count(out, list(nodes.values()), query)
         return self._one_per_group(
@@ -405,7 +405,7 @@ class RecallEngine:
         )
 
     def _anchored_count(self, out: list[Candidate], nodes: list[Node], query: str) -> int:
-        """SPEC 5.5: how many candidates lead with the named subject's facts (the
+        """How many candidates lead with the named subject's facts (the
         activity blocks go behind them)."""
         subject = _named_subject(nodes, query) if self.subject_anchoring else None
         if subject is None:
@@ -426,7 +426,7 @@ class RecallEngine:
         view: Visibility,
         near: set[str],
     ) -> list[tuple[str, Node | None, str]]:
-        """SPEC 5.5: the activities the request matches - a word of the name or of
+        """The activities the request matches - a word of the name or of
         an alias written whole in it, or (tier 3) a close vector neighbour -, the
         most matched words first, at most ``MAX_ACTIVITIES``; for each, its rules,
         the rules of what it ``uses`` and its newest episode, as
@@ -455,7 +455,7 @@ class RecallEngine:
         return [(fid, subjects.get(f.node_id or ""), why) for fid, f, why in out]
 
     def _family(self, activity: Node, view: Visibility) -> tuple[Node, list[str]]:
-        """SPEC 5.5: the generic activity ``activity`` stands for (itself, or the
+        """The generic activity ``activity`` stands for (itself, or the
         live, visible task node it is an ``instance_of``) and the family's ids:
         that node and its live, visible instances, one hop."""
         ups = [
@@ -500,7 +500,7 @@ class RecallEngine:
         return block
 
     def _aged(self, candidates: list[Candidate], now: datetime) -> list[Candidate]:
-        """SPEC 4.2: an observed fact weighs less as it ages - its score times
+        """An observed fact weighs less as it ages - its score times
         2^(-age / half-life), the age in days from ``observed_at``. Moved down,
         never removed; a lasting fact never ages."""
         if self.observed_half_life_days <= 0:
@@ -523,7 +523,7 @@ class RecallEngine:
         view: Visibility,
         fact_candidate: Callable[[str, Node | None, str, float], None],
     ) -> list[Candidate]:
-        """SPEC 5.5: the facts of the one subject the question names join the
+        """The facts of the one subject the question names join the
         candidates (``fact_candidate`` adds to ``out``), then that subject is
         anchored first."""
         if not self.subject_anchoring or not query.strip():
@@ -536,7 +536,7 @@ class RecallEngine:
         return _anchored(out, subject.id)
 
     def _joined(self, subject: Node, query: str, view: Visibility) -> list[Fact]:
-        """SPEC 5.5: the live, visible facts of a subject the question names
+        """The live, visible facts of a subject the question names
         exactly, in one query on the node (pinned first, then most recent), at
         most ``max_candidates``. None when it is named only by a near form, or
         when another visible node bears the form it is named by (a homonym the
@@ -557,7 +557,7 @@ class RecallEngine:
         language: str,
         now: datetime,
     ) -> list[Candidate]:
-        """SPEC 5.4: one fact per equivalence group, at the group's best rank, the
+        """One fact per equivalence group, at the group's best rank, the
         budget never paying twice for one value; a group one of whose facts the
         harness already injected (``exclude_ids``) is not injected again."""
         roots = self.store.fact_roots([c.fact_id for c in candidates if c.fact_id])
@@ -596,7 +596,7 @@ class RecallEngine:
         return Candidate(like.score, fact_id, build, fact_id, node, like.why)
 
     def _behind_their_facts(self, candidates: list[Candidate], view: Visibility) -> list[Candidate]:
-        """SPEC 5.5: a node with no live fact of its own, which the question
+        """A node with no live fact of its own, which the question
         matched only on words a fact candidate matched too ("bureau de Osaka"
         beside "Karim travaille au bureau de Osaka."), moves to just after the
         last such fact; everything else keeps its order."""
@@ -636,7 +636,7 @@ class RecallEngine:
         view: Visibility,
         summary_costs: dict[str, int] | None,
     ) -> dict[str, Any]:
-        """A node's handle; its summary tokens (SPEC 11.2) noted in ``summary_costs``."""
+        """A node's handle; its summary tokens noted in ``summary_costs``."""
         expansion, count = self._node_expansion(node, view, 1)
         handle = handles.node_handle(
             node,
@@ -707,7 +707,7 @@ class RecallEngine:
         }
 
     def _flag_at_read(self, expansions: list[dict[str, Any]], view: Visibility) -> None:
-        """SPEC 8.5: the flags computed at read on the expanded facts and on the
+        """The flags computed at read on the expanded facts and on the
         facts a node's expansion lists, in one lookup, before their cost is
         counted."""
         listed = [f for e in expansions if e["kind"] == "node" for f in e["facts"]]
@@ -732,7 +732,7 @@ class RecallEngine:
             excerpt = self._excerpt(fact, view) if level >= 2 else None
             out = handles.fact_expansion(fact, node, level, excerpt)
             activities = self._activities_of([fact.id], view).get(fact.id)
-            if activities:  # SPEC 8.5: the activities it was learnt during
+            if activities:  # the activities it was learnt during
                 out["activities"] = activities
             return out
         if record_id.startswith("node_"):
@@ -745,7 +745,7 @@ class RecallEngine:
     def _activities_of(
         self, fact_ids: Sequence[str], view: Visibility
     ) -> dict[str, list[dict[str, str]]]:
-        """SPEC 4.2, 8.5: each fact's activities (``{"id", "name"}``), each read
+        """Each fact's activities (``{"id", "name"}``), each read
         through ``merged_into``, those the reader may see (P9); facts without one
         are left out."""
         stored = self.store.fact_activities(fact_ids)
@@ -818,11 +818,11 @@ class RecallEngine:
                 "type": e.type,
                 "status": e.status,
                 "weight": e.weight,
-                "rev": e.decision_rev,  # what POST /v1/edges/{id} compares (SPEC 4.4)
+                "rev": e.decision_rev,  # what POST /v1/edges/{id} compares
             }
             for e in self.store.edges_of([node.id], view)
         ]
-        # SPEC 4.4b: pending proposals visible in the view (P9), after everything else
+        # pending proposals visible in the view (P9), after everything else
         proposals = [
             {
                 "id": p.id,
@@ -869,7 +869,7 @@ def _ahead(
     fact_candidate: Callable[[str, Node | None, str, float], None],
     start: int = 0,
 ) -> list[Candidate]:
-    """SPEC 5.5: the activity blocks ahead of every other candidate but the
+    """The activity blocks ahead of every other candidate but the
     first ``start`` (the named subject's facts, which stay there even when a
     block holds them too); a fact the search also found further down moves
     into its block. ``fact_candidate`` appends to ``out``, which is changed in
@@ -890,7 +890,7 @@ def _ahead(
 
 def _names(node: Node, query: str) -> bool:
     """Does the question name ``node``: every word of its name, or of one of its
-    aliases, named in the question by the naming rule of SPEC 4.2 (case, diacritics,
+    aliases, named in the question by the naming rule (case, diacritics,
     elision, an inflected ending: "Emilie", "d'Émilie", "Карима")?"""
     for form in (node.name, *node.aliases):
         words = form.split()
@@ -900,7 +900,7 @@ def _names(node: Node, query: str) -> bool:
 
 
 def _named_subject(nodes: Any, query: str) -> Node | None:
-    """SPEC 5.5: the one visible node the recall found that the question names;
+    """The one visible node the recall found that the question names;
     None when it names none, two, or two homonyms."""
     if not query.strip():
         return None
@@ -910,10 +910,10 @@ def _named_subject(nodes: Any, query: str) -> Node | None:
 
 def _exact_forms(node: Node, query: str) -> list[str]:
     """``node``'s name and aliases the question holds whole, as consecutive whole
-    words (case, Latin diacritics and elision folded, SPEC 4.4b's grounding).
+    words (case, Latin diacritics and elision folded).
     Never a piece of a word nor an inflected ending ("Karima" is not Karim), and
     no form in a script written without spaces (whole words cannot be told
-    there): these decide what joins the candidates (SPEC 5.5)."""
+    there): these decide what joins the candidates."""
     forms = (node.name, *node.aliases)
     return [f for f in forms if f.strip() and not unspaced_chars(f) and grounded(f, query)]
 
@@ -923,7 +923,7 @@ def _joined_why(subject: Node) -> str:
 
 
 def _anchored(candidates: list[Candidate], subject: str) -> list[Candidate]:
-    """SPEC 5.5: the named subject's facts first (the searched ones, then the
+    """The named subject's facts first (the searched ones, then the
     joined ones), each side keeping its order; the node's own handle keeps its
     place (it is costly: ahead, it pushed the answer out of small budgets)."""
 

@@ -1,4 +1,4 @@
--- Schema version 12: the corrections journal (SPEC 5.7), what a person changed
+-- Schema version 12: the corrections journal, what a person changed
 -- on a node - a rename, aliases, a kind, a merge - with who did it and how to
 -- revert it.
 --

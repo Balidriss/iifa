@@ -1,5 +1,5 @@
-"""A person's corrections of a node and decisions on a proposed edge (SPEC 5.7),
-and the mechanics of a merge that the dream's ``merge_nodes`` shares (SPEC 5.6).
+"""A person's corrections of a node and decisions on a proposed edge,
+and the mechanics of a merge that the dream's ``merge_nodes`` shares.
 
 A correction - a rename, aliases added or removed, a kind changed, two nodes
 merged, a proposed edge confirmed or rejected - is applied in one transaction
@@ -7,7 +7,7 @@ under the store lock and journalled with the name of the token that made it,
 what was asked, how to revert it and the revisions right after. Undo reverts
 exactly, provided every record it changed still carries the revision it left
 there; otherwise a later write depends on it and the undo is refused, naming
-the records (the rule of a dream's undo, SPEC 5.6 rule 4). Entries hold content, so ``Store.forget``
+the records (the rule of a dream's undo). Entries hold content, so ``Store.forget``
 wipes the ones that mention a forgotten record (P5).
 """
 
@@ -89,7 +89,7 @@ class Correction:
 
 
 def merge_refusal(keep: Node, absorb: Node, *, by_person: bool = False) -> str | None:
-    """The one merge guard (SPEC 5.6, 5.7), for the dream and for a person: two
+    """The one merge guard, for the dream and for a person: two
     distinct live nodes with identical scope sets, whose names and aliases all
     pass the name rule (they join the kept node's), and of the same kind for
     the dream. A person's merge (``by_person``) may join two kinds: the kept
@@ -113,7 +113,7 @@ def merge_refusal(keep: Node, absorb: Node, *, by_person: bool = False) -> str |
 def merge_nodes(
     store: Store, keep: Node, absorb: Node, fact_ids: Sequence[str], edge_ids: Sequence[str]
 ) -> tuple[dict[str, Any], list[str]]:
-    """Merge ``absorb`` into ``keep`` (SPEC 5.6, 5.7): its name and aliases join
+    """Merge ``absorb`` into ``keep``: its name and aliases join
     ``keep``'s, its facts (unchanged) and edges move to ``keep``, an edge left
     joining ``keep`` to itself is closed, ``absorb`` is archived with
     ``merged_into``. Returns how to revert it and the records it changed. The
@@ -121,7 +121,7 @@ def merge_nodes(
     known = {normalize(keep.name), *(normalize(a) for a in keep.aliases)}
     added: list[str] = []
     for name in (absorb.name, *absorb.aliases):
-        plain = checked_name(name)  # what the store keeps (SPEC 5.1), so undo finds it
+        plain = checked_name(name)  # what the store keeps, so undo finds it
         if normalize(plain) not in known:
             known.add(normalize(plain))
             added.append(plain)
@@ -183,7 +183,7 @@ def unmerge_nodes(store: Store, changes: Mapping[str, Any]) -> None:
 
 def default_keep(store: Store, a: Node, b: Node) -> tuple[Node, Node]:
     """``(keep, absorb)`` when the person did not say: the node with more live
-    facts is kept, else the older (SPEC 5.7, as the dream decides, SPEC 5.6)."""
+    facts is kept, else the older (as the dream decides)."""
     counts = store.fact_counts([a.id, b.id], Visibility.of_scopes(a.scopes))
     first, second = sorted((a, b), key=lambda n: (n.created_at, n.id))
     if counts.get(second.id, 0) > counts.get(first.id, 0):
@@ -289,7 +289,7 @@ class Corrections:
         remove_aliases: Sequence[str] = (),
         rev: int | None = None,
     ) -> tuple[Node, Correction | None]:
-        """Rename a node, change its kind, add and remove aliases (SPEC 5.7). A
+        """Rename a node, change its kind, add and remove aliases. A
         rename keeps the old name as an alias unless ``keep_old_name`` is false
         or the name rule refuses it; an alias spelled like the name is dropped.
         Nothing changed: no entry."""
@@ -367,7 +367,7 @@ class Corrections:
         proposal: Proposal | None = None,
         revs: Mapping[str, int] | None = None,
     ) -> Correction:
-        """Merge two nodes a person knows are one (SPEC 5.7) through their merge
+        """Merge two nodes a person knows are one through their merge
         proposal - ``proposal``, else the pending one between them, else one
         recorded now - which is accepted. The checks are the dream's - two
         distinct live nodes with identical scope sets - except the kind: a
@@ -417,7 +417,7 @@ class Corrections:
     def decide_edge(
         self, edge_id: str, decision: str, *, token: str, rev: int | None = None
     ) -> tuple[Edge, Correction]:
-        """A person's decision on a live proposed edge (SPEC 5.7): ``confirm``
+        """A person's decision on a live proposed edge: ``confirm``
         makes it confirmed, ``reject`` archives it (reversible, P5)."""
         op = EDGE_DECISIONS.get(decision)
         if op is None:
@@ -439,7 +439,7 @@ class Corrections:
             else:
                 store.archive(edge.id)
             # an undo compares the decision revision: a reinforcement or a decay
-            # since does not block it (SPEC 5.7); after_revs keeps the full rev
+            # since does not block it; after_revs keeps the full rev
             decided = store.get_edge(edge.id).decision_rev
             entry = self._add(
                 op=op,
@@ -491,7 +491,7 @@ class Corrections:
 
     def _blocking(self, entry: Correction) -> list[str]:
         """The records that moved since ``entry``: their full revision, or for a
-        decision on an edge, the edge's decision revision (SPEC 4.4, 5.7)."""
+        decision on an edge, the edge's decision revision."""
         store = self.store
         changes = entry.changes or {}
         if entry.op in (CONFIRM_EDGE, REJECT_EDGE):

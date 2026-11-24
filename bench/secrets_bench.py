@@ -1,4 +1,4 @@
-"""What a model keeps out of memory when a turn says a secret (SPEC P5).
+"""What a model keeps out of memory when a turn says a secret (P5).
 
 Each case of ``bench/secrets_corpus.py`` is one turn, recorded in a session of
 its own and extracted by the chat model; then the store is read table by

@@ -1,4 +1,4 @@
-"""``bench/thresholds.py`` (SPEC 6.1 calibration): the rule that picks
+"""``bench/thresholds.py`` (threshold calibration): the rule that picks
 ``merge`` and ``resolve`` from positive, negative and trap cosines, and the
 script end to end against the fake embeddings server."""
 

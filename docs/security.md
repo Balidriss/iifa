@@ -3,9 +3,9 @@
 iifa holds what an agent knows about people. This page says what protects it,
 and what does not.
 
-Every item of the security checklist in
-[SPEC §12](../SPEC.md#12-security-and-privacy-checklist-each-item-has-a-test)
+Every item of the [security checklist](../tests/security/CHECKLIST.md)
 names the test that proves it, and a test fails if an item loses its test.
+The rules behind them are the [principles](principles.md).
 
 - [Storage](#storage)
 - [Access](#access)

@@ -1,4 +1,4 @@
-"""Attribute keys (SPEC 5.4): a contradiction is only seen when two facts carry
+"""Attribute keys: a contradiction is only seen when two facts carry
 the same key, so keys are steered (a base vocabulary in the prompt) and aligned
 (a canonical form and a table of unambiguous variants here, near free-form keys
 by embeddings at tier 3 in the extractor). The rule throughout: when we cannot
@@ -17,7 +17,7 @@ import unicodedata
 BASE_KEYS: tuple[str, ...] = ("home", "workplace", "role", "employer", "team")
 # families take a topic: "prefers tea" must not replace "prefers short answers",
 # "married" must not replace "on sick leave"; a bare family key never supersedes
-# ``commitment`` is the agent perspective's (SPEC 4.2): one per topic, like status
+# ``commitment`` is the agent perspective's: one per topic, like status
 FAMILIES: tuple[str, ...] = ("preference", "status", "date", "commitment")
 
 VOCABULARY_TEXT = (
@@ -107,7 +107,7 @@ def family_of(key: str | None) -> str | None:
     return head if head in FAMILIES else None
 
 
-# SPEC 4.2: the key families of a rule of the self (what it commits to, how it
+# the key families of a rule of the self (what it commits to, how it
 # prefers to behave): they ride the profile, and wait in review when the
 # operator asks
 RULE_FAMILIES = ("commitment", "preference")
@@ -124,7 +124,7 @@ def rule_topic(key: str | None) -> str | None:
 
 
 def rule_twin(key: str | None, other: str | None) -> bool:
-    """SPEC 4.2: are these two (canonical) keys one topic under the two rule
+    """Are these two (canonical) keys one topic under the two rule
     families (``preference.answers`` and ``commitment.answers``)? Never the
     same key twice, never a bare family key."""
     topic = rule_topic(key)
@@ -139,18 +139,18 @@ def supersedable(key: str | None) -> bool:
 
 def is_free_form(key: str | None) -> bool:
     """A key outside the vocabulary: neither a base key nor a family key. Only
-    these are aligned by embeddings (SPEC 5.4 step 4)."""
+    these are aligned by embeddings."""
     return key is not None and key not in BASE_KEYS and family_of(key) is None
 
 
-# keys whose values replace each other (SPEC 5.4): the only ones a changed value
+# keys whose values replace each other: the only ones a changed value
 # in another language may be adjudicated for; never role or team, which may
 # hold several values at once
 SINGLE_VALUED: tuple[str, ...] = ("home", "workplace", "employer")
 SINGLE_VALUED_FAMILIES: tuple[str, ...] = ("status", "date", "commitment")
 
 
-# SPEC 5.4: aspects that may hold several values at once; across languages
+# aspects that may hold several values at once; across languages
 # their adjudication asks "replaces, or both true?"
 MULTI_VALUED: tuple[str, ...] = ("role", "team")
 MULTI_VALUED_FAMILIES: tuple[str, ...] = ("preference",)
@@ -161,7 +161,7 @@ def multi_valued(key: str | None) -> bool:
 
 
 def replacement_asked(key: str | None) -> bool:
-    """Is a changed value of this key asked "replaces, or both true?" (SPEC 5.4)?
+    """Is a changed value of this key asked "replaces, or both true?"?
     Role, team and preferences may hold several values at once; a free-form key
     is a slug the model chose, and a generic one may hold two unrelated
     statements, so a shared key alone does not prove a replacement."""

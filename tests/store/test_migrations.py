@@ -47,7 +47,7 @@ def test_fixture_migrates_forward_and_keeps_its_contents(fixture: Path, tmp_path
 
 
 def test_migration_11_drops_summaries_from_the_lexical_index(tmp_path: Path) -> None:
-    """SPEC 6.1: a store indexed before version 11 (a node's document held its
+    """A store indexed before version 11 (a node's document held its
     summary) is reindexed once at open: names and aliases only, lengths kept."""
     view = Visibility.of_scope("user:fixture")
     path = tmp_path / "m.db"

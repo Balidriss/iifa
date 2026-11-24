@@ -1,4 +1,4 @@
-// The opencode adapter (SPEC 10.4, 13.1) under `node --test`: the hooks driven
+// The opencode adapter under `node --test`: the hooks driven
 // the way opencode 1.19.4 drives them, against iifa's scripted fake service
 // (tests/fakes/iifa_service.py, started as a subprocess and scripted over HTTP).
 // No model, no network beyond 127.0.0.1.

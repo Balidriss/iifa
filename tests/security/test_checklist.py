@@ -1,5 +1,5 @@
-"""SPEC 12 stays honest: every box is ticked, each names at least one test, and
-each test named exists where the box says."""
+"""The security checklist stays honest: every box is ticked, each names at least
+one test, and each test named exists where the box says."""
 
 from __future__ import annotations
 
@@ -9,14 +9,13 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+CHECKLIST = Path(__file__).with_name("CHECKLIST.md")
 pytestmark = pytest.mark.security
 
 
 def _checklist() -> list[tuple[str, list[str]]]:
-    spec = (ROOT / "SPEC.md").read_text(encoding="utf-8")
-    section = spec.split("## 12. Security and privacy checklist", 1)[1].split("\n---", 1)[0]
     boxes: list[tuple[str, list[str]]] = []
-    for line in section.splitlines():
+    for line in CHECKLIST.read_text(encoding="utf-8").splitlines():
         if line.startswith("- ["):
             boxes.append((line, []))
         elif line.startswith("  - `") and boxes:

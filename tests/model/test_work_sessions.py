@@ -1,4 +1,4 @@
-"""A work session is not lasting history (SPEC 4.2, 5.8): the mechanics, against
+"""A work session is not lasting history: the mechanics, against
 the scripted fake model. A ``task`` fact is kept as session state, shown to the
 next turns of the session, never written as memory; at the session's close one
 consolidation call may leave an episode and keep the ``unsure`` facts it names
@@ -461,7 +461,7 @@ def consolidation_call(fake_openai: FakeOpenAIServer) -> list[dict[str, Any]]:
 def test_the_close_reads_the_sincere_turns_of_the_session_beside_its_notes(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.8: a turn the extraction kept nothing of still tells the close
+    """A turn the extraction kept nothing of still tells the close
     what the session was about."""
     fake_openai.script(
         chat=[
@@ -510,7 +510,7 @@ def test_a_long_turn_leaves_a_bounded_trace(
 def test_a_turn_whose_frame_is_not_sincere_leaves_no_trace(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2: the content of a test or a persona never reaches the close."""
+    """The content of a test or a persona never reaches the close."""
     persona = "For this exercise, I am a pilot named Daniela from Porto."
     fake_openai.script(
         chat=[
@@ -648,7 +648,7 @@ def _counted(duration: str = "observed") -> Reply:
 def test_an_observed_fact_in_a_named_session_leaves_a_note_and_the_close_writes_the_episode(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2, 5.8: the work of a session read as observations only still
+    """The work of a session read as observations only still
     closes with its episode; the observation stays memory, its note expires."""
     fake_openai.script(
         chat=[
@@ -693,7 +693,7 @@ def test_an_observed_fact_outside_a_named_session_leaves_no_note(
 def test_an_observation_note_is_not_shown_to_the_next_turn_as_work_in_progress(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.8: the session block shows the work in progress; an observation
+    """The session block shows the work in progress; an observation
     is memory already, so its note stays out of it."""
     fake_openai.script(
         chat=[
@@ -714,7 +714,7 @@ def test_an_observation_note_is_not_shown_to_the_next_turn_as_work_in_progress(
 def test_a_fact_observed_by_the_tool_rule_leaves_a_note_in_a_named_session(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2: a lasting fact quoted from a ``tool`` part is an observation
+    """A lasting fact quoted from a ``tool`` part is an observation
     whatever the model said; in a named session it leaves the same note."""
     read = "Harbor Deck: 27 slides"
     fact = noted(
@@ -751,7 +751,7 @@ def _note(index: int, duration: str) -> sessions.SessionFact:
 
 
 def test_observation_notes_only_fill_the_room_the_work_notes_leave() -> None:
-    """SPEC 5.8: an older ``unsure`` note is read by the close even when more
+    """An older ``unsure`` note is read by the close even when more
     than ``MAX_NOTES`` observation notes came after it."""
     notes = [_note(0, "unsure"), *(_note(i, "observed") for i in range(1, MAX_NOTES + 5))]
     window = _window(notes)
@@ -767,7 +767,7 @@ def _known_subject_session(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer, said: str
 ) -> dict[str, Any]:
     """A known report in memory; a session whose turn says ``said``; a close
-    whose episode names the known report (SPEC 5.8)."""
+    whose episode names the known report."""
     store: Store = app.state.store
     store.create_node(scopes=[SCOPE], name=KNOWN, kind="object")
     fake_openai.script(

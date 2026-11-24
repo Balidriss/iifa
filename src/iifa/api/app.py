@@ -61,7 +61,7 @@ def build_models(settings: Settings, gate: Gate) -> ModelClient:
 
 
 def build_dream_models(settings: Settings, gate: Gate) -> ModelClient | None:
-    """The dream's own model (SPEC 5.6 rule 10), through the chat gate: None when
+    """The dream's own model, through the chat gate: None when
     the operator configured none - the extraction model never stands in."""
     if not (settings.dream_url and settings.dream_model):
         return None
@@ -107,8 +107,8 @@ def build_pipeline(settings: Settings) -> PipelineConfig:
 def _name_neighbours(
     store: Store, model: str | None, pipeline: PipelineConfig
 ) -> NameNeighbours | None:
-    """SPEC 5.6: name vectors give merge candidates only at tier 3 with a
-    calibrated embedding model (SPEC 6.1); otherwise proposals alone do."""
+    """Name vectors give merge candidates only at tier 3 with a
+    calibrated embedding model; otherwise proposals alone do."""
     thresholds = pipeline.thresholds(model) if model is not None else None
     if model is None or thresholds is None:
         return None
@@ -116,7 +116,7 @@ def _name_neighbours(
 
 
 def _names_close(store: Store, model: str | None, pipeline: PipelineConfig) -> NamesClose | None:
-    """SPEC 5.6: a name cosine lets a ``same`` stand only at tier 3 with a
+    """A name cosine lets a ``same`` stand only at tier 3 with a
     calibrated embedding model, at its ``merge`` threshold."""
     thresholds = pipeline.thresholds(model) if model is not None else None
     if model is None or thresholds is None:
@@ -125,7 +125,7 @@ def _names_close(store: Store, model: str | None, pipeline: PipelineConfig) -> N
 
 
 def tier_of(models: ModelClient) -> int:
-    """SPEC 6: 0 with no model, 2 with a chat endpoint, 3 with chat and embeddings."""
+    """0 with no model, 2 with a chat endpoint, 3 with chat and embeddings."""
     if models.chat_endpoint is None:
         return 0
     return 3 if models.embeddings_endpoint is not None else 2

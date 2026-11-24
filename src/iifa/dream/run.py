@@ -1,7 +1,7 @@
-"""A dream run (SPEC 5.6): started through the API, executed as a job of the
+"""A dream run: started through the API, executed as a job of the
 persistent queue so that it obeys the background mode, the gate and ``yield``
 (P11), unit by unit, within its budget, and measured against the probe sets of
-its scope (rule 9).
+its scope (a dream must not make recall worse).
 
 Test seams (never set in service): ``_after_unit`` runs after each unit,
 ``_before_apply`` between the model's answer and the first operation of a
@@ -66,7 +66,7 @@ class DreamConfig:
     json_mode: bool = True
     probe_tolerance: float = 0.02
     adjudications_per_unit: int = 3
-    prompt_max_tokens: int = 4000  # what one call reads (SPEC 5.6), by ``tokenizer``
+    prompt_max_tokens: int = 4000  # what one call reads, by ``tokenizer``
     tokenizer: Tokenizer = field(default_factory=ConservativeTokenizer)
     edge_half_life_days: float = 30.0
     edge_prune_below: float = 0.1
@@ -76,7 +76,7 @@ class DreamConfig:
 
 class DreamSession:
     """The dream model as a run sees it: every call checks the run's budget and
-    the budget of the ``run`` (SPEC 8.4) the job executes in, passes the gate,
+    the budget of the ``run`` the job executes in, passes the gate,
     and is charged to both."""
 
     def __init__(
@@ -177,7 +177,7 @@ class Dreamer:
         policy: ReviewPolicy,
         started_by: str | None = None,
     ) -> Run:
-        """Record a run; refused while another is active in the scope's family (rule 7)."""
+        """Record a run; refused while another is active in the scope's family."""
         with self.store.lock:
             for active in self.journal.active_runs():
                 if within(scope, active.scope) or within(active.scope, scope):
@@ -433,7 +433,7 @@ class Dreamer:
         return None
 
     def _measure(self, run: Run) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        """Rule 9: compare the probe scores before and after; a regression or an
+        """Recall must not get worse: compare the probe scores before and after; a regression or an
         inconclusive comparison rolls the run back."""
         before = run.probes_before
         if run.dry_run or not before or self.probe_scorer is None:
@@ -511,7 +511,7 @@ class Dreamer:
 
 
 def dream_job(job: Job, ctx: JobContext) -> dict[str, Any] | None:
-    """The queue handler of a dream run (SPEC 5.6, P11)."""
+    """The queue handler of a dream run (P11)."""
     dreamer = ctx.dream
     if not isinstance(dreamer, Dreamer):
         raise RuntimeError("no dreamer configured")
@@ -542,7 +542,7 @@ def _score_dict(score: ProbeScore) -> dict[str, Any]:
 
 
 def _numbers(saved: Mapping[str, Any]) -> dict[str, Any]:
-    """What the report shows per set (SPEC 5.6 rule 9): the raw rate beside the
+    """What the report shows per set: the raw rate beside the
     compared one, so the price of summaries stays visible."""
     return {
         "recall": saved["recall"],

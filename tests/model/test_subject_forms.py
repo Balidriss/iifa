@@ -1,5 +1,5 @@
-"""One subject in two forms (SPEC 5.1) and a supersession that reaches a known
-duplicate (SPEC 5.4), against the scripted fake model.
+"""One subject in two forms and a supersession that reaches a known
+duplicate, against the scripted fake model.
 
 A file named by its slug and by its title are candidates of each other: the
 adjudication attaches the second form, or a new node is paired with the first
@@ -29,7 +29,7 @@ VIEW = Visibility.of_scope(SCOPE)
 def settings(tmp_path: Path, fake_openai: FakeOpenAIServer) -> Settings:
     """The corrections here change a free-form ``content`` within one language:
     with the replacement question off, such a change supersedes without a
-    question (SPEC 5.4), so each turn costs the calls these tests count."""
+    question, so each turn costs the calls these tests count."""
     return tier2_settings(tmp_path, fake_openai, replacement_question=False)
 
 
@@ -49,7 +49,7 @@ def said(
                 "statement": statement,
                 "attribute": key,
                 "value": value,
-                "cardinality": cardinality,  # a free-form key: one value unless told (SPEC 5.4)
+                "cardinality": cardinality,  # a free-form key: one value unless told
                 "quote": statement.rstrip("."),
             }
         ],
@@ -187,7 +187,7 @@ def test_words_in_common_neither_attach_nor_pair_nor_flag(
 def test_near_names_are_never_paired_nor_flagged(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """Karim and Karima: a candidate for the adjudication (SPEC 5.1), never a
+    """Karim and Karima: a candidate for the adjudication, never a
     merge proposal at write time, and a correction on one leaves the other."""
     store = app.state.store
     tell(client, app, fake_openai, said("Karim", "Lyon", kind="person", key="home"))
@@ -223,7 +223,7 @@ def test_a_rejected_merge_is_no_known_duplicate(
 def test_a_merge_proposal_never_widens_visibility(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """Dream rule 12: a write in a child scope sees the parent's node and may
+    """A dream never widens visibility: a write in a child scope sees the parent's node and may
     adjudicate against it, but a new node there is never paired with it."""
     store = app.state.store
     tell(client, app, fake_openai, said("le jardin du nord", "un bassin"))
@@ -248,7 +248,7 @@ def facts_of(name: str, *facts: tuple[str, str, str]) -> tuple[str, Any]:
                 "statement": statement,
                 "attribute": key,
                 "value": value,
-                "cardinality": "one",  # a free-form key: one current value (SPEC 5.4)
+                "cardinality": "one",  # a free-form key: one current value
                 "quote": statement.rstrip("."),
             }
             for key, value, statement in facts
@@ -361,7 +361,7 @@ def test_a_new_value_on_the_form_without_it_flags_the_other(
 def test_an_element_of_a_set_on_one_form_flags_nothing_on_the_other(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.4 (sets): an element adds to a set and closes nothing, so it
+    """Sets: an element adds to a set and closes nothing, so it
     contradicts nothing on a known duplicate either."""
     store = app.state.store
     tell(

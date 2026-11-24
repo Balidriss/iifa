@@ -359,7 +359,7 @@ def undo_correction_call(correction_id: str) -> Call:
     return Call("POST", f"{API}/corrections/{correction_id}/undo")
 
 
-# --------------------------------------------------------------------------- lifecycle (SPEC 8.1)
+# --------------------------------------------------------------------------- lifecycle
 
 
 def session_start_call(
@@ -437,7 +437,7 @@ def session_end_call(
     return Call("POST", f"{API}/session/end", json=body)
 
 
-# --------------------------------------------------------------------------- reading (SPEC 8.2)
+# --------------------------------------------------------------------------- reading
 
 
 def timeline_call(
@@ -491,7 +491,7 @@ def path_call(
     return Call("POST", f"{API}/path", json=body)
 
 
-# --------------------------------------------------------------------------- operations (SPEC 8.4)
+# --------------------------------------------------------------------------- operations
 
 
 def background_call() -> Call:

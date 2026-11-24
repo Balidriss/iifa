@@ -7,7 +7,7 @@ The harness owns the model's time. Every job runs under a **mode**:
 * ``on_demand`` — jobs run only inside ``run``, then the worker waits again.
 
 The mode set at runtime is persisted in the store, so a paused service comes
-back paused (SPEC 7.2). Every model call, from the thread or from a run, passes
+back paused. Every model call, from the thread or from a run, passes
 the **gate**: at most ``concurrency`` calls in flight per endpoint (default 1),
 and none at all while the harness has said ``yield`` — the call in flight
 finishes, the next one waits until ``resume`` or the yield's timeout.
@@ -143,7 +143,7 @@ class Gate:
 
     @contextmanager
     def foreground(self) -> Iterator[None]:
-        """A foreground model call is in flight (the query embedding, SPEC 6.1): no
+        """A foreground model call is in flight (the query embedding): no
         background call starts until it ends. It does not take a slot itself, so
         it never waits behind iifa's own background work."""
         with self._cond:
@@ -293,7 +293,7 @@ class ModelSession:
 
     @property
     def embeddings_model(self) -> str | None:
-        """The configured embedding model, the stamp of every vector (SPEC 6)."""
+        """The configured embedding model, the stamp of every vector."""
         endpoint = self._client.embeddings_endpoint if self._client is not None else None
         return endpoint.model if endpoint is not None else None
 
@@ -342,7 +342,7 @@ class JobContext:
     models: ModelSession
     clock: Callable[[], Any]
     config: PipelineConfig = field(default_factory=PipelineConfig)
-    # the dream runner (SPEC 5.6), for the ``dream`` job only
+    # the dream runner, for the ``dream`` job only
     dream: Any = None
     # why a long job should stop at its next step: "paused", "shutdown", or None
     interrupt: Callable[[], str | None] = _never
@@ -353,7 +353,7 @@ Handler = Callable[[Job, JobContext], dict[str, Any] | None]
 DONE, FAILED, RETRY, RELEASED = "done", "failed", "retry", "released"
 EMBED_KIND = "embed"
 EMBED_SCOPE = "system:vectors"  # the embed job works on every record; a queue row needs a scope
-# jobs that write embedded text: an embed job follows them (SPEC 6.1)
+# jobs that write embedded text: an embed job follows them
 WRITING_KINDS = frozenset({"turn", "precompact", "session_end", sessions.SESSION_CLOSE, "dream"})
 
 
@@ -490,7 +490,7 @@ class Worker:
             self.mode_source = "config"
         log.event("background_mode", mode=self._mode, source=self.mode_source)
 
-    # ------------------------------------------------------------------ controls (§8.4)
+    # ------------------------------------------------------------------ controls
 
     @property
     def mode(self) -> str:
@@ -713,7 +713,7 @@ class Worker:
             log.event("worker_error", job=job.id, error=type(exc).__name__)
         return "processed"
 
-    # ------------------------------------------------------------------ run (§8.4)
+    # ------------------------------------------------------------------ run
 
     def run(
         self,
@@ -913,7 +913,7 @@ class Worker:
         return DONE, result
 
     def close_idle_sessions(self) -> int:
-        """SPEC 5.8: queue the close of every session idle for longer than the
+        """Queue the close of every session idle for longer than the
         configured minutes (by the store's clock) that no job closes yet - for a
         host that never calls session end. Enqueue only; returns how many."""
         minutes = self.pipeline.session_idle_minutes
@@ -951,7 +951,7 @@ class Worker:
             return None
 
     def request_embeddings(self, scopes: Sequence[str] = ()) -> bool:
-        """Queue the background ``embed`` job (SPEC 6.1) after a write, unless one is
+        """Queue the background ``embed`` job after a write, unless one is
         already open or no embeddings endpoint is configured. Enqueue only."""
         if self.models is None or self.models.embeddings_endpoint is None:
             return False

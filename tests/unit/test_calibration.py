@@ -1,4 +1,4 @@
-"""Per-model threshold profiles (SPEC 6.1): a cosine means something for one model
+"""Per-model threshold profiles: a cosine means something for one model
 only, so thresholds come from a profile keyed by the embedding model, from the
 configuration, or not at all (uncalibrated: semantic resolution, merges and
 links off)."""

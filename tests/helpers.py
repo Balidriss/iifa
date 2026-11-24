@@ -46,7 +46,7 @@ def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
         TokenConfig.from_plaintext(token, name=name, scopes=scopes, permissions=perms)
         for name, (token, scopes, perms) in TOKENS.items()
     )
-    # The scripted extraction answers of most tests carry no intent (SPEC 4.2):
+    # The scripted extraction answers of most tests carry no intent:
     # with it read, each of their facts would be proposed. The tests of the
     # intent reading turn it on (``extraction_intent=True``).
     values: dict[str, Any] = {

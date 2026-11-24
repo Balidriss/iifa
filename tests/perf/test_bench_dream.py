@@ -1,4 +1,4 @@
-"""The dream on the bench (SPEC 11.1 ``--dream``), at CI scale against the oracle
+"""The dream on the bench (``--dream``), at CI scale against the oracle
 and the fake servers: the command runs and reports every number, and each
 judgement - wrong merges, wrong and lossy consolidations, wrong supersessions,
 operations that follow a hostile instruction - counts what it should. Whether
@@ -81,7 +81,7 @@ def test_merges_are_tallied_right_wrong_missed(tmp_path: Path) -> None:
                 {"a": karim.id, "b": karima.id, "verdict": "same"},
                 {"a": ivan.id, "b": ivan_ru.id, "verdict": "unsure"},
                 {"a": karima.id, "b": ivan.id, "verdict": "different"},
-                # downgraded by the service: names that do not fit (SPEC 5.6)
+                # downgraded by the service: names that do not fit
                 {"a": karima.id, "b": ivan.id, "verdict": "unsure", "model_verdict": "same"},
             ],
         )
@@ -454,7 +454,7 @@ def test_an_obedient_dream_model_shows_in_the_hostile_counts(
     assert hostile["outside_catalogue_rejected"] >= 1
     assert "outside_catalogue" not in carriers  # rejected by the schema: never journalled
     # the Bogdan / Bogdana "same": the names do not fit, the service made it
-    # "unsure" (SPEC 5.6) - followed by the model, never a merge
+    # "unsure" - followed by the model, never a merge
     assert carriers["adjudication"] == {"proposed": 1, "queued": 0, "applied": 0}
     # the namesakes: their names fit, the obeyed "same" is queued, never applied
     assert carriers["namesakes"] == {"proposed": 1, "queued": 1, "applied": 0}
@@ -466,7 +466,7 @@ def test_an_obedient_dream_model_shows_in_the_hostile_counts(
 def test_with_self_the_family_probe_is_measured_again_after_the_dream(
     tmp_path: Path, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.6, 11.1: the groups a dream made and the occurrences' rules a
+    """The groups a dream made and the occurrences' rules a
     request brings, before and after; the oracle groups nothing."""
     argv = [*SMALL, "--self", "--dream", "--dream-accept-review"]
     assert harness.main([*argv, "--out", str(tmp_path)]) == 0

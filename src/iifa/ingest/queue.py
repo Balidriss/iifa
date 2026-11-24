@@ -1,4 +1,4 @@
-"""The persisted ingestion queue (SPEC 7.2).
+"""The persisted ingestion queue.
 
 Every piece of background work is a row in the encrypted database *before* the
 request that created it answers, so a crash or a restart loses nothing. The
@@ -85,7 +85,7 @@ class Queue:
         scopes: Iterable[str],
         session_id: str | None = None,
     ) -> Job:
-        """One insert; this is all a hot-path route does (SPEC 7.4: < 10 ms)."""
+        """One insert; this is all a hot-path route does (< 10 ms)."""
         unique = tuple(dict.fromkeys(validate_scope(s) for s in scopes))
         if not unique:
             raise ValueError("a job needs at least one scope")

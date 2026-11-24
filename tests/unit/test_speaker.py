@@ -1,4 +1,4 @@
-"""Speaker words (SPEC 4.2): a subject that, whole, names the person speaking -
+"""Speaker words: a subject that, whole, names the person speaking -
 "User", "l'utilisateur", "Пользователь" - and nothing that merely contains one."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Multilingual fixture text: English, French and non-Latin scripts (SPEC 13.2)."""
+"""Multilingual fixture text: English, French and non-Latin scripts."""
 
 from __future__ import annotations
 

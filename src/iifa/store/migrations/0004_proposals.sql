@@ -1,10 +1,10 @@
--- Schema version 4: proposals (SPEC 4.4b), what the write path would not decide alone.
+-- Schema version 4: proposals, what the write path would not decide alone.
 --
 -- A proposal carries text taken from, or attached to, a source, so it is a record
 -- like the others: its scope set (the source's) lives in record_scopes and every
 -- read goes through the view (P9); it is hard-deleted with its node or its source
 -- (P5). Only `alias` proposals exist for now: an alias the model attached to a
--- node without it appearing in the source (SPEC 5.1). Resolution and recall never
+-- node without it appearing in the source. Resolution and recall never
 -- read this table.
 
 CREATE TABLE proposals (

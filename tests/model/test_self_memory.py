@@ -1,4 +1,4 @@
-"""The agent perspective (SPEC 4.2, 4.6): with a self declared, the assistant
+"""The agent perspective: with a self declared, the assistant
 part is the self speaking; its lessons, views and commitments are written on
 its node, a rule of method on the task it serves, and the user perspective
 stays exactly as it is."""
@@ -158,7 +158,7 @@ def test_rules_of_method_go_to_the_task_they_serve_as_elements_of_a_set(
         ]
     )
     first = ingest(client, app, "What is worth remembering?", "Leave it a night in the fridge.")
-    # SPEC 5.1: a later turn names the task it adds a rule to
+    # a later turn names the task it adds a rule to
     second = ingest(
         client,
         app,
@@ -258,7 +258,7 @@ def test_the_user_perspective_prompt_is_byte_for_byte_the_same() -> None:
     agent = extraction_messages("User: hi", agent="NOVA", **kwargs)
     assert agent != plain
     assert "rule of method" in agent[0]["content"] and "rule of method" not in plain[0]["content"]
-    # SPEC 4.2: what a rule is, where it goes, and what a limit is instead
+    # what a rule is, where it goes, and what a limit is instead
     for words in ("a format or a convention", "never the guide it was read in", "A limit"):
         assert words in agent[0]["content"]
     assert "|task|" in agent[0]["content"] and "|task|" not in plain[0]["content"]
@@ -267,7 +267,7 @@ def test_the_user_perspective_prompt_is_byte_for_byte_the_same() -> None:
 def test_rules_read_in_a_guide_the_owner_vouched_for_are_learnt_and_flagged(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2: the agent learns from what it reads for the owner, at once."""
+    """The agent learns from what it reads for the owner, at once."""
     task = "writing a recipe card"
     guide = "Recipe cards: list the ingredients in order of use. Give oven temperatures in Celsius."
     fake_openai.script(

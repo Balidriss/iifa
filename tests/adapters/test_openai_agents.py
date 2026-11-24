@@ -1,4 +1,4 @@
-"""The OpenAI Agents SDK example (SPEC 10.5, 13.1): real ``Agent`` and ``Runner``
+"""The OpenAI Agents SDK example: real ``Agent`` and ``Runner``
 objects driven by the SDK's own ``ScriptedModel`` (no model, no network),
 memory from the scripted fake service and from the real one.
 

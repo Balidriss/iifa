@@ -1,12 +1,13 @@
-"""The strict schema an extraction answer must match (SPEC 6, tier 2; P8).
+"""The strict schema an extraction answer must match (tier 2; P8).
 
 The model proposes, the service applies: an answer is a JSON object with three
 lists, ``nodes``, ``facts`` and ``edges``, whose items are validated one by one
 against closed pydantic models (no extra keys, bounded strings, enumerated node
 kinds, edge types normalised to a small vocabulary). Anything else, an unknown
 top-level key, an item with a field the schema does not know, a value out of
-range, is **rejected and counted, never written**. This is the same wall dream
-rule 1 builds: stored text may carry hostile instructions, and the worst they
+range, is **rejected and counted, never written**. This is the same wall the dream
+builds (the model proposes, the service applies): stored text may carry hostile
+instructions, and the worst they
 can do is make the model propose something the schema refuses.
 """
 
@@ -53,12 +54,12 @@ MAX_ALIASES = 20
 NAME_CHARS = 200
 STATEMENT_CHARS = 500
 QUOTE_CHARS = 1000
-NORM_CHARS = 200  # a value's comparison form (SPEC 5.4)
+NORM_CHARS = 200  # a value's comparison form
 SUMMARY_CHARS = 300
 
 COOCCURRENCE = "co_occurs"
 
-# SPEC 4.2, intent before content: how a source's words are meant (one frame per
+# intent before content: how a source's words are meant (one frame per
 # answer), whether a fact is stated as true (its modality), and how long it holds
 FRAMES = ("sincere", "pretend", "example", "irony", "voice", "staged", "unsure")
 MODALITIES = ("fact", "question", "hypothesis", "plan", "guess", "proposal", "unsure")
@@ -67,7 +68,7 @@ Frame = Literal["sincere", "pretend", "example", "irony", "voice", "staged", "un
 Modality = Literal["fact", "question", "hypothesis", "plan", "guess", "proposal", "unsure"]
 Duration = Literal["lasting", "task", "observed", "unsure"]
 
-# Relation phrases a model tends to write, mapped to the vocabulary (SPEC 4.3).
+# Relation phrases a model tends to write, mapped to the vocabulary.
 EDGE_VOCABULARY: dict[str, str] = {
     "works on": "works_on",
     "work on": "works_on",
@@ -131,10 +132,10 @@ def _clean_text(value: str) -> str:
 class ProposedNode(_Item):
     name: str = Field(min_length=1, max_length=NAME_CHARS)
     kind: NodeKind = "other"
-    # null: a name the source says exists but does not give (SPEC 5.1)
+    # null: a name the source says exists but does not give
     aliases: list[str] = Field(default_factory=list, max_length=MAX_ALIASES)
     summary: str = Field(default="", max_length=SUMMARY_CHARS)
-    # SPEC 5.1: aliases left out - null (not given), or no name once plain
+    # aliases left out - null (not given), or no name once plain
     _unknown_aliases: int = PrivateAttr(default=0)
     _malformed_aliases: int = PrivateAttr(default=0)
 
@@ -165,7 +166,7 @@ class ProposedNode(_Item):
     @field_validator("name")
     @classmethod
     def _plain(cls, value: str) -> str:
-        return require_name(value)  # SPEC 5.1
+        return require_name(value)
 
     @field_validator("summary")
     @classmethod
@@ -182,7 +183,7 @@ class ProposedNode(_Item):
         out: list[str] = []
         for alias in value:
             if alias is None:
-                continue  # SPEC 5.1: a name not given is no alias, nor a proposal
+                continue  # a name not given is no alias, nor a proposal
             if not isinstance(alias, str):
                 raise ValueError("an alias must be a string")
             if len(_clean_text(alias)) > NAME_CHARS:
@@ -196,22 +197,22 @@ class ProposedNode(_Item):
 class ProposedFact(_Item):
     subject: str | None = Field(default=None, max_length=NAME_CHARS)
     # the subject exactly as the source spells it, when that differs from the
-    # known name in ``subject`` (SPEC 4.2)
+    # known name in ``subject``
     subject_as_written: str | None = Field(default=None, max_length=NAME_CHARS)
     statement: str = Field(min_length=1, max_length=STATEMENT_CHARS)
     attribute: str | None = Field(default=None, max_length=100)
     value: str | None = Field(default=None, max_length=STATEMENT_CHARS)
-    # the value's comparison form (SPEC 5.4): compared, never shown nor searched
+    # the value's comparison form: compared, never shown nor searched
     value_norm: str | None = None
     valid_from: str | None = Field(default=None, max_length=40)
     valid_to: str | None = Field(default=None, max_length=40)
     quote: str | None = Field(default=None, max_length=QUOTE_CHARS)
     confidence: float = Field(default=0.7, ge=0.0, le=1.0)
-    # SPEC 5.4 (sets): one current value, one element of a set, or unsure; and
+    # sets: one current value, one element of a set, or unsure; and
     # the value of an element this fact removes or corrects
     cardinality: Literal["one", "many", "unsure"] | None = None
     removes: str | None = Field(default=None, max_length=STATEMENT_CHARS)
-    # SPEC 4.2: read only when the intent reading is on; None means not given
+    # read only when the intent reading is on; None means not given
     modality: Modality | None = None
     duration: Duration | None = None
     episode: bool = False  # the one sincere fact a non-sincere frame may leave
@@ -219,8 +220,8 @@ class ProposedFact(_Item):
     @field_validator("modality", "duration", mode="before")
     @classmethod
     def _word(cls, value: Any, info: ValidationInfo) -> Any:
-        """Folded; a word outside the closed list is read as not given (SPEC
-        4.2: a doubt, so a proposal or session state), never as the fact's death."""
+        """Folded; a word outside the closed list is read as not given (a doubt,
+        so a proposal or session state), never as the fact's death."""
         if not isinstance(value, str):
             return value
         word = value.strip().lower()
@@ -240,7 +241,7 @@ class ProposedFact(_Item):
     def _subject(cls, value: str | None) -> str | None:
         if value is None or not _clean_text(value):
             return None
-        return require_name(value)  # SPEC 5.1: a subject names a node
+        return require_name(value)  # a subject names a node
 
     @field_validator("subject_as_written")
     @classmethod
@@ -259,7 +260,7 @@ class ProposedFact(_Item):
     @field_validator("cardinality", mode="before")
     @classmethod
     def _cardinality(cls, value: Any) -> Any:
-        """Any other word is no word (unsure, SPEC 5.4): the fact is kept."""
+        """Any other word is no word (unsure): the fact is kept."""
         word = value.strip().lower() if isinstance(value, str) else None
         return word if word in ("one", "many", "unsure") else None
 
@@ -291,7 +292,7 @@ class ProposedFact(_Item):
 
 
 class ProposedActivity(_Item):
-    """SPEC 4.2, agent perspective: what the owner asks the agent to do in the
+    """Agent perspective: what the owner asks the agent to do in the
     source, named in the owner's words, and the owner's words that ask it."""
 
     name: str = Field(min_length=1, max_length=NAME_CHARS)
@@ -364,16 +365,16 @@ class Answer:
     edges: list[ProposedEdge] = field(default_factory=list)
     rejected: Rejections = field(default_factory=Rejections)
     usable: bool = True
-    # SPEC 4.2: the frame of the source's words (None: not given), whether it is
+    # the frame of the source's words (None: not given), whether it is
     # set to govern the turns that follow, whether this source ends an open one
     frame: str | None = None
     frame_holds: bool = False
     frame_ends: bool = False
-    # SPEC 4.2, agent perspective: the activity the owner asks for (None: none
+    # agent perspective: the activity the owner asks for (None: none
     # given or refused); ``activity_given``: the key was there, valid or null
     activity: ProposedActivity | None = None
     activity_given: bool = False
-    # SPEC 4.2: the secrets the model saw in the source, exactly as written
+    # the secrets the model saw in the source, exactly as written
     # (kept by ``iifa.ingest.credentials`` only when the source writes them)
     secrets: list[str] = field(default_factory=list)
 
@@ -421,7 +422,7 @@ def _objects(text: str) -> list[dict[str, Any]]:
 
 
 def extract_object(content: str, keys: tuple[str, ...] = ()) -> dict[str, Any] | None:
-    """The JSON object of a model's answer, with or without JSON mode (SPEC 7.4b).
+    """The JSON object of a model's answer, with or without JSON mode.
 
     Reasoning blocks (``<think>…</think>``) are removed first, so an object a
     model wrote while thinking is never taken for its answer; an unterminated
@@ -470,7 +471,7 @@ def parse_answer(content: str) -> Answer:
 
 
 def _intent(data: dict[str, Any], answer: Answer) -> None:
-    """The answer's frame and its two flags (SPEC 4.2). A frame outside the closed
+    """The answer's frame and its two flags. A frame outside the closed
     list, or a flag that is not a boolean, is rejected and counted: the frame is
     then not given (read as ``unsure``), the flag false."""
     frame = data.get("frame")
@@ -487,7 +488,7 @@ def _intent(data: dict[str, Any], answer: Answer) -> None:
 
 
 def _secrets(data: dict[str, Any], answer: Answer) -> None:
-    """The secrets the answer lists (SPEC 4.2): strings, at most ``MAX_SECRETS``
+    """The secrets the answer lists: strings, at most ``MAX_SECRETS``
     of at most ``SECRET_CHARS`` characters. Anything else is rejected and
     counted; a valid list only removes words from memory, never adds any."""
     raw = data.get(SECRETS_KEY)
@@ -513,7 +514,7 @@ def _secrets(data: dict[str, Any], answer: Answer) -> None:
 
 
 def _activity(data: dict[str, Any], answer: Answer) -> None:
-    """The activity the answer names (SPEC 4.2). Null is no activity; anything
+    """The activity the answer names. Null is no activity; anything
     that is not a valid ``{"name", "quote"}`` object is rejected and counted.
     Whether the perspective asks for it, and whether the source grounds it, is
     the writer's to check."""
@@ -582,7 +583,7 @@ def parse_adjudication(content: str, mentions: int) -> tuple[dict[int, str], int
 
 def parse_value_verdicts(content: str, pairs: int) -> tuple[dict[int, str], int]:
     """``{"verdicts": [{"pair": i, "verdict": "same" | "different" | "unsure"}]}``
-    -> ``{i: verdict}`` plus the number of rejected parts (SPEC 5.4). A pair the
+    -> ``{i: verdict}`` plus the number of rejected parts. A pair the
     answer does not settle, or settles with anything else, is ``unsure``: the
     conflict stays, the safe default."""
     return _parse_verdicts(content, pairs, "verdicts", VALUE_VERDICTS)
@@ -590,14 +591,14 @@ def parse_value_verdicts(content: str, pairs: int) -> tuple[dict[int, str], int]
 
 def parse_replacement_verdicts(content: str, pairs: int) -> tuple[dict[int, str], int]:
     """``{"replacements": [{"pair": i, "verdict": "same" | "replaces" | "both" |
-    "unsure"}]}`` -> ``{i: verdict}`` plus the rejected parts (SPEC 5.4: role,
+    "unsure"}]}`` -> ``{i: verdict}`` plus the rejected parts (role,
     team, preferences). Anything unsettled or invalid is ``unsure``."""
     return _parse_verdicts(content, pairs, "replacements", REPLACEMENT_VERDICTS)
 
 
 def parse_restatement_verdicts(content: str, pairs: int) -> tuple[dict[int, str], int]:
     """``{"restatements": [{"pair": i, "verdict": "same" | "different" |
-    "unsure"}]}`` -> ``{i: verdict}`` plus the rejected parts (SPEC 5.4: a value
+    "unsure"}]}`` -> ``{i: verdict}`` plus the rejected parts (a value
     told again within one language). Anything unsettled or invalid is
     ``unsure``, which leaves the supersession as it would be without a model."""
     return _parse_verdicts(content, pairs, "restatements", VALUE_VERDICTS)
@@ -605,7 +606,7 @@ def parse_restatement_verdicts(content: str, pairs: int) -> tuple[dict[int, str]
 
 def parse_rule_verdicts(content: str, pairs: int) -> tuple[dict[int, str], int]:
     """``{"rules": [{"pair": i, "verdict": "same" | "different" | "unsure"}]}``
-    -> ``{i: verdict}`` plus the rejected parts (SPEC 4.2: a rule of the self
+    -> ``{i: verdict}`` plus the rejected parts (a rule of the self
     said again in other words). Anything unsettled or invalid is ``unsure``:
     the rule is asked about, the safe default."""
     return _parse_verdicts(content, pairs, "rules", VALUE_VERDICTS)

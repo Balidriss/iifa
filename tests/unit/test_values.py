@@ -1,4 +1,4 @@
-"""Values in other forms and other languages (SPEC 5.4): a deterministic
+"""Values in other forms and other languages: a deterministic
 comparison that says same, different or unknown - never a guess. A name is
 never proved different (exonyms), a Hijri month is never converted."""
 
@@ -106,7 +106,7 @@ def test_numbers_in_any_digits(a: str, b: str, verdict: str) -> None:
     ],
 )
 def test_byte_symbols_of_one_meaning_are_one_unit(a: str, b: str, verdict: str) -> None:
-    """SPEC 5.4: "o" (octet) and "B" (byte) are one unit symbol, with or without
+    """ "o" (octet) and "B" (byte) are one unit symbol, with or without
     a prefix; nothing is converted."""
     assert compare_values(a, b) == verdict
 
@@ -124,7 +124,7 @@ def test_byte_symbols_of_one_meaning_are_one_unit(a: str, b: str, verdict: str) 
     ],
 )
 def test_shares_words(a: str, b: str, shared: bool) -> None:
-    """SPEC 5.4: the restatement question is asked only for values sharing at
+    """The restatement question is asked only for values sharing at
     least half of the shorter one's words."""
     assert shares_words(a, b) is shared
     assert shares_words(b, a) is shared

@@ -1,4 +1,4 @@
-"""iifa memory provider for Hermes Agent (SPEC 10.3). Standard library only.
+"""iifa memory provider for Hermes Agent. Standard library only.
 
 Copy this directory to ``$HERMES_HOME/plugins/iifa/`` and set
 ``memory.provider: iifa``. The provider talks to a running iifa service over

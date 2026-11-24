@@ -1,5 +1,5 @@
 """The opencode adapter's TypeScript, held to iifa's Python where the two must
-agree (SPEC 10.4). Its behaviour is tested under ``node --test`` against the
+agree. Its behaviour is tested under ``node --test`` against the
 same fake service (adapters/opencode/test/plugin.test.ts, the CI's node job);
 these checks need no Node: the P8 wrapper and the budget reserves are the same
 strings and numbers, so what the plugin injects fits the budget the way the

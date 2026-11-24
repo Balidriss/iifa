@@ -1,4 +1,4 @@
-"""A known subject the source does not name (SPEC 5.1). The store holds one
+"""A known subject the source does not name. The store holds one
 author's report; a later turn speaks of another author's report by the same
 generic words. Whatever path the model's subject takes to the old node - its
 exact name copied from the known subjects, a generic word contained in it, or

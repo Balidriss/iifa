@@ -1,4 +1,4 @@
-"""``group_activities`` (SPEC 5.6, 5.5): a model names each occurrence of one
+"""``group_activities``: a model names each occurrence of one
 activity with its object; the dream groups them under one generic task node by
 ``instance_of`` edges, a name made only of the words every occurrence shares.
 Medium risk: reviewed by default. A task unit shows the alike activities, the

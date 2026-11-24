@@ -1,4 +1,4 @@
-"""Scopes as sets, the three read modes, and authorization (SPEC 4.6, P9)."""
+"""Scopes as sets, the three read modes, and authorization (P9)."""
 
 from __future__ import annotations
 

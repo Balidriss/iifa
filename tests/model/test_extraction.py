@@ -1,6 +1,6 @@
 """Extraction at tier 2 against the fake model: what the model proposes is written
 with its provenance (P6), in the language of the source (P12), and nothing the
-schema did not admit reaches the store (P8, dream rule 1's wall)."""
+schema did not admit reaches the store (P8)."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def test_a_turn_is_extracted_with_provenance_in_its_language(
 
     # the source, with the session and the detected language
     karim = store.find_node("karim", VIEW)
-    # "K." is nowhere in the source: a proposal, never an alias (SPEC 5.1)
+    # "K." is nowhere in the source: a proposal, never an alias
     assert karim is not None and karim.kind == "person" and karim.aliases == ()
     assert [p.value for p in store.proposals([karim.id], VIEW)] == ["K."]
     facts = store.facts([karim.id], VIEW)
@@ -92,9 +92,7 @@ def test_a_turn_is_extracted_with_provenance_in_its_language(
         source.text[fact.excerpt_start : fact.excerpt_end]
         == "dirige la planification de l'installation du projet solaire"
     )
-    assert (
-        fact.language == "fr" and fact.flags == () and fact.attribute == "role"
-    )  # SPEC 5.4: canonical key
+    assert fact.language == "fr" and fact.flags == () and fact.attribute == "role"  # canonical key
     assert fact.valid_from == "2026-03" and fact.scopes == (SCOPE,)
 
     # the relation edge is proposed, with the source as evidence, plus co-occurrence
@@ -160,7 +158,7 @@ def test_hostile_instructions_in_a_source_become_data_never_actions(
     post_turn(client, HOSTILE, "I will not do that.")
     result = run_all(client, app)["jobs"][0]["result"]
     assert result["rejected"] == {"answer": 0, "keys": 2, "nodes": 0, "facts": 0, "edges": 0}
-    # it reached the writer: one call, no retry, not taken for a fragment (SPEC 4.2)
+    # it reached the writer: one call, no retry, not taken for a fragment
     assert result["calls"] == 1 and result["retries"] == 0
     assert result["facts"]["written"] == 1 and result["facts"]["incomplete"] == 0
     after = client.get("/v1/stats").json()["counts"]
@@ -223,7 +221,7 @@ def test_answers_outside_the_schema_are_rejected_counted_and_never_written(
     assert after["sources"] == before["sources"] + 1  # the source is kept: what was said
 
 
-# --------------------------------------------------------------------------- resolution (SPEC 5.1)
+# --------------------------------------------------------------------------- resolution
 
 
 def test_ambiguous_mentions_are_adjudicated_in_one_batched_call(
@@ -303,7 +301,7 @@ def test_exact_and_fuzzy_matches_reuse_nodes_and_add_aliases(
                     },
                 ],
             ),
-            # SPEC 5.1: a typo is a candidate only; the adjudication attaches it
+            # a typo is a candidate only; the adjudication attaches it
             chat_json({"decisions": [{"mention": 0, "choice": youssef["node"]["id"]}]}),
             # and a name longer than the node's ("the solar project") too
             chat_json({"decisions": [{"mention": 0, "choice": "new:0"}]}),
@@ -326,7 +324,7 @@ def test_exact_and_fuzzy_matches_reuse_nodes_and_add_aliases(
     assert [f.statement for f in store.facts([solar.id], VIEW)] == ["Solar is late."]
 
 
-# --------------------------------------------------------------------------- links (SPEC 5.2, 5.3)
+# --------------------------------------------------------------------------- links
 
 
 def relation_answer() -> Any:

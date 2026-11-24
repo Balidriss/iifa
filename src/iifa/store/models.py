@@ -21,8 +21,8 @@ class Node:
     archived_at: str | None
     language: str | None = None
     flags: tuple[str, ...] = ()
-    merged_into: str | None = None  # the node a dream merged it into (SPEC 5.6)
-    rev: int = 0  # grows with every change to the record (SPEC 4.4)
+    merged_into: str | None = None  # the node a dream merged it into
+    rev: int = 0  # grows with every change to the record
 
 
 @dataclass(frozen=True)
@@ -49,15 +49,15 @@ class Fact:
     archived_at: str | None
     language: str | None = None
     conflicts_with: str | None = None
-    same_as: str | None = None  # the first fact of its equivalence group (SPEC 5.4)
+    same_as: str | None = None  # the first fact of its equivalence group
     provenance: str | None = None  # owner | assistant | external: its part of the source (P6)
     part_kind: str | None = None  # an external part's kind: tool | web | document | other
     part_ref: str | None = None  # the short form of that part's ref (P6)
     read_at: str | None = None  # the day that part was read (P6)
-    observed_at: str | None = None  # an observed fact: the day it was last observed (SPEC 4.2)
-    proposal_id: str | None = None  # the fact proposal it was accepted from (SPEC 4.4b)
-    consolidated_into: str | None = None  # the fact a dream consolidated it into (SPEC 5.6)
-    rev: int = 0  # grows with every change to the record (SPEC 4.4)
+    observed_at: str | None = None  # an observed fact: the day it was last observed
+    proposal_id: str | None = None  # the fact proposal it was accepted from
+    consolidated_into: str | None = None  # the fact a dream consolidated it into
+    rev: int = 0  # grows with every change to the record
 
 
 @dataclass(frozen=True)
@@ -80,8 +80,8 @@ class Edge:
     updated_at: str
     archived_at: str | None
     evidence: tuple[str, ...] = ()
-    rev: int = 0  # grows with every change to the record (SPEC 4.4)
-    # grows only when what a person decides changes (SPEC 4.4): the API's ``rev``
+    rev: int = 0  # grows with every change to the record
+    # grows only when what a person decides changes: the API's ``rev``
     decision_rev: int = 0
 
 
@@ -97,13 +97,13 @@ class Source:
     created_at: str
     session_id: str | None = None
     language: str | None = None
-    # P6, SPEC 4.4: none | vouched (every external part was) | unvouched
+    # P6: none | vouched (every external part was) | unvouched
     external: str = "none"
 
 
 @dataclass(frozen=True)
 class Proposal:
-    """Something the write path would not decide alone (SPEC 4.4b): an alias the
+    """Something the write path would not decide alone: an alias the
     model attached to a node without it appearing in the source, a merge, or a
     fact about the owner that was not the owner's own words (``payload`` holds
     the rest of that fact; ``node_id`` may then be None)."""
@@ -135,7 +135,7 @@ class Probe:
 
 @dataclass(frozen=True)
 class ProbeSet:
-    """Stored questions that measure recall in one scope (SPEC 4.7, 11.2)."""
+    """Stored questions that measure recall in one scope."""
 
     id: str
     scope: str

@@ -1,4 +1,4 @@
-"""Attribute keys (SPEC 5.4): canonical keys from a base vocabulary and a small
+"""Attribute keys: canonical keys from a base vocabulary and a small
 table of unambiguous variants, bare families that never supersede, and the
 per-model threshold of the embedding match. When we cannot tell, we do not
 supersede."""
@@ -141,14 +141,14 @@ def test_keys_compare_canonically_on_both_sides() -> None:
 
 def test_the_base_vocabulary_is_small_and_language_neutral() -> None:
     assert set(BASE_KEYS) == {"home", "workplace", "role", "employer", "team"}
-    # commitment: the agent perspective's (SPEC 4.2), never in the shared prompt
+    # commitment: the agent perspective's, never in the shared prompt
     assert set(FAMILIES) == {"preference", "status", "date", "commitment"}
     assert "commitment" not in VOCABULARY_TEXT
     assert all(k.isascii() and k == k.lower() for k in (*BASE_KEYS, *FAMILIES))
 
 
 def test_the_key_threshold_is_off_until_calibrated() -> None:
-    """SPEC 5.4 step 4 and 6.1: no profile measures keys yet, so the step is off
+    """No profile measures keys yet, so the alignment is off
     unless configured; configuring it does not calibrate the other thresholds."""
     assert key_threshold_for("bge-m3") is None
     assert key_threshold_for("nomic-embed-text") is None

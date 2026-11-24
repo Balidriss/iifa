@@ -1,4 +1,4 @@
--- Schema version 15: the turn trace of a session (SPEC 5.8). For every turn
+-- Schema version 15: the turn trace of a session. For every turn
 -- of a named session read as sincere, the person's own words, bounded, so
 -- that the close can say what the session was about. Never shown to the
 -- extraction, never recalled, never exported; deleted at the close.

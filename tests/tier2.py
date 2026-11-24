@@ -1,5 +1,5 @@
 """Helpers for tests that run the service at tier 2 against the scripted fake
-model server (SPEC 13.1, model-dependent layer). The worker is put in
+model server (model-dependent layer). The worker is put in
 ``on_demand`` mode so that every model call happens inside a ``run`` the test
 drives: deterministic, never a sleep, never a race."""
 

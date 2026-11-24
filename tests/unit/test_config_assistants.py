@@ -1,4 +1,4 @@
-"""The assistant's name (SPEC 4.6): per scope, inherited by the scopes below,
+"""The assistant's name: per scope, inherited by the scopes below,
 the nearest declaration winning; ``Assistant`` when none is declared. It
 labels the assistant part of a source and the ``from`` of its facts, never
 one of the service's own labels nor the owner's name."""

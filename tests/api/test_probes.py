@@ -1,4 +1,4 @@
-"""Probe set routes (SPEC 8.7, 11.2): create and delete need ``dream``; list, read
+"""Probe set routes: create and delete need ``dream``; list, read
 and run need ``read``; a token reaches a set only when bound to its scope."""
 
 from __future__ import annotations

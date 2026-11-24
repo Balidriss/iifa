@@ -1,4 +1,4 @@
-"""Guardrails of the management routes (SPEC 5.7, 8.3, 8.6, 12): the archive
+"""Guardrails of the management routes: the archive
 never names a node the view does not see, the dream list never shows a run
 outside the token's scopes, a proposed edge is decided only by a ``write``
 token that touches it, and ``forget`` wipes that decision from the journal."""

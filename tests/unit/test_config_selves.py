@@ -1,4 +1,4 @@
-"""The self (SPEC 4.6): per scope, inherited by the scopes below, the nearest
+"""The self: per scope, inherited by the scopes below, the nearest
 declaration winning; never on ``*``. A self is the assistant of its scope:
 its name labels the assistant part, and it obeys the assistant's rules."""
 

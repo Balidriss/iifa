@@ -1,4 +1,4 @@
-"""Subject anchoring (SPEC 5.5): a question naming exactly one visible subject
+"""Subject anchoring: a question naming exactly one visible subject
 puts that subject's facts first; the node's own handle keeps its place; when
 the question names it exactly (whole name or whole alias), the subject's live
 facts also join the candidates, within the budget. A question naming none,
@@ -238,7 +238,7 @@ def test_a_fact_in_a_scope_the_view_cannot_see_does_not_join(store: Store) -> No
 
 
 def test_a_near_form_does_not_bring_another_persons_facts(store: Store) -> None:
-    """ "Karima" is not Karim: an inflected ending anchors (SPEC 4.2) but never
+    """ "Karima" is not Karim: an inflected ending anchors but never
     joins - a wrong join injects another person's facts."""
     ids = _store(store)
     after = _ids(store, "Où habite Karima ?", anchoring=True)
@@ -279,7 +279,7 @@ def test_an_inflected_name_anchors_but_adds_nothing(store: Store) -> None:
     assert moved.id in _ids(store, "Где живёт Карим?", anchoring=True)
 
 
-# --------------------------------------------------------------------------- the naming rule (SPEC 4.2)
+# --------------------------------------------------------------------------- the naming rule
 
 
 def _people(store: Store, name: str, own: str, other: str) -> tuple[str, str]:
@@ -318,7 +318,7 @@ def test_an_elided_name_names_the_subject(store: Store) -> None:
 
 
 def test_an_inflected_name_names_the_subject(store: Store) -> None:
-    """ "Карима" (genitive) names Карим, by the naming rule of SPEC 4.2."""
+    """ "Карима" (genitive) names Карим, by the naming rule."""
     subject, fact = _people(
         store, "Карим", "Карима перевели в Казань.", "Сестра Ивана живёт в Москве."
     )

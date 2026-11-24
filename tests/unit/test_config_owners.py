@@ -1,6 +1,6 @@
-"""Settings for the speaker (SPEC 4.6): per-scope owners, inherited
+"""Settings for the speaker: per-scope owners, inherited
 by the scopes below, the nearest declaration winning; and the ``review``
-permission (SPEC 4.4b, 8)."""
+permission."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def test_bad_owners_are_refused(tmp_path: Path, table: str) -> None:
 
 
 def test_the_replacement_question_is_on_by_default(tmp_path: Path) -> None:
-    """SPEC 5.4: on by default since the quotes (measured on qwen3.5:9b); off only
+    """On by default since the quotes (measured on qwen3.5:9b); off only
     by choice."""
     assert load_settings(ENV).replacement_question is True
     assert build_pipeline(load_settings(ENV)).replacement_question is True
@@ -96,7 +96,7 @@ def test_the_replacement_question_is_on_by_default(tmp_path: Path) -> None:
 
 
 def test_the_restatement_question_is_on_by_default(tmp_path: Path) -> None:
-    """SPEC 5.4: on by default; ``[extraction] restatement_question`` or
+    """On by default; ``[extraction] restatement_question`` or
     ``IIFA_RESTATEMENT_QUESTION`` turns it off."""
     assert build_pipeline(load_settings(ENV)).restatement_question is True
     config = tmp_path / "iifa.toml"
@@ -117,7 +117,7 @@ def test_an_owner_name_with_an_unpaired_underscore_is_a_name(tmp_path: Path) -> 
 
 
 def test_an_owner_on_the_root_scope_is_refused(tmp_path: Path) -> None:
-    """SPEC 4.6: one person would speak in every scope, shared ones included."""
+    """One person would speak in every scope, shared ones included."""
     config = tmp_path / "iifa.toml"
     config.write_text('[extraction.owners]\n"*" = "Alice"\n', encoding="utf-8")
     with pytest.raises(ConfigError, match=r"\*"):
@@ -127,7 +127,7 @@ def test_an_owner_on_the_root_scope_is_refused(tmp_path: Path) -> None:
 
 
 def test_a_language_on_the_root_scope_holds_where_none_is_nearer(tmp_path: Path) -> None:
-    """SPEC P12: an override holds for its scope and every scope below; one on
+    """P12: an override holds for its scope and every scope below; one on
     ``*`` holds everywhere, a nearer one winning."""
     config = tmp_path / "iifa.toml"
     config.write_text(

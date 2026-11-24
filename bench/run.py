@@ -1,4 +1,4 @@
-"""The benchmark harness (SPEC 11.1): iifa against three baselines on the
+"""The benchmark harness: iifa against three baselines on the
 synthetic multilingual corpus, at the same token budgets, in one command.
 
     python bench/run.py
@@ -25,7 +25,7 @@ What it does, in a throwaway encrypted store in a temporary directory:
    current value injected and no stale one), beside raw recall@budget and recall
    per 1k tokens (which reward injecting every version), contradiction handling,
    latency p50/p95, ingestion throughput and scope leaks (must be 0); and a
-   probe set per scope (SPEC 11.2) built from the questions, run at each budget;
+   probe set per scope built from the questions, run at each budget;
 5. writes every number, the corpus summary and the exact command line to
    ``--out`` (default ``bench/results/``, gitignored) as one JSON file.
 
@@ -113,7 +113,7 @@ ORACLE_URL = "http://oracle.invalid/v1"  # never resolved: the oracle transport 
 ORACLE_MODEL = "oracle"
 DEFAULT_OUT = Path(__file__).resolve().parent / "results"
 SOURCE = re.compile(r"<<<SOURCE>>>\n(.*)\n<<<END>>>", re.DOTALL)
-LABEL = re.compile(r"^[^\n:]{1,60}: ")  # "User: ", or the owner's name (SPEC 4.2)
+LABEL = re.compile(r"^[^\n:]{1,60}: ")  # "User: ", or the owner's name
 PAIRS = re.compile(r"<<<PAIRS>>>\n(.*)\n<<<END>>>", re.DOTALL)
 EMPTY_ANSWER = {"nodes": [], "facts": [], "edges": []}
 DREAM_UNIT = "You reorganise one entry"  # how the oracle tells the dream's calls apart
@@ -168,7 +168,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--replacement-question",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="ask role, team and preferences 'replaces, or both true?' (SPEC 5.4; on by"
+        help="ask role, team and preferences 'replaces, or both true?' (on by"
         " default, --no-replacement-question turns it off)",
     )
     parser.add_argument(
@@ -176,14 +176,14 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="ask, within one language, whether a change whose values share words tells"
-        " the same value again (SPEC 5.4; on by default, --no-restatement-question turns"
+        " the same value again (on by default, --no-restatement-question turns"
         " it off)",
     )
     parser.add_argument(
         "--value-norm",
         action="store_true",
         help="ask each value's comparison form and link the values whose forms agree across"
-        " languages (SPEC 5.4; off by default): against the same command without it",
+        " languages (off by default): against the same command without it",
     )
     parser.add_argument(
         "--force-language",
@@ -244,26 +244,26 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--read-intent",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="read the frame, modality and duration of what is extracted (SPEC 4.2; on by"
+        help="read the frame, modality and duration of what is extracted (on by"
         " default, --no-read-intent turns it off)",
     )
     parser.add_argument(
         "--resolve-threshold",
         type=float,
         default=None,
-        help="replace the embedding model's resolve threshold for this run (SPEC 6.1)",
+        help="replace the embedding model's resolve threshold for this run",
     )
     parser.add_argument(
         "--merge-threshold",
         type=float,
         default=None,
-        help="replace the embedding model's merge threshold for this run (SPEC 6.1)",
+        help="replace the embedding model's merge threshold for this run",
     )
     parser.add_argument(
         "--dream",
         action="store_true",
         help="after ingestion, every top-level scope dreams (a dry run, then a real run) and"
-        " the iifa systems are measured again (SPEC 5.6, 11.1)",
+        " the iifa systems are measured again",
     )
     parser.add_argument("--dream-url", default=None, help="the dream model's endpoint")
     parser.add_argument("--dream-model", default=None, help="the dream model (default: --model)")
@@ -278,7 +278,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "--dream-prompt-tokens",
         type=int,
         default=4000,
-        help="the prompt budget of one dream call, by the service's counter (SPEC 5.6); the"
+        help="the prompt budget of one dream call, by the service's counter; the"
         " model's context window must hold it plus --max-tokens",
     )
     parser.add_argument(
@@ -369,7 +369,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 class Oracle:
     """Answers extraction calls with the corpus's gold answers (the ideal model),
-    mention adjudications with "new", value adjudications (SPEC 5.4) from the
+    mention adjudications with "new", value adjudications from the
     ground truth (same value, different value, or unsure for a form it does not
     know), anything else with nothing. Two turns may hold the same text in two
     scopes (the homonym): their answers are served in turn order."""
@@ -430,7 +430,7 @@ class Oracle:
         return json.dumps(answer, ensure_ascii=False)
 
     def _with_forms(self, answer: dict[str, Any]) -> dict[str, Any]:
-        """SPEC 5.4: an ideal comparison form, the corpus's own id of each value
+        """An ideal comparison form, the corpus's own id of each value
         ("Лион" -> "city:lyon"); a value the corpus does not know gets none."""
         facts = []
         for fact in answer.get("facts") or ():
@@ -610,7 +610,7 @@ def vector_topk(
 
 def iifa_system(store: Store, engine: RecallEngine, source_turns: dict[str, str]) -> System:
     """``recall`` as an agent calls it; only fact handles support an answer. A
-    fact a dream consolidated supports the turns of its originals (SPEC 11.1)."""
+    fact a dream consolidated supports the turns of its originals."""
 
     def turn_of(fact_id: str) -> str | None:
         source_id = store.get_fact(fact_id).source_id
@@ -658,7 +658,7 @@ class Tally:
     questions: int = 0
     supported: int = 0
     correct: int = 0  # current supported and no stale one: the headline
-    duplicates: int = 0  # two units supporting one event (SPEC 11.1)
+    duplicates: int = 0  # two units supporting one event
     per_question: list[dict[str, Any]] = field(default_factory=list)  # keys, booleans
     tokens: int = 0
     leaks: int = 0
@@ -818,7 +818,7 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
                 payload["occurred_at"] = turn.occurred_at
             worker.enqueue(TURN, payload, scopes=[turn.scope], session_id=turn.session)
             enqueue.append(time.perf_counter() - began)
-            if turn.ends_session:  # the host closes the session (SPEC 5.8)
+            if turn.ends_session:  # the host closes the session
                 worker.enqueue(
                     SESSION_CLOSE, {"reason": "end"}, scopes=[turn.scope], session_id=turn.session
                 )
@@ -830,7 +830,7 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
                     processed += 1
                     totals["empty_answers"] += int(result.get("empty_answers") or 0)
                     if corpus.is_chatter(turn):
-                        # SPEC 11.1: what a turn with nothing to remember still produced
+                        # what a turn with nothing to remember still produced
                         written = int((result.get("facts") or {}).get("written") or 0)
                         created = int((result.get("nodes") or {}).get("created") or 0)
                         chatter["turns"] += 1
@@ -891,7 +891,7 @@ def ingest(worker: Worker, corpus: Corpus, *, progress: Callable[[str], None]) -
 
 
 def owner_record(key: str, language: str, result: dict[str, Any]) -> dict[str, Any]:
-    """What one of the owner's turns became (SPEC 11.1, ``--speaker``): numbers
+    """What one of the owner's turns became (``--speaker``): numbers
     only, so that a lost sentence and the cause of its loss can be read."""
     facts = result.get("facts") or {}
     return {
@@ -915,7 +915,7 @@ def owner_record(key: str, language: str, result: dict[str, Any]) -> dict[str, A
 
 
 def supersessions(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
-    """Every closed fact, judged against the ground truth (SPEC 11.1, 5.4): correct
+    """Every closed fact, judged against the ground truth: correct
     when its replacement comes from a later event of the same person's same
     attribute; false when it comes from another attribute or person, or not a
     later one; restated when one tells the other's value again (``--rephrase``);
@@ -978,7 +978,7 @@ def supersessions(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[s
 
 
 def name_adjudications(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Every mention sent to the adjudication (SPEC 11.1): how many, how many had
+    """Every mention sent to the adjudication: how many, how many had
     a candidate from name vectors, and the near-name pairs - a mention and a
     candidate naming two different people of the corpus - with what the model
     answered (attached: a wrong attachment)."""
@@ -1016,7 +1016,7 @@ def name_adjudications(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
 
 def attachments(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
     """Facts from a turn about one person written on a node whose name is
-    another person's (SPEC 11.1: wrong attachments, must be 0). A node named
+    another person's (wrong attachments, must be 0). A node named
     otherwise (a speaker word, a name the model invented) is not judged."""
     event_of = {t.key: t.event or t.restates for t in corpus.turns}
     person_name = {p.key: p.name_key for p in corpus.people}
@@ -1049,7 +1049,7 @@ def attachments(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str
 
 
 def neighbours(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
-    """What the turns of ``--neighbours`` wrote (SPEC 11.1, 5.1): each fact is
+    """What the turns of ``--neighbours`` wrote: each fact is
     judged by the sentence its excerpt lies in - right on that sentence's file,
     wrong on the other one (must be 0), unjudged when the excerpt lies in no
     sentence of one file alone or the fact has no node - and each file without
@@ -1111,7 +1111,7 @@ def neighbours(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str,
 
 
 def without_decay(engine: RecallEngine) -> RecallEngine:
-    """``engine`` as it is, but for the decay of observed facts (SPEC 4.2)."""
+    """``engine`` as it is, but for the decay of observed facts."""
     twin = copy.copy(engine)
     twin.observed_half_life_days = 0
     return twin
@@ -1124,14 +1124,14 @@ def observed_states(
     engines: Mapping[str, RecallEngine],
     budgets: Sequence[int],
 ) -> dict[str, Any]:
-    """What ``--observed`` left (SPEC 11.1, 4.2), per thing: its newest
+    """What ``--observed`` left, per thing: its newest
     observation ``current`` (live, flagged ``observed``, as of its turn's day),
     the older ones ``stale`` (still live: must be 0), the lasting fact ``kept``
     (still live) or ``closed`` (must be 0), ``missing`` when a turn wrote
     nothing on the thing; then a recall per thing and budget: ``shown`` when the
     newest observation is among the handles with the flag, ``stale_shown`` per
     older observation among them (must be 0), and of those ``stale_flagged``,
-    the ones flagged ``newer_pending``, ``newer_observed`` or ``conflict`` (SPEC 8.5).
+    the ones flagged ``newer_pending``, ``newer_observed`` or ``conflict``.
     An engine named ``*_no_decay`` reads the same store with
     ``observed_half_life_days = 0``."""
     out: dict[str, Any] = {
@@ -1208,7 +1208,7 @@ def observed_states(
 
 
 def asides(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
-    """The asides of ``--neighbours`` (SPEC 11.1, 5.4): a project told something
+    """The asides of ``--neighbours``: a project told something
     unrelated to its description, compared with what the turn before it wrote
     on that project. ``other_key``: no key shared with the description, so
     nothing to replace; of those sharing one, ``kept`` (the description still
@@ -1268,7 +1268,7 @@ def _facts_on(store: Store, source_id: str | None, name: str) -> list[Fact]:
 
 
 def restatements(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, int]:
-    """What the restating turns of ``--rephrase`` wrote (SPEC 11.1): facts, those
+    """What the restating turns of ``--rephrase`` wrote: facts, those
     in one equivalence group with a fact of the original turn (``same_as``), and
     those flagged as a conflict."""
     original = corpus.turn_of_event()
@@ -1296,7 +1296,7 @@ TRANSLATION_WORD = re.compile(r"\w{3,}")
 
 
 def translation_check(store: Store, corpus: Corpus, turns: dict[str, str]) -> dict[str, Any]:
-    """The narrow check P12 leaves open, measured and never applied (SPEC 11.1):
+    """The narrow check P12 leaves open, measured and never applied:
     a fact whose statement is undetermined, whose quote has a determined
     language, and which shares no word of three letters or more with the quote,
     the subject's names excluded. Split by the turn's language: English, a
@@ -1330,7 +1330,7 @@ def translation_check(store: Store, corpus: Corpus, turns: dict[str, str]) -> di
 
 
 def speaker_nodes(store: Store) -> int:
-    """Nodes named by a speaker word (SPEC 4.2): there must be none."""
+    """Nodes named by a speaker word: there must be none."""
     return sum(
         1 for r in store.execute("SELECT name FROM nodes").fetchall() if is_speaker(r["name"])
     )
@@ -1351,7 +1351,7 @@ def probe_scores(
     budgets: Sequence[int],
     turns: dict[str, str],
 ) -> dict[str, Any]:
-    """One probe set per scope and budget (SPEC 11.2): each question expects the
+    """One probe set per scope and budget: each question expects the
     facts extracted from the turn of its current event; run through each engine."""
     by_turn: dict[str, list[str]] = defaultdict(list)
     for row in store.execute(
@@ -1562,7 +1562,7 @@ def run(args: argparse.Namespace, workdir: Path) -> dict[str, Any]:
         for name, engine in engines.items():
             systems[name] = iifa_system(store, engine, turns)
         if args.observed:
-            # SPEC 4.2: the same store read with the decay and without it
+            # the same store read with the decay and without it
             aged = dict(engines)
             for name, engine in engines.items():
                 aged[f"{name}_no_decay"] = without_decay(engine)
@@ -1818,7 +1818,7 @@ def print_report(report: dict[str, Any]) -> None:
 
 
 def print_dream(dream: dict[str, Any]) -> None:
-    """SPEC 11.1 ``--dream``: each run, the judged totals, the headline before and after."""
+    """``--dream``: each run, the judged totals, the headline before and after."""
     print("\ndream:")
     for run in dream["runs"]:
         kind = "dry run" if run["dry_run"] else "real run"

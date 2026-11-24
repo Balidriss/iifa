@@ -1,4 +1,4 @@
-"""Calibrate the ``resolve`` and ``merge`` thresholds (SPEC 6.1) for one
+"""Calibrate the ``resolve`` and ``merge`` thresholds for one
 embedding model, on names that are NOT in the bench corpus, then verify them
 on the corpus's names.
 
@@ -254,7 +254,7 @@ def choose(
 ) -> dict[str, Any]:
     """``merge``: every trap and all but 2 % of the negatives below it; ``resolve``:
     the 95th percentile of the negatives, never above ``merge``; no profile only
-    when ``merge`` would catch no positive (SPEC 6.1)."""
+    when ``merge`` would catch no positive."""
     lowest, worst_trap = min(positives), max(traps)
     ordered = sorted(negatives)
     out: dict[str, Any] = {

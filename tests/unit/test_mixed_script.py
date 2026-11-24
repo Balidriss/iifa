@@ -1,4 +1,4 @@
-"""A word that mixes scripts is malformed (SPEC 4.2): the check that would have
+"""A word that mixes scripts is malformed: the check that would have
 caught qwen3.5:9b's "انتقل يوسف إلى كazan office" before it closed a true fact.
 What cannot be told apart is never rejected."""
 

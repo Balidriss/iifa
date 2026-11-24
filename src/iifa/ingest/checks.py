@@ -1,5 +1,5 @@
-"""Checks on what a model writes, for the failures real local models showed
-(SPEC 4.2, 5.1, 5.2). Pure functions over text, every script, standard library
+"""Checks on what a model writes, for the failures real local models showed.
+Pure functions over text, every script, standard library
 only.
 
 * ``is_complete`` / ``names_subject``: an extracted statement is a sentence
@@ -97,7 +97,7 @@ def _one_name(statement_words: Sequence[str], folded: str, name: str) -> bool:
 
 
 def written_whole(statement: str, name: str) -> bool:
-    """SPEC 4.2: is ``name`` written in ``statement`` as it is - its words, in
+    """Is ``name`` written in ``statement`` as it is - its words, in
     order, whole (case and diacritics folded) - whatever the scripts?"""
     wanted = tokenize(name)
     found = tokenize(statement)
@@ -108,7 +108,7 @@ def written_whole(statement: str, name: str) -> bool:
 def shares_script(statement: str, names: Iterable[str]) -> bool:
     """Is one of ``names`` written in the statement's script, or written in it
     as it is? When none is, a statement cannot name its subject whatever it
-    says (the cause the retry note spells out, SPEC 4.2)."""
+    says (the cause the retry note spells out)."""
     written = script_of(statement)
     return any(
         n.strip() and (script_of(n) == written or written_whole(statement, n)) for n in names
@@ -142,7 +142,7 @@ _LETTERS = re.compile(r"[^\W\d_]+")  # a run of letters: digits, marks and punct
 
 def mixed_script_words(statement: str) -> list[str]:
     """The words of ``statement`` whose letters belong to two scripts written with
-    spaces ("كazan": Arabic then Latin), in order (SPEC 4.2). What cannot be told apart is
+    spaces ("كazan": Arabic then Latin), in order. What cannot be told apart is
     never reported: a Latin word inside Chinese or Japanese (no spaces there),
     Chinese characters with kana, digits, marks, letters of other scripts."""
     out: list[str] = []
@@ -197,7 +197,7 @@ def source_spelling(alias: str, text: str) -> str | None:
         return None
     for i in range(len(spans) - len(wanted) + 1):
         if [token for _, _, token in spans[i : i + len(wanted)]] == wanted:
-            # SPEC 5.1: a bracket inside the span takes its partner beside it
+            # a bracket inside the span takes its partner beside it
             start, end = balanced_span(text, spans[i][0], spans[i + len(wanted) - 1][1])
             return text[start:end]
     return None
@@ -220,7 +220,7 @@ def cooccurring(
     order: Sequence[str],
     limit: int,
 ) -> list[tuple[str, str]]:
-    """The pairs of subjects that share a sentence of ``text`` (SPEC 5.2), in
+    """The pairs of subjects that share a sentence of ``text``, in
     ``order``, at most ``limit`` subjects per sentence, each pair once.
 
     A subject is in a sentence when one of its ``forms`` (name, aliases, the

@@ -1,4 +1,4 @@
-"""A scripted fake of the iifa HTTP API, for adapter tests (SPEC 13.1).
+"""A scripted fake of the iifa HTTP API, for adapter tests.
 
 Like the fake model server it listens on the loopback interface only, records
 every call, and answers according to a script: a canned body, a status code, a

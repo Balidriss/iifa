@@ -1,4 +1,4 @@
-"""The model client and real models (SPEC 7.4b): a truncated answer is a failure
+"""The model client and real models: a truncated answer is a failure
 the caller never parses, extra request parameters reach every request body of
 their endpoint and cannot replace what iifa sets, and JSON mode is optional."""
 

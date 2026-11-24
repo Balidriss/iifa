@@ -1,4 +1,4 @@
-"""The source form of a subject (SPEC 5.1): when the model writes a subject the
+"""The source form of a subject: when the model writes a subject the
 source does not hold ("Иван") but a near form of it is in the quote ("Ивана"),
 the two must lead to exactly the same node, or the fact goes to the
 adjudication under the source's form, never attached alone - whichever of

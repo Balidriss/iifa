@@ -1,4 +1,4 @@
-"""Shared pieces of the dream tests (SPEC 5.6): a small memory to dream over,
+"""Shared pieces of the dream tests: a small memory to dream over,
 a scripted dream model behind the fake OpenAI server, and a direct line to the
 applier for the operation-level tests."""
 
@@ -45,7 +45,7 @@ class Memory:
 
 def build_memory(store: Store, scope: str = SCOPE) -> Memory:
     karim = store.create_node(scopes=[scope], name="Karim", kind="person", aliases=["K."])
-    # Kiki shares the alias "K.": their names fit, so a `same` stays one (SPEC 5.6)
+    # Kiki shares the alias "K.": their names fit, so a `same` stays one
     kiki = store.create_node(scopes=[scope], name="Kiki", kind="person", aliases=["K."])
     lyon = store.create_node(scopes=[scope], name="Lyon", kind="place")
     home = store.add_fact(
@@ -163,7 +163,7 @@ def unit_of(body: Any) -> dict[str, Any]:
 
 
 def is_adjudication(body: Any) -> bool:
-    """An adjudication call (SPEC 5.6) rather than a unit's call."""
+    """An adjudication call rather than a unit's call."""
     return '"verdict"' in str(body["messages"][0]["content"])
 
 

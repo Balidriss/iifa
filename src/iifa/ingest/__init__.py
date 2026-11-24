@@ -1,4 +1,4 @@
-"""Ingestion: the persisted queue and the background worker (SPEC 7.2, P11)."""
+"""Ingestion: the persisted queue and the background worker (P11)."""
 
 from iifa.ingest.queue import DONE, FAILED, PENDING, RUNNING, Job, Queue
 from iifa.ingest.worker import MODES, Budget, BudgetExhausted, RunReport, Worker

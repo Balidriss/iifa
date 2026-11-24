@@ -1,4 +1,4 @@
--- Schema version 7: equivalence groups of facts (SPEC 5.4).
+-- Schema version 7: equivalence groups of facts.
 --
 -- A fact stating the same value as another one in another form or language
 -- ("Lyon" and "Лион", "mars 2026" and "March 2026") points at the group's first

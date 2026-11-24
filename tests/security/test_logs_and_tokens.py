@@ -1,4 +1,4 @@
-"""SPEC 12: logs carry no memory content; tokens are hashed and compared in
+"""Logs carry no memory content; tokens are hashed and compared in
 constant time; the default bind address is loopback."""
 
 from __future__ import annotations

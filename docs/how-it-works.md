@@ -5,8 +5,7 @@ its budget, what the background does with a conversation, what the dream is,
 and who can see what. You do not need it to use iifa; read it when you want to
 know why it answered what it answered.
 
-The design document, with every rule and the reasons behind it, is
-[SPEC.md](../SPEC.md). This page needs no knowledge of it.
+The rules it never breaks are the [principles](principles.md) (P1 to P12).
 
 - [Words used on this page](#words-used-on-this-page)
 - [Tiers: what each model adds](#tiers-what-each-model-adds)
@@ -471,8 +470,7 @@ The rules:
   and only combines records with identical scopes.
 
 Settings: [Dream](configuration.md#dream). Routes:
-[Dream and review](api.md#dream-review-and-probes). Full rules:
-[SPEC §5.6](../SPEC.md#56-dream--offline-reorganisation).
+[Dream and review](api.md#dream-review-and-probes).
 
 ### Corrections by a person
 
@@ -491,8 +489,6 @@ A person fixes what extraction got wrong, through the service:
 - Pass the `rev` you read (`GET /v1/nodes/{id}` shows it): if someone else
   changed the node meanwhile, the correction is refused instead of
   overwriting theirs.
-
-Full rules: [SPEC §5.7](../SPEC.md#57-corrections-by-a-person).
 
 ## Scopes: who sees what
 

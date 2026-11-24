@@ -1,4 +1,4 @@
-"""The bench's measure of matching an activity by vectors (SPEC 5.5, 11.1):
+"""The bench's measure of matching an activity by vectors:
 per probe, the cosine of each task node and whether a word already matches
 it; per threshold, which positives' rules come in a block and how many
 negatives bring one."""

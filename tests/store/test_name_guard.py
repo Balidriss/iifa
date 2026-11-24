@@ -1,4 +1,4 @@
-"""The store is the one place every name and alias goes through (SPEC 5.1):
+"""The store is the one place every name and alias goes through:
 extraction, ``remember``, an accepted proposal, a dream's theme or merge. It
 strips Markdown and refuses what is no name, so no path can write debris."""
 

@@ -1,4 +1,4 @@
-"""The synthetic multilingual corpus of the benchmark (SPEC 11.1).
+"""The synthetic multilingual corpus of the benchmark.
 
 People whose names exist in several scripts live in three scopes (one holds a
 homonym: another Karim), and their attributes change over the months: the city
@@ -17,8 +17,8 @@ an ideal model would answer to the extraction prompt (the known name reused,
 the source's spelling in ``subject_as_written``, attribute and value set). The
 harness's oracle hands it to the real pipeline.
 
-Options make other corpora, each compared only with runs that used it
-(SPEC 11.1): ``rephrase`` adds, after some event turns, a turn of the same
+Options make other corpora, each compared only with runs that used it:
+``rephrase`` adds, after some event turns, a turn of the same
 month restating the same value in another of the person's languages (not a
 change); ``speaker`` adds the owner of ``user:alice``, Alice, who speaks in the
 first person in her own turns and is asked about in the first person;
@@ -29,7 +29,7 @@ side (a web service and a command-line tool, each with a sentence of its own),
 in English or French: lasting facts, no event, no question, each project's
 fact judged on its own node.
 
-``intent`` adds what was not meant as a fact (SPEC 4.2): for every person and
+``intent`` adds what was not meant as a fact: for every person and
 each of their languages among English, French and Russian, a turn that names
 one of their real values without stating it - a hypothesis, a question, a
 guess, a possibility, an example - told just before the sincere turn that
@@ -46,7 +46,7 @@ then the session's close, whose gold is one episode.
 ``observed`` adds, in ``user:alice``, a few things whose state changes without
 anyone telling the memory (a shelf, a service, a queue): each is told once
 something lasting about it, then observed by the owner two or three times in
-later months, the turn dated that month (SPEC 4.2: an observation is true at a
+later months, the turn dated that month (an observation is true at a
 date), the state under the same generic key as the lasting fact.
 """
 
@@ -62,14 +62,14 @@ LANGUAGES = ("en", "fr", "ru", "ar", "zh", "ja")
 ALICE, SOLAR, BOB = "user:alice", "user:alice/project:solar", "user:bob"
 ASK_LANGUAGE = {ALICE: "fr", SOLAR: "en", BOB: "en"}
 ATTRIBUTES = ("city", "role", "drink")
-# --traps: where each person works, a city other than where they live (SPEC 5.4:
-# a key lumping both together closes a home that is still true)
+# --traps: where each person works, a city other than where they live (a key
+# lumping both together closes a home that is still true)
 TRAP = "office"
 # --traps: a team, then values ADDED in the last month to what already holds -
-# a second role, a second team, a second favourite drink (SPEC 5.4: a
+# a second role, a second team, a second favourite drink (a
 # "replaces" that closes one of them closes a value still true)
 TEAM = "team"
-# the keys of SPEC 5.4's base vocabulary an ideal model gives them
+# the keys of the base vocabulary an ideal model gives them
 GOLD_KEYS = {
     "city": "home",
     "role": "role",
@@ -78,7 +78,7 @@ GOLD_KEYS = {
     TEAM: "team",
 }
 YEAR = 2026
-# --speaker: the declared owner of user:alice (SPEC 4.6), who says "I"
+# --speaker: the declared owner of user:alice, who says "I"
 OWNER = "alice@user:alice"
 OWNER_NAME = "Alice"
 OWNER_LANGUAGES = ("fr", "en", "ru")
@@ -372,9 +372,9 @@ TEAMS: dict[str, dict[str, str]] = {
 }
 
 # --neighbours: two of the owner's projects described side by side in one
-# turn (SPEC 5.1), lasting facts, never a one-off description of a file (what
+# turn, lasting facts, never a one-off description of a file (what
 # a tool printed is not memory). English and French only: a Cyrillic
-# statement naming a Latin project name is dropped as a fragment (SPEC 4.2),
+# statement naming a Latin project name is dropped as a fragment,
 # a defect of its own
 NEIGHBOUR_LANGUAGES = ("en", "fr")
 SERVICES = ("atlas", "borealis", "cobalt", "delta")
@@ -405,7 +405,7 @@ NEIGHBOUR_TOOL = {
     ),
 }
 # --neighbours: the web service again, told something unrelated to its
-# description under the same generic key, as a model may key it (SPEC 5.4: a
+# description under the same generic key, as a model may key it (a
 # shared free-form key alone does not prove a replacement; both stay live)
 NEIGHBOUR_ASIDE = {
     "en": ("{name} is deployed on the shared server.", "deployed on the shared server"),
@@ -429,7 +429,7 @@ CHATTER: dict[str, tuple[str, ...]] = {
 def value_forms() -> dict[str, str]:
     """Every written form of every value (any language, both Arabic genders) ->
     the value it names, e.g. "Лион" -> "city:lyon": the truth an oracle answers
-    the value adjudication of SPEC 5.4 with."""
+    the value adjudication with."""
     forms: dict[str, str] = {}
     for city, names in CITIES.items():
         forms.update({name.lower(): f"city:{city}" for name in names.values()})
@@ -458,7 +458,7 @@ def value_text(attribute: str, value: str, language: str, *, feminine: bool = Fa
 
 
 def sentence(person: Person, attribute: str, value: str, language: str, *, change: bool) -> str:
-    """One complete sentence naming its subject in the turn's script (SPEC 4.2)."""
+    """One complete sentence naming its subject in the turn's script."""
     n, f = person.name(language), person.feminine
     v = value_text(attribute, value, language, feminine=f)
     if attribute == "city":
@@ -580,7 +580,7 @@ def added_sentence(person: Person, attribute: str, value: str, language: str) ->
 # --------------------------------------------------------------------------- --intent
 
 INTENT_LANGUAGES = ("en", "fr", "ru")
-# what names a value without stating it: a modality (SPEC 4.2), or the example frame
+# what names a value without stating it: a modality, or the example frame
 INTENT_KINDS = ("hypothesis", "question", "guess", "plan", "example")
 
 
@@ -693,7 +693,7 @@ WORK_EPISODE = "{s} worked on a short slide deck, " + DECK + ", with a timeline 
 # --------------------------------------------------------------------------- --observed
 
 # (name, key, lasting sentence and value, observations: sentence and value),
-# per language; every sentence names the thing (SPEC 4.2)
+# per language; every sentence names the thing
 OBSERVED_LANGUAGES = ("en", "fr")
 OBSERVED_THINGS: dict[str, dict[str, Any]] = {
     "Pantry": {
@@ -848,7 +848,7 @@ class Corpus:
     intent: bool = False
     worksession: bool = False
     observed: bool = False
-    agent: bool = False  # --self (SPEC 4.2, the agent perspective)
+    agent: bool = False  # --self (the agent perspective)
     people: tuple[Person, ...] = PEOPLE
     turns: list[Turn] = field(default_factory=list)
     events: dict[str, Event] = field(default_factory=dict)
@@ -1031,7 +1031,7 @@ def observed_months(months: int, count: int) -> list[int]:
 def _observed_turns(corpus: Corpus, rng: random.Random, months: int) -> None:
     """--observed: each thing's lasting fact in month 1, then its observations
     in later months, every turn dated the 15th of its month; the gold reads the
-    lasting fact as lasting and each observation as observed (SPEC 4.2)."""
+    lasting fact as lasting and each observation as observed."""
     planned: list[tuple[int, str, str, int | None]] = []
     for name in OBSERVED_THINGS:
         language = rng.choice(OBSERVED_LANGUAGES)
@@ -1114,7 +1114,7 @@ def _tell(
 def _neighbour_turn(corpus: Corpus, rng: random.Random, scope: str, month: int) -> None:
     """--neighbours: a web service and a command-line tool described side by
     side, each in a sentence of its own, and the gold answer: one lasting fact
-    per project (SPEC 5.1); then a turn telling the service something
+    per project; then a turn telling the service something
     unrelated (``_aside_turn``)."""
     language = rng.choice(NEIGHBOUR_LANGUAGES)
     count = sum(1 for t in corpus.turns if t.neighbours)
@@ -1160,7 +1160,7 @@ def _neighbour_turn(corpus: Corpus, rng: random.Random, scope: str, month: int) 
 def _aside_turn(corpus: Corpus, scope: str, language: str, month: int, name: str) -> None:
     """--neighbours: the web service told something unrelated to its description,
     keyed ``description`` too and said to hold one value - the slip of a real
-    model on a generic key. Its gold: both facts true at once (SPEC 5.4). No
+    model on a generic key. Its gold: both facts true at once. No
     random draw: the rest of the corpus stays as it was."""
     said, value = NEIGHBOUR_ASIDE[language]
     text = said.format(name=name)
@@ -1486,7 +1486,7 @@ def _episode(subject: str, statement: str, month: int, quote: str) -> dict[str, 
 
 def gold_answer(person: Person, event: Event, text: str, name: str, written: str) -> dict[str, Any]:
     """What an ideal model answers to the extraction prompt for this turn: the
-    known name reused, the source's spelling in ``subject_as_written`` (SPEC 4.2)."""
+    known name reused, the source's spelling in ``subject_as_written``."""
     return {
         "nodes": [{"name": name, "kind": "person", "aliases": [], "summary": ""}],
         "facts": [
@@ -1511,7 +1511,7 @@ def gold_answer(person: Person, event: Event, text: str, name: str, written: str
 
 
 def owner_gold_answer(event: Event, text: str) -> dict[str, Any]:
-    """What an ideal model answers for the owner's own words (SPEC 4.2): the
+    """What an ideal model answers for the owner's own words: the
     owner's name as the subject (the source labels her part with it); the
     statement names her, by her name, or by a speaker word in Russian."""
     if event.language == "ru":

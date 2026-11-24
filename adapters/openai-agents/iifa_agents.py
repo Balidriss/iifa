@@ -1,4 +1,4 @@
-"""iifa memory for the OpenAI Agents SDK (SPEC 10.5): an example to copy, not a
+"""iifa memory for the OpenAI Agents SDK: an example to copy, not a
 ``Session`` implementation (a ``Session`` is conversation history, not memory).
 
 Memory reaches the agent two ways:

@@ -1,4 +1,4 @@
-"""The intent reading on its own (SPEC 4.2): one answer and the frame its
+"""The intent reading on its own: one answer and the frame its
 session carries in, what goes on to the write path, what is proposed, what is
 kept as session state, and the frame carried out."""
 

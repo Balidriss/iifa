@@ -47,7 +47,7 @@ def city_fact(value: str, quote: str, **extra: object) -> dict[str, object]:
     return {
         "subject": "Karim",
         "statement": f"Karim lives in {value}.",
-        "attribute": "home",  # a vocabulary key: one current value (SPEC 5.4)
+        "attribute": "home",  # a vocabulary key: one current value
         "value": value,
         "quote": quote,
         **extra,
@@ -100,7 +100,7 @@ def test_p6_an_extracted_fact_never_overrides_an_explicit_one(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
     """Both stay; the new one is flagged ``conflict`` with what it stands against,
-    and recall reports it (SPEC 5.4)."""
+    and recall reports it."""
     explicit = remember(
         client,
         "Karim lives in Paris",
@@ -225,7 +225,7 @@ def since_fact(statement: str, value: str, quote: str) -> dict[str, object]:
 def test_p7_the_same_value_in_another_language_is_linked_never_closed(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.4: "mars 2026" and "March 2026" are the same value in two languages.
+    """ "mars 2026" and "March 2026" are the same value in two languages.
     The English restatement must not close the French fact.
     Proved the same, both stay live, linked (no conflict); a later change in one
     language closes the whole group, which states the outdated value."""

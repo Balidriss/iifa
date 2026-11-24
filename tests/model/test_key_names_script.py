@@ -1,4 +1,4 @@
-"""``bench/key_names.py`` (SPEC 5.4 step 4 calibration) runs end to end against
+"""``bench/key_names.py`` (attribute key calibration) runs end to end against
 the fake embeddings server and says whether the two groups are apart."""
 
 from __future__ import annotations

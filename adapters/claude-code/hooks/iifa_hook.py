@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code hook for the iifa memory service (SPEC 10.2). Standard library only.
+"""Claude Code hook for the iifa memory service. Standard library only.
 
     python iifa_hook.py session-start     SessionStart: inject the profile block
     python iifa_hook.py user-prompt       UserPromptSubmit: recall handles for the prompt
@@ -297,7 +297,7 @@ def _context(event: str, text: str) -> dict[str, Any]:
 def session_start(
     settings: Settings, hook_input: dict[str, Any], log: Log
 ) -> dict[str, Any] | None:
-    """The profile block (SPEC 8.1): pinned facts and the most central subjects of
+    """The profile block: pinned facts and the most central subjects of
     the scope, under budget, stable while nothing changes; plus a short status."""
     source = str(hook_input.get("source", ""))
     session_id = str(hook_input.get("session_id", ""))

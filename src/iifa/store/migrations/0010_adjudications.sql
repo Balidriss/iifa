@@ -1,4 +1,4 @@
--- Schema version 10: the dream's merge adjudications (SPEC 5.6).
+-- Schema version 10: the dream's merge adjudications.
 --
 -- * dream_adjudications: one row per pair a dream run asked the model about
 --   (never in a dry run). The pair is stored ordered (a < b). `fingerprint`

@@ -1,4 +1,4 @@
--- Schema version 6: probe sets (SPEC 4.7, 11.2), what the dream's rollback rule
+-- Schema version 6: probe sets, what the dream's rollback rule
 -- measures recall with.
 --
 -- A set belongs to exactly one scope and holds questions with the ids of the

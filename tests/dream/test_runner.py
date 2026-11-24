@@ -1,5 +1,5 @@
 """A dream run end to end, against a scripted dream model behind the fake
-OpenAI server (SPEC 5.6, 8.6): units, the closed answer, budgets, the cursor,
+OpenAI server: units, the closed answer, budgets, the cursor,
 one dream per scope, cancel, P11, a missing dream model, snapshot races
 through injection seams, and recall answering while the model thinks."""
 
@@ -93,7 +93,7 @@ def test_a_unit_shows_the_node_its_facts_and_edges(
     explicit = next(f for f in unit["facts"] if f["id"] == memory.pinned.id)
     assert explicit["origin"] == "explicit"
     assert [n["id"] for n in unit["neighbours"]] == [memory.lyon.id]
-    assert "merge_candidates" not in unit  # a merge is the adjudication's (SPEC 5.6)
+    assert "merge_candidates" not in unit  # a merge is the adjudication's
     assert unit["summary_language"] == "en"
 
 
@@ -500,7 +500,7 @@ def test_a_failing_model_stops_the_run_and_keeps_the_cursor(
     assert _unit_nodes(fake_openai)[-1] == memory.karim.id  # the failed unit again
 
 
-# --------------------------------------------------------------------------- rule 8
+# --------------------------------------------------------------------------- stale snapshots
 
 
 def test_recall_answers_while_the_dream_model_thinks(
@@ -562,7 +562,7 @@ def test_an_operation_whose_inputs_changed_after_the_snapshot_is_dropped(
     memory: Memory,
     kind: str,
 ) -> None:
-    """Rule 8 through the seam between the model's answer and the apply: a write
+    """A stale snapshot, through the seam between the model's answer and the apply: a write
     that lands there wins, the dream's operation is dropped and reported."""
     store = dream_app.state.store
 
@@ -638,7 +638,7 @@ def test_a_record_not_in_the_unit_cannot_be_named(
 def test_a_crashed_dream_resumes_from_its_cursor(
     dream_client: TestClient, dream_app: FastAPI, fake_openai: FakeOpenAIServer, memory: Memory
 ) -> None:
-    """A job left ``running`` by a crash goes back to the queue (SPEC 7.2) and
+    """A job left ``running`` by a crash goes back to the queue and
     the run resumes after the last unit it finished."""
     fake_openai.set_default(chat=quiet_model())
     run_id = start_dream(dream_client)

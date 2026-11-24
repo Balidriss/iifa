@@ -1,11 +1,11 @@
-"""The profile block (SPEC 8.1): what a session starts with.
+"""The profile block: what a session starts with.
 
 Pinned facts first, then in the agent perspective the self's live rules (its
-commitments, then its preferences, SPEC 4.2), then the most central nodes of
+commitments, then its preferences), then the most central nodes of
 the scope, packed under the budget. The rules ahead of the nodes take at most
 a third of the budget; those that do not fit there come after the nodes, so
 the rules leave the nodes the rest. A rule in an open conflict shows it on
-both sides (SPEC 8.5). The block is **deterministic and
+both sides. The block is **deterministic and
 stable** while nothing changes: its items carry no age, no timestamp and no
 score, its order depends only on the records (creation order for pinned
 facts, the family then the newest first for the self's rules, centrality
@@ -53,8 +53,8 @@ def profile_fact(fact: Fact, node: Node | None, *, pinned: bool = True) -> dict[
 def self_rules(
     store: Store, view: Visibility, name: str, scope: str
 ) -> tuple[Node | None, list[Fact]]:
-    """The self's node, when the reader sees it, and its live rules (SPEC 4.2:
-    its commitments, then its preferences) that are not pinned, the newest
+    """The self's node, when the reader sees it, and its live rules (its
+    commitments, then its preferences) that are not pinned, the newest
     first in each family: an order that depends only on the records."""
     node = store.find_node(name, Visibility.of_scope(scope))
     if node is None or node.id not in store.nodes_by_id([node.id], view):
@@ -76,7 +76,7 @@ def profile_node(node: Node, facts: int, edges: int, tokenizer: Tokenizer) -> di
         "kind": "node",
         "name": node.name,
         "node_kind": node.kind,
-        "summary": summary_line(node.summary, tokenizer),  # bounded (SPEC 5.6)
+        "summary": summary_line(node.summary, tokenizer),  # bounded
         "aliases": list(node.aliases),
         "facts": facts,
         "edges": edges,
@@ -92,7 +92,7 @@ def profile_block(
     max_nodes: int = PROFILE_NODES,
     agent: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
-    """``agent``: the self's name and declared scope (SPEC 4.6), None in the
+    """``agent``: the self's name and declared scope, None in the
     user perspective."""
     store = engine.store
     exclude = set(exclude_ids)
@@ -110,7 +110,7 @@ def profile_block(
             for f in held
             if f.id not in exclude
         ]
-    # SPEC 8.1: the rules that fit in their share go ahead of the nodes, the
+    # the rules that fit in their share go ahead of the nodes, the
     # others behind them, each group in the rules' own order
     ahead = set(pack([engine.cost(r) for r in rules], budget_tokens // RULES_SHARE).chosen)
     items.extend(r for i, r in enumerate(rules) if i in ahead)

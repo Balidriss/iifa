@@ -1,4 +1,4 @@
-"""What the Docker image promises, read from the Dockerfile (SPEC 12, P5), on
+"""What the Docker image promises, read from the Dockerfile (P5), on
 every platform and without Docker. The running image is checked end to end by
 ``tests/e2e/docker_smoke.py`` in CI (the ``docker-e2e`` job)."""
 

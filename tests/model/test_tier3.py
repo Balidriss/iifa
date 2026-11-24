@@ -1,4 +1,4 @@
-"""Tier 3 against the fake embeddings server (SPEC 6, 6.1): vectors computed in
+"""Tier 3 against the fake embeddings server: vectors computed in
 the background with a model stamp, re-embedded after a model change, dense
 recall fused with lexical by RRF, and honest degradation (P10)."""
 
@@ -35,7 +35,7 @@ def tier3_settings(tmp_path: Path, fake: FakeOpenAIServer, **overrides: Any) -> 
         "embeddings_url": fake.base_url,
         "embeddings_model": "fake-embed",
         "query_timeout": 1.5,
-        # fake-embed has no profile: the tests calibrate it explicitly (SPEC 6.1)
+        # fake-embed has no profile: the tests calibrate it explicitly
         "resolve_threshold": 0.8,
         "merge_threshold": 0.92,
         "link_threshold": 0.8,
@@ -153,10 +153,10 @@ def test_lexical_and_dense_are_fused(
 def test_a_summary_never_ranks_a_node_but_stays_shown_and_embedded(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 6.1: a summary is model-written text. Recall ranks on names, aliases
+    """A summary is model-written text. Recall ranks on names, aliases
     and facts - what was actually said - so a summary sharing the query's words
     and vector never pushes a fact down. It is still shown in the node's handle
-    and its vector still serves link proposals (SPEC 5.2)."""
+    and its vector still serves link proposals."""
     query, summary = "what does Joseph prefer to drink", "Daniela prefers to drink tea"
     far = {text: FAR for text in ("Иосиф", "Daniela", "Daniela works in Porto.")}
     fake_openai.set_vectors({query: NEAR, summary: NEAR, "Иосиф любит чай.": NEAR, **far})
@@ -244,7 +244,7 @@ def test_a_repeated_query_is_embedded_once(
 def test_the_query_embedding_runs_in_the_foreground(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 6.1: the query embedding holds new background calls while in flight
+    """The query embedding holds new background calls while in flight
     (the gate's foreground), and never waits at the background gate itself."""
     french_fact(client, app, fake_openai)
     gate = app.state.worker.gate

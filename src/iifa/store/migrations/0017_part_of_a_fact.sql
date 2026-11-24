@@ -1,4 +1,4 @@
--- Schema version 17: where an external fact was read (P6, SPEC 4.2).
+-- Schema version 17: where an external fact was read (P6).
 --
 -- Beside facts.provenance, an extracted fact from an external part keeps that
 -- part's kind (tool | web | document | other), the short form of its ref (a

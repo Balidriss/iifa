@@ -1,9 +1,9 @@
-"""Session state (SPEC 5.8): what the service keeps for one session while it runs.
+"""Session state: what the service keeps for one session while it runs.
 
 The extraction reads one source at a time, yet how a turn is meant often depends
 on the turns before it ("for this test, I'm a customer named Alex" governs what
 follows) and a work session changes the state of one thing turn after turn. So
-the service keeps, per session, the **frame** an earlier turn opened (SPEC 4.2)
+the service keeps, per session, the **frame** an earlier turn opened
 and the **session facts**: facts that hold only for the work in progress
 (``task``) or whose duration the model could not tell (``unsure``), and, in a
 session the host named, a note of each fact read as ``observed`` (it is memory
@@ -25,7 +25,7 @@ forgotten (P5), and a forgotten node takes the session facts about it, and the
 traces that name it, along.
 
 In the agent perspective, a session the host named also keeps the
-**activities** its turns named in the owner's words (SPEC 4.2), the last
+**activities** its turns named in the owner's words, the last
 named being the **current** one. The current one is shown to the next
 extraction calls, so that a rule read later is linked to what the owner
 asked; the close links its episode to all of them.
@@ -46,8 +46,8 @@ from iifa.recall.tokenizer import normalize
 from iifa.store.repo import Store
 
 TASK, UNSURE = "task", "unsure"
-OBSERVED = "observed"  # a note of an observation, memory already (SPEC 5.8)
-SESSION_CLOSE = "session_close"  # the job that closes a session nobody ended (SPEC 5.8)
+OBSERVED = "observed"  # a note of an observation, memory already
+SESSION_CLOSE = "session_close"  # the job that closes a session nobody ended
 TURN_TRACE_CHARS = 400  # the person's words one turn leaves in the trace, at most
 
 
@@ -107,7 +107,7 @@ class SessionState:
     frame: str | None = None
     frame_episode: bool = False
     rev: int = 0
-    # SPEC 4.2: the activities the session named, the current one last
+    # the activities the session named, the current one last
     activities: tuple[str, ...] = ()
     started_at: str | None = None
     last_seen_at: str | None = None
@@ -116,7 +116,7 @@ class SessionState:
 
     @property
     def activity_id(self) -> str | None:
-        """SPEC 4.2: the current activity, the last one named."""
+        """The current activity, the last one named."""
         return self.activities[-1] if self.activities else None
 
 
@@ -185,7 +185,7 @@ def _state(store: Store, row: Any) -> SessionState:
 
 
 def _activities(store: Store, state_id: str) -> tuple[str, ...]:
-    """SPEC 4.2: the session's activities, the current one last, each merged
+    """The session's activities, the current one last, each merged
     one read as the node it was merged into (once, at its latest place)."""
     rows = store.execute(
         "SELECT activity_id FROM session_activities WHERE session_id = ? ORDER BY seq",
@@ -226,7 +226,7 @@ def save(
     """Write what one source changed in its session, inside the caller's
     transaction: the frame now open (or none), whether its episode is written,
     the new session facts, the turn's trace ``(source_id, excerpt)`` and the
-    activity this source named (None: the current one stays, SPEC 4.2).
+    activity this source named (None: the current one stays).
     ``state`` is what the extraction read before its model calls; when the row
     changed since (another turn of the session was
     processed meanwhile), a frame that turn opened stays open unless this source
@@ -267,7 +267,7 @@ def save(
                 (frame, int(frame_episode and frame is not None), now, state_id),
             )
         if activity is not None:
-            # SPEC 4.2: named (again), it is the current one; another turn's stay
+            # named (again), it is the current one; another turn's stay
             store.execute(
                 "INSERT INTO session_activities (session_id, activity_id, seq) VALUES (?, ?,"
                 " (SELECT coalesce(max(seq), 0) + 1 FROM session_activities WHERE session_id = ?))"
@@ -317,7 +317,7 @@ def save(
 
 
 def drop(store: Store, state_id: str) -> int:
-    """Delete a session's state, facts and trace included (they expire: SPEC 5.8)."""
+    """Delete a session's state, facts and trace included (they expire)."""
     with store.lock, store.transaction():
         facts = store.execute(
             "DELETE FROM session_facts WHERE session_id = ?", (state_id,)
@@ -358,7 +358,7 @@ def open_count(store: Store) -> int:
 
 def close(store: Store, state: SessionState) -> int:
     """After a consolidation read ``state``: its facts and trace are deleted (they
-    expire, SPEC 5.8), and the session with them unless a turn changed it
+    expire), and the session with them unless a turn changed it
     meanwhile - then what that turn added stays, for the next close. Returns the facts
     deleted. The caller holds the store's transaction."""
     if state.id is None:
@@ -387,7 +387,7 @@ def safe_line(text: str) -> str:
 
 
 def render(state: SessionState, limit: int) -> str | None:
-    """What the next extraction call of the session is shown (SPEC 5.8), or
+    """What the next extraction call of the session is shown, or
     None when there is nothing: the open frame, then the newest session facts."""
     lines: list[str] = []
     if state.frame is not None:

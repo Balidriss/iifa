@@ -25,7 +25,7 @@ What it does, in a throwaway encrypted store in a temporary directory:
 Ctrl+C stops the run: what was written so far is reported, and the exit code is
 130. Thinking models: ``--no-json-mode`` (some model/server pairs never finish
 in JSON mode) and ``--extra reasoning_effort=none`` (Ollama's OpenAI API
-ignores ``think: false``); ``--max-tokens`` bounds every answer (SPEC 7.4b).
+ignores ``think: false``); ``--max-tokens`` bounds every answer.
 
 Nothing is kept: the store is deleted when the script ends. Content is printed
 to the terminal on purpose (this is a manual run for the operator's eyes); the

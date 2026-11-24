@@ -1,4 +1,4 @@
-"""Sets (SPEC 5.4): aspects that hold several elements at once - the members
+"""Sets: aspects that hold several elements at once - the members
 of a club, the ingredients of a recipe - told one element at a time. The model
 proposes a cardinality per fact (``one`` / ``many`` / ``unsure``) and, for a
 removed or corrected element, the value it ``removes``; the service decides
@@ -30,7 +30,7 @@ ELLIPSES = ("…", "...")
 def cardinality(attribute: str | None, proposed: str | None, live: Sequence[Fact]) -> str | None:
     """What the service decides for a new fact of ``attribute`` among the live
     facts it is compared with: ``many`` (a set: the new value adds), ``one``
-    (the rules of SPEC 5.4), ``unsure`` (nothing closes), or None for a key the
+    (the contradiction rules), ``unsure`` (nothing closes), or None for a key the
     vocabulary already rules (or no key): the model's word is not asked."""
     key = canonical_key(attribute)
     if not is_free_form(key):
@@ -54,8 +54,8 @@ def decide(members: Sequence[Fact], value: str, kind: str | None) -> tuple[str, 
     """What a new value of a set (``many``) or of an unsure key does to one
     group of live facts of its key: linked when the comparison proves it the
     same; else an element of a set adds, and an unsure value stays live beside
-    the old one, in conflict. None for ``one`` or a vocabulary key: the rules of
-    SPEC 5.4 decide."""
+    the old one, in conflict. None for ``one`` or a vocabulary key: the contradiction
+    rules decide."""
     if kind not in (MANY, UNSURE):
         return None
     if any(same_spelling(m.value or "", value) for m in members):
@@ -66,7 +66,7 @@ def decide(members: Sequence[Fact], value: str, kind: str | None) -> tuple[str, 
 def closable(
     members: Sequence[Fact], valid_from: str | None, *, external: bool, never_close: bool
 ) -> bool:
-    """May a removal close this group of elements? The guards of SPEC 5.4: never
+    """May a removal close this group of elements? The guards: never
     an explicit fact (P6), never a fact not from external content by an external
     part (P6), never a free speaker fact, never by an earlier fact."""
     if never_close or any(m.origin == "explicit" for m in members):

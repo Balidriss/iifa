@@ -247,7 +247,7 @@ def test_p9_tokens_cannot_read_outside_their_scopes(client: TestClient) -> None:
 def test_p9_a_rescope_never_grants_or_takes_away_a_scope_the_token_does_not_own(
     client: TestClient,
 ) -> None:
-    """SPEC 4.6: every scope a re-scope adds and every scope it removes must be the
+    """Every scope a re-scope adds and every scope it removes must be the
     token's own; a scope it does not own is kept exactly as it was."""
     coder = remember(client, "Coder note on palettes", scope="user:alice/agent:coder")["fact"]
     widen = client.patch(
@@ -280,7 +280,7 @@ def test_p9_a_rescope_never_grants_or_takes_away_a_scope_the_token_does_not_own(
 def test_p9_a_rescope_never_leaves_a_fact_under_a_node_of_the_scope_it_left(
     client: TestClient,
 ) -> None:
-    """SPEC 4.6: archiving or forgetting a node reaches its facts, so a fact never
+    """Archiving or forgetting a node reaches its facts, so a fact never
     moves away from its node. A token of the scope the fact left cannot hide or
     delete it through the node."""
     coder, writer = "user:alice/agent:coder", "user:alice/agent:writer"

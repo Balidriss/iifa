@@ -1,4 +1,4 @@
-"""A value's comparison form (SPEC 5.4, 12) is for comparison only: no route
+"""A value's comparison form is for comparison only: no route
 shows it, no search finds it, no prompt carries it, and it only ever links -
 it closes nothing and never lets external content join what the owner said
 (P6). Proven with a canary form written by the fake model."""

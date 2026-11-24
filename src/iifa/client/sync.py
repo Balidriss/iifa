@@ -308,7 +308,7 @@ class IifaClient:
     ) -> dict[str, Any]:
         """An explicit fact (P6), optionally about a node given by name (created on
         first mention) or by id; with ``about_self``, a fact about the self of
-        the target scopes (SPEC 8.3)."""
+        the target scopes."""
         result: dict[str, Any] = self._send(
             b.remember_call(
                 statement,
@@ -375,7 +375,7 @@ class IifaClient:
         scopes: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         """Attach, detach or pin a fact, or replace its scope set (``scopes``): the
-        token must own every scope added and every scope removed (SPEC 4.6)."""
+        token must own every scope added and every scope removed."""
         result: dict[str, Any] = self._send(
             b.patch_fact_call(fact_id, node_id=node_id, detach=detach, pinned=pinned, scopes=scopes)
         )
@@ -392,7 +392,7 @@ class IifaClient:
         remove_aliases: Sequence[str] = (),
         rev: int | None = None,
     ) -> dict[str, Any]:
-        """A person's correction of a node (SPEC 5.7): rename it (the old name stays
+        """A person's correction of a node: rename it (the old name stays
         an alias unless ``keep_old_name`` is false), change its kind, add and
         remove aliases. ``rev`` is the revision you read (409 when it moved).
         The answer carries ``correction_id``, for ``undo_correction``."""
@@ -412,13 +412,13 @@ class IifaClient:
     def merge_nodes(
         self, keep: str, absorb: str, *, revs: Mapping[str, int] | None = None
     ) -> dict[str, Any]:
-        """Merge two nodes you know are one (SPEC 5.7); needs the ``review``
+        """Merge two nodes you know are one; needs the ``review``
         permission. ``revs`` (node id -> rev) are the revisions you read."""
         result: dict[str, Any] = self._send(b.merge_nodes_call(keep, absorb, revs=revs))
         return result
 
     def decide_edge(self, edge_id: str, decision: str, *, rev: int | None = None) -> dict[str, Any]:
-        """A person's decision on a proposed edge (SPEC 5.7): ``confirm`` or
+        """A person's decision on a proposed edge: ``confirm`` or
         ``reject`` (it is archived). The answer carries ``correction_id``."""
         result: dict[str, Any] = self._send(b.decide_edge_call(edge_id, decision, rev=rev))
         return result
@@ -433,7 +433,7 @@ class IifaClient:
         result: dict[str, Any] = self._send(b.undo_correction_call(correction_id))
         return result
 
-    # ------------------------------------------------------------------ lifecycle (SPEC 8.1)
+    # ------------------------------------------------------------------ lifecycle
 
     def session_start(
         self,
@@ -446,7 +446,7 @@ class IifaClient:
         subtree: str | None = None,
     ) -> dict[str, Any]:
         """The profile block: pinned facts and central nodes, under budget, stable
-        while nothing changes (SPEC 8.1)."""
+        while nothing changes."""
         result: dict[str, Any] = self._send(
             b.session_start_call(
                 view_fields=self._view(scope, scopes, subtree),
@@ -529,7 +529,7 @@ class IifaClient:
         )
         return result
 
-    # ------------------------------------------------------------------ operations (SPEC 8.4)
+    # ------------------------------------------------------------------ operations
 
     def background(self) -> dict[str, Any]:
         """Mode, concurrency, yield state and queue depth (admin)."""

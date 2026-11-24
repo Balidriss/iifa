@@ -1,10 +1,10 @@
 -- Schema version 19: what content from outside the conversation a source
--- held (P6, SPEC 4.4): none, only parts the host vouched for, or at least one
--- it did not; and, in the agent perspective (SPEC 4.2, 5.8), the activity a
+-- held (P6): none, only parts the host vouched for, or at least one
+-- it did not; and, in the agent perspective, the activity a
 -- rule of method was learnt during and the activity a session is doing.
 --
 -- The parts' offsets are not kept, yet a session's close writes from a
--- source later; the agent perspective's rule (SPEC 4.2) needs to know what
+-- source later; the agent perspective's rule needs to know what
 -- the turn held.
 --
 -- An activity is a link beside a fact's subject, never its subject: a `task`

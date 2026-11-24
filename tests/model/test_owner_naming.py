@@ -1,4 +1,4 @@
-"""The owner's name across scripts (SPEC 4.2): for the naming check only, an
+"""The owner's name across scripts: for the naming check only, an
 owner fact names its subject when the statement holds a form of the owner's
 declared name that transliterates to it - provided the subject is exactly the
 declared spelling and the quote lies in the owner's part. It confirms a subject

@@ -1,4 +1,4 @@
-"""Values in other forms and other languages (SPEC 5.4): a deterministic
+"""Values in other forms and other languages: a deterministic
 comparison of two values of one key that says ``same``, ``different`` or
 ``unknown`` - never a guess. Dates are read into ISO (month names of several
 languages and of the Arabic Syriac series), numbers in any digits, names are
@@ -555,8 +555,8 @@ def _compare_names(a: str, b: str, *, one_letter: bool = True) -> str:
 
 
 def same_name(a: str, b: str) -> bool:
-    """Are ``a`` and ``b`` one name, in any script, by the comparison of SPEC
-    5.4 (equal when folded, or transliterated alike)? Never a guess: an
+    """Are ``a`` and ``b`` one name, in any script, by the value
+    comparison (equal when folded, or transliterated alike)? Never a guess: an
     adapted form ("Алиса" for Alice) is not the same name here."""
     if not a.strip() or not b.strip():
         return False
@@ -564,7 +564,7 @@ def same_name(a: str, b: str) -> bool:
 
 
 def same_spelling(a: str, b: str) -> bool:
-    """One spelling in two scripts (SPEC 5.1, the source form of a subject):
+    """One spelling in two scripts (the source form of a subject):
     ``same_name`` without its one-letter tolerance, which would take Daniela
     for Daniel."""
     if not a.strip() or not b.strip():
@@ -577,7 +577,7 @@ NEAR_ENDING = 2  # the longest ending a near word may add or swap ("Иван" ->
 
 
 def near_form(a: str, b: str) -> bool:
-    """SPEC 5.1: is ``a`` a near form of ``b`` - not one spelling but, word by
+    """Is ``a`` a near form of ``b`` - not one spelling but, word by
     word, one letter or an ending apart ("Ивана" of "Иван", "Карим" of
     "Карима", "Karim" of "Карима")? Two words of one script are compared as
     written; across scripts, the same name (``same_spelling``: Ivan / Иван) is
@@ -634,7 +634,7 @@ _WORD = re.compile(r"\w+")
 
 
 def shares_words(a: str, b: str) -> bool:
-    """May ``b`` restate ``a`` in other words (SPEC 5.4)? At least half of the
+    """May ``b`` restate ``a`` in other words? At least half of the
     shorter value's words, folded (case, diacritics), are in the other one. No
     word list: "120 o" and "120 octets" share their number, a list told again
     shares its items; "Lyon" and "Paris" share nothing. A script written without
@@ -648,7 +648,7 @@ def shares_words(a: str, b: str) -> bool:
 # --------------------------------------------------------------------------- the comparison
 
 
-def compare_values(a: str, b: str) -> str:  # noqa: PLR0911 - one return per rule of SPEC 5.4
+def compare_values(a: str, b: str) -> str:  # noqa: PLR0911 - one return per rule
     """``same``, ``different`` or ``unknown`` for two values of one key."""
     if not a.strip() or not b.strip():
         return UNKNOWN

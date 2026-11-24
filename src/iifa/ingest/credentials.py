@@ -1,4 +1,4 @@
-"""A secret said in a conversation is never memory (SPEC P5, 4.2).
+"""A secret said in a conversation is never memory (P5).
 
 A password, a passcode or PIN, a one-time or verification code, a recovery
 code, an API key or a token typed in a turn must not outlive the turn as a
@@ -15,7 +15,7 @@ The values of one source are the union of three readings:
   ordinary word for a secret, dropping the facts that hold it) a credential
   word followed in the same clause by a copula, a colon or an arrow and a
   value that looks like a secret, or a code word followed by digits;
-* what the model lists in ``secrets`` (SPEC 4.2), kept only when the source
+* what the model lists in ``secrets``, kept only when the source
   writes it whole;
 * the value of a fact whose attribute names a credential (``password``,
   ``api_key``...), when it looks like a secret and the source writes it whole.
@@ -27,7 +27,7 @@ answer, so it gives a page nothing it did not have.
 What carries a value is dropped (a fact, a node, an edge, an activity), a
 quote loses it (the longest part of the quote without it is kept, so the
 excerpt stored beside a fact never shows it) and a turn's trace masks it. The
-source keeps the turn as said, when sources are retained (SPEC 4.4): that is
+source keeps the turn as said, when sources are retained: that is
 what ``forget`` is for.
 """
 
@@ -77,7 +77,7 @@ _NOT_SECRET_CODE = re.compile(
 _NOT_SECRET_CODE_AFTER = re.compile(
     r"\s*(?:postal|pays|iso|couleur|source|promo)(?!\w)", re.IGNORECASE
 )
-# SPEC P5: a credential word that only qualifies another noun ("password
+# P5: a credential word that only qualifies another noun ("password
 # manager", "token limit", "gestionnaire de mots de passe") introduces no value
 _COMPOUND_AFTER = re.compile(
     r"[\s_-]*(?:managers?|vaults?|generators?|polic(?:y|ies)|rules?|requirements?|strength"
@@ -161,7 +161,7 @@ _SHAPES = (
 _BEARER = re.compile(r"(?<!\w)Bearer\s+([A-Za-z0-9._~+/-]{16,}=*)")
 _URL_PASSWORD = re.compile(r"://[^\s:/@]+:([^\s/@]+)@")
 
-# SPEC 4.2: an attribute whose last word names a credential holds one as value
+# an attribute whose last word names a credential holds one as value
 _CREDENTIAL_KEYS = (
     "password",
     "passwd",

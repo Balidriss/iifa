@@ -1,4 +1,4 @@
-"""Undetermined languages through the write path (P12, SPEC 5.4): when either
+"""Undetermined languages through the write path (P12): when either
 statement is undetermined, the scripts decide - another script is another
 language (the path across languages), one script is one language, as before;
 a Latin statement for a Japanese source is a mismatch, asked again, then
@@ -52,7 +52,7 @@ def test_an_undetermined_statement_in_another_script_does_not_close_the_value(
 def test_within_one_script_an_undetermined_statement_is_one_language_as_before(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """Measured, not convenient (SPEC 5.4): an undetermined Latin statement and a
+    """Measured, not convenient: an undetermined Latin statement and a
     French one are one language, so a single-valued key closes without a
     question, as before."""
     old = karim_fact(app, "Karim habite à Paris.", "home", "Paris", "fr")
@@ -112,7 +112,7 @@ def test_p12_the_known_hole_a_same_script_translation_is_not_judged(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
     """Documented, not fixed: "Karim prefers tea." for a French source is
-    undetermined and in the same script; nothing flags it (SPEC P12)."""
+    undetermined and in the same script; nothing flags it (P12)."""
     fake_openai.script(chat=[said("Karim prefers tea.", "preference.drink", "tea")])
     result = ingest(client, app, "Karim préfère le thé depuis toujours.")
     assert result["facts"]["language_mismatch"] == 0 and result["retries"] == 0

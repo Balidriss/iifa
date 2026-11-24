@@ -1,4 +1,4 @@
--- Schema version 5: vectors (SPEC 6, 6.1), tier 3.
+-- Schema version 5: vectors, tier 3.
 --
 -- One row per embedded facet of a record: a fact's `text` (its statement), a
 -- node's `name` (name and aliases) and `summary`. The vector is stored

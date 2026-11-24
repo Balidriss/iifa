@@ -1,4 +1,4 @@
-"""Per-model similarity thresholds (SPEC 6.1).
+"""Per-model similarity thresholds.
 
 A cosine means something for one embedding model only: bge-m3 puts one
 person's name across scripts at 0.64-0.69 and other people at 0.25-0.38,
@@ -75,14 +75,14 @@ def thresholds_for(
     )
 
 
-# SPEC 5.4 step 4: no profile measures attribute keys yet, so the embedding
+# no profile measures attribute keys yet, so the embedding
 # match of synonym keys is off unless the operator configures ``key_threshold``.
 KEY_PROFILES: dict[str, float] = {}
 
 
 def key_threshold_for(model: str, *, configured: float | None = None) -> float | None:
-    """The cosine above which a new attribute key is aligned with an existing one
-    (SPEC 5.4), independent of the three thresholds above; None: the step is off."""
+    """The cosine above which a new attribute key is aligned with an existing one,
+    independent of the three thresholds above; None: no alignment."""
     if configured is not None:
         return configured
     return KEY_PROFILES.get(profile_key(model))

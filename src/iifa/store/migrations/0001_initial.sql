@@ -95,7 +95,7 @@ CREATE INDEX record_scopes_scope ON record_scopes (scope, record_id);
 -- (archived, closed, or belonging to an archived node). lex_scopes mirrors the
 -- record's scope set keyed by the integer rowid, and lex_scope_stats keeps the
 -- per-scope document count and token total the BM25 normalisation needs, so a
--- recall never scans the corpus for statistics (P9 and SPEC 7.4).
+-- recall never scans the corpus for statistics (P9).
 CREATE TABLE lex_docs (
     rowid  INTEGER PRIMARY KEY,
     doc_id TEXT NOT NULL UNIQUE,

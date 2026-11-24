@@ -1,4 +1,4 @@
-"""One encrypted SQLite file (SPEC section 7.1)."""
+"""One encrypted SQLite file."""
 
 from iifa.store.connection import WrongKeyError, open_database
 from iifa.store.migrate import SCHEMA_VERSION, migrate

@@ -1,0 +1,148 @@
+# Security and privacy checklist
+
+Each box is ticked only with the test that proves it, named beside it
+(`path::test`); the CI runs them all, and
+`tests/security/test_checklist.py` fails when a box loses its test.
+What each item protects is explained in
+[docs/security.md](../../docs/security.md); the principles (P1 to P12) are in
+[docs/principles.md](../../docs/principles.md).
+
+- [x] Database unreadable without the key (open with plain SQLite fails).
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_database_is_unreadable_without_the_key`
+- [x] `forget` leaves no trace in tables, FTS index, vectors, or queue; a queued job is forgotten before it runs, never once it has started.
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forget_leaves_no_trace_in_the_file`
+  - `tests/store/test_vectors_store.py::test_forget_deletes_the_vectors`
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forgetting_a_turns_source_leaves_no_trace_in_the_queue_or_anywhere`
+  - `tests/security/test_p5_secrets.py::test_p5_a_queued_turn_is_forgotten_before_it_runs_and_writes_nothing`
+  - `tests/security/test_p5_secrets.py::test_p5_a_running_job_cannot_be_forgotten`
+  - `tests/security/test_p5_secrets.py::test_p5_a_job_that_has_run_cannot_be_forgotten`
+  - `tests/security/test_p5_secrets.py::test_p5_only_a_job_that_carries_words_is_forgotten`
+  - `tests/security/test_p5_secrets.py::test_p5_a_job_interrupted_by_a_crash_is_forgotten_and_said_to_have_started`
+- [x] A secret said in a turn reaches no table but `sources` once it is known — listed by the model, the value of a credential attribute, a key's shape, or (with `detect_secrets_by_wording`) read from its wording: no fact, proposal, session fact, trace or index entry carries it, wherever the model writes it (a statement, a value, a quote), and later model calls see it masked. A secret nothing names is the known limit of the default (P5).
+  - `tests/security/test_p5_secrets.py::test_p5_a_password_said_in_a_turn_reaches_no_table_but_sources`
+  - `tests/security/test_p5_secrets.py::test_p5_by_default_the_model_names_the_secret_and_no_ordinary_fact_is_lost`
+  - `tests/security/test_p5_secrets.py::test_p5_by_default_a_key_shape_is_still_kept_out`
+  - `tests/security/test_p5_secrets.py::test_p5_by_default_a_password_a_document_repeats_is_still_the_owners`
+  - `tests/security/test_p5_secrets.py::test_p5_a_secret_written_against_chinese_characters_reaches_no_table_but_sources`
+  - `tests/security/test_p5_secrets.py::test_p5_a_value_under_a_credential_attribute_is_a_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_a_secret_the_model_lists_is_kept_out_and_one_the_source_does_not_write_is_ignored`
+  - `tests/security/test_p5_secrets.py::test_p5_the_adjudication_never_sees_a_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_the_adjudication_at_a_close_never_sees_a_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_a_secret_the_first_answer_listed_survives_its_retry`
+  - `tests/security/test_p5_secrets.py::test_p5_a_fact_of_a_turn_without_excerpt_shows_nothing_of_the_turn`
+  - `tests/security/test_p5_secrets.py::test_p5_a_page_cannot_erase_what_the_owner_said_by_calling_it_a_password`
+  - `tests/security/test_p5_secrets.py::test_p5_a_passphrase_under_a_credential_key_reaches_no_table_but_sources`
+  - `tests/security/test_p5_secrets.py::test_p5_a_fragment_dropped_still_names_its_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_a_page_cannot_erase_the_owners_note_at_the_close`
+  - `tests/security/test_p5_secrets.py::test_p5_a_page_that_makes_the_model_list_a_word_erases_nothing_of_the_owner`
+  - `tests/security/test_p5_secrets.py::test_p5_a_quote_the_page_also_writes_is_still_the_owners`
+- [x] `archive` hides a record from recall, expand, profile and dreams, and `restore` brings it back unchanged; a token without `forget` cannot hard-delete by any route or tool.
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_archive_hides_everywhere_and_restore_brings_back_unchanged`
+  - `tests/security/test_p8_dream.py::test_p5_an_archived_record_reaches_neither_the_profile_nor_the_dream`
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forget_needs_its_own_permission_on_every_route`
+  - `tests/mcp/test_tools.py::test_forget_is_exposed_only_by_option_and_still_needs_the_permission`
+- [x] In `paused` mode no model call leaves the service; in `on_demand` mode none leaves outside a `run`, and a run stops at its budget (P11).
+  - `tests/security/test_p11_background.py::test_p11_paused_means_zero_model_calls`
+  - `tests/security/test_p11_background.py::test_p11_on_demand_calls_the_model_only_inside_a_run_that_stops_at_its_budget`
+- [x] A French (and one non-Latin-script) source yields facts and summaries in that language; a forced English answer from the fake model is rejected, retried, then flagged (P12).
+  - `tests/security/test_p12_language.py::test_p12_the_target_language_is_stated_and_a_drift_is_retried_then_flagged`
+  - `tests/security/test_p12_language.py::test_p12_a_non_latin_source_keeps_its_script`
+  - `tests/security/test_p12_language.py::test_p12_summaries_are_written_in_the_language_of_the_facts`
+  - `tests/security/test_p12_language.py::test_p12_a_non_latin_source_gets_its_summary_in_its_script`
+- [x] Logs contain no memory content (scan logs in tests with canary strings).
+  - `tests/security/test_logs_and_tokens.py::test_logs_contain_no_memory_content`
+- [x] No outbound connection except configured endpoints (socket-level guard in tests).
+  - `tests/security/test_p4_socket_guard.py::test_p4_connect_to_public_ip_is_blocked`
+  - `tests/security/test_p4_socket_guard.py::test_p4_name_resolution_is_blocked`
+  - `tests/security/test_p4_socket_guard.py::test_p4_loopback_fake_is_reachable`
+- [x] Scope isolation, including P9's statistical leak.
+  - `tests/security/test_p9_scope_isolation.py::test_p9_tokens_cannot_read_outside_their_scopes`
+  - `tests/security/test_p9_scope_isolation.py::test_p9_invisible_corpus_changes_no_score_and_no_statistic`
+- [x] A list cursor never crosses a view: an altered cursor, one made by another service, or one replayed with another scope, route, sort or filter is refused and returns nothing.
+  - `tests/api/test_paging.py::test_p9_a_cursor_never_crosses_a_view_a_route_or_a_filter`
+  - `tests/api/test_paging.py::test_a_cursor_signed_by_another_service_is_refused`
+- [x] The archive list never names a node the view does not see (an archived fact's node, an archived edge's ends), and the dream list never shows a run outside the token's scopes.
+  - `tests/security/test_management_reads.py::test_p9_the_archive_never_names_an_invisible_node`
+  - `tests/security/test_management_reads.py::test_p9_the_dream_list_never_shows_a_run_outside_the_tokens_scopes`
+- [x] A re-scope never grants nor takes away a scope the token does not own, never leaves the fact under a node of a scope it left, and a re-scoped fact leaves no statistic behind in the scopes it left.
+  - `tests/security/test_p9_scope_isolation.py::test_p9_a_rescope_never_grants_or_takes_away_a_scope_the_token_does_not_own`
+  - `tests/security/test_p9_scope_isolation.py::test_p9_a_rescope_never_leaves_a_fact_under_a_node_of_the_scope_it_left`
+  - `tests/security/test_p9_scope_isolation.py::test_p9_a_rescoped_fact_moves_its_statistics_with_it`
+- [x] Injected content is labelled as data; an instruction-like memory does not change the wrapper.
+  - `tests/unit/test_recalled.py::test_content_never_changes_the_wrapper`
+  - `tests/mcp/test_tools.py::test_recall_returns_handles_wrapped_as_data`
+- [x] Tokens are compared in constant time; tokens are stored hashed.
+  - `tests/security/test_logs_and_tokens.py::test_tokens_are_hashed_and_compared_in_constant_time`
+- [x] Default bind address is `127.0.0.1`; binding elsewhere requires explicit config.
+  - `tests/security/test_logs_and_tokens.py::test_default_bind_address_is_loopback`
+  - `tests/security/test_docker_image.py::test_the_default_bind_inside_the_container_is_loopback`
+- [x] A dream cannot hard-delete, cannot alter an `explicit` fact, and rejects any operation outside the catalogue — including one requested by text stored in memory.
+  - `tests/security/test_p8_dream.py::test_a_dream_never_deletes_and_never_touches_an_explicit_fact`
+  - `tests/security/test_p8_dream.py::test_p8_hostile_memory_makes_the_dream_propose_nothing_outside_the_catalogue`
+- [x] A dream run is fully undoable, and a dream that lowers the recall probe beyond tolerance rolls itself back.
+  - `tests/dream/test_undo.py::test_undo_reverts_a_whole_run`
+  - `tests/dream/test_rollback.py::test_a_dream_that_lowers_recall_rolls_itself_back`
+- [x] A token without the `dream` permission cannot start, follow, cancel or undo a dream, nor create or delete a probe set; a token without `review` (a `dream` token included) can neither list nor decide the review queue.
+  - `tests/security/test_p8_dream.py::test_without_the_dream_permission_no_dream_route_answers`
+  - `tests/api/test_permission_matrix.py::test_permission_matrix`
+  - `tests/dream/test_review_api.py::test_the_review_queue_needs_the_review_permission`
+  - `tests/dream/test_review_api.py::test_a_dream_token_cannot_approve_what_its_dream_proposed`
+- [x] `forget` of a record wipes it from the dream journal (raw bytes): the operations that mentioned it lose their content and can no longer be undone.
+  - `tests/security/test_p8_dream.py::test_p5_forget_wipes_the_dream_journal`
+  - `tests/dream/test_undo.py::test_an_operation_wiped_by_forget_cannot_be_undone`
+- [x] A dream never widens visibility: it changes no record outside its scope's subtree and draws no new record from records with different scope sets.
+  - `tests/security/test_p8_dream.py::test_a_dream_never_widens_visibility`
+  - `tests/security/test_p9_tier3.py::test_p9_a_merge_proposal_needs_identical_scope_sets`
+- [x] Two nodes are merged by a person only through a token holding `review` — never a `write` token, a `dream` token or a model's path — never across scope sets; a person's merge undoes exactly (facts, aliases, edges, archived state, the proposal), and `forget` wipes the corrections journal (raw bytes).
+  - `tests/security/test_node_merges.py::test_only_a_review_token_merges_two_nodes`
+  - `tests/security/test_node_merges.py::test_no_model_path_reaches_a_persons_merge`
+  - `tests/security/test_node_merges.py::test_a_merge_across_scope_sets_is_refused`
+  - `tests/security/test_node_merges.py::test_a_persons_merge_moves_everything_and_undo_restores_exactly`
+  - `tests/security/test_node_merges.py::test_p5_forget_wipes_the_corrections_journal`
+- [x] A proposed edge is confirmed or rejected only by a `write` token that touches it, journalled with the token's name and undone exactly; `forget` of the edge wipes that entry (raw bytes).
+  - `tests/security/test_management_reads.py::test_an_edge_is_decided_only_by_a_write_token_that_touches_it`
+  - `tests/security/test_management_reads.py::test_p5_forget_wipes_an_edge_decision_from_the_journal`
+- [x] A probe set cannot name a record its scope does not see; `forget` deletes every probe that expected the record, question included (raw bytes).
+  - `tests/api/test_probes.py::test_p9_an_invisible_or_unknown_expected_id_is_refused_alike`
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forget_deletes_every_probe_that_expected_the_record`
+- [x] A value's comparison form is never shown by a route, never searched, never sent to a model, and only ever links: it closes no fact, never overrules a value proved different, never acts within one language, against an explicit fact or for external content, and `forget` deletes it.
+  - `tests/security/test_value_norm.py::test_the_comparison_form_is_never_shown_by_any_route`
+  - `tests/security/test_value_norm.py::test_the_comparison_form_is_never_searched`
+  - `tests/security/test_value_norm.py::test_the_comparison_form_is_never_sent_to_a_model`
+  - `tests/security/test_value_norm.py::test_the_comparison_form_is_never_sent_to_the_dream_model`
+  - `tests/security/test_value_norm.py::test_the_comparison_form_never_closes_a_fact`
+  - `tests/security/test_value_norm.py::test_external_content_never_joins_the_owner_by_its_form`
+  - `tests/security/test_value_norm.py::test_the_owner_never_joins_external_content_by_its_form`
+  - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forget_leaves_no_trace_in_the_file`
+- [x] Memory poisoning (P6): a hostile web page quoted in a turn (a fake "User:" line, "the user lives in Moscow", instructions) yields no fact about the owner — at most fact proposals — and closes no fact the owner stated; a token without `review` (an agent's) can neither accept nor reject a fact proposal.
+  - `tests/security/test_p6_poisoning.py::test_p6_a_hostile_page_yields_no_fact_about_the_owner_only_proposals`
+  - `tests/security/test_p6_poisoning.py::test_p6_a_page_never_closes_what_the_owner_said_about_someone`
+  - `tests/security/test_p6_poisoning.py::test_p6_an_agent_token_can_neither_accept_nor_reject_a_fact_proposal`
+- [x] The agent's own memory (P6): a page in a turn gives the agent no belief and no rule of method, whether the reply restates it word for word or in other words, nor does a fake label with the agent's name written in the page, nor an answer that cites the owner's words as asking to keep it; only a reviewer accepts it, unless the host vouched for every external part of the turn (then flagged `vouched`), which never covers the owner's facts — for what the model reads as self-side (about the agent, or keyed `method`); an echo of the agent's own fact writes nothing and closes nothing; the agent never closes what the owner said about it; neither the reply nor a page sets the activity a rule is linked to, nor names it in a way no node may be named.
+  - `tests/security/test_p6_self.py::test_p6_a_page_restated_by_the_agent_gives_it_no_belief_verbatim_or_paraphrased`
+  - `tests/security/test_p6_self.py::test_p6_a_page_gives_no_rule_of_method_on_any_subject`
+  - `tests/security/test_p6_self.py::test_p6_a_fake_self_label_inside_a_page_is_still_the_page`
+  - `tests/security/test_p6_self.py::test_p6_no_claim_in_the_answer_lets_a_restated_rule_through`
+  - `tests/security/test_p6_self.py::test_p6_one_part_not_vouched_keeps_every_rule_of_the_turn_for_review`
+  - `tests/security/test_p6_self.py::test_p6_vouching_never_gives_a_fact_about_the_owner`
+  - `tests/security/test_p6_self.py::test_an_echo_of_the_agents_own_fact_writes_and_closes_nothing`
+  - `tests/security/test_p6_self.py::test_the_agent_never_closes_what_the_owner_said_about_it_nor_the_reverse`
+  - `tests/security/test_p6_self.py::test_p6_a_kept_note_from_a_turn_with_a_page_is_only_proposed_at_the_close`
+  - `tests/security/test_p6_self.py::test_p6_a_session_episode_leaning_on_a_turn_with_a_page_is_only_proposed`
+  - `tests/security/test_p6_self.py::test_p6_neither_the_reply_nor_a_page_sets_the_activity`
+  - `tests/security/test_p6_self.py::test_an_activity_named_like_no_node_may_be_is_refused`
+- [x] Intent before content, the mechanics: a non-sincere frame or a modality other than `fact` writes no fact from the content (at most one episode, never carrying its values); a missing or unsure frame or modality makes a proposal, never a fact; a frame carries over its session and never into another scope set; `record: false` writes nothing.
+  - `tests/security/test_intent.py::test_a_non_sincere_frame_writes_nothing_of_its_content_and_one_episode`
+  - `tests/security/test_intent.py::test_every_non_sincere_frame_writes_no_fact_from_its_content`
+  - `tests/security/test_intent.py::test_an_episode_that_carries_a_value_of_the_content_is_only_proposed`
+  - `tests/security/test_intent.py::test_a_modality_other_than_fact_writes_no_fact`
+  - `tests/security/test_intent.py::test_a_missing_or_unsure_frame_or_modality_makes_a_proposal_never_a_fact`
+  - `tests/security/test_intent.py::test_a_frame_holds_over_its_session_until_a_turn_ends_it`
+  - `tests/security/test_intent.py::test_p9_a_frame_is_never_carried_into_another_scope_set`
+  - `tests/security/test_intent.py::test_a_turn_sent_with_record_false_writes_nothing_at_all`
+- [x] Session state: a `task` fact never becomes memory on its own; the close's answer goes through a closed schema; stored session text never closes its prompt block; forgetting a source or a node takes its session facts along (raw bytes).
+  - `tests/model/test_work_sessions.py::test_task_facts_are_session_state_shown_to_the_next_turn_and_never_memory`
+  - `tests/model/test_work_sessions.py::test_the_close_leaves_one_episode_keeps_only_the_unsure_it_names_and_expires_the_rest`
+  - `tests/model/test_work_sessions.py::test_the_consolidation_schema_is_closed`
+  - `tests/model/test_work_sessions.py::test_p8_a_session_fact_never_closes_the_block_it_is_shown_in`
+  - `tests/model/test_work_sessions.py::test_p5_forgetting_a_source_or_a_node_takes_its_session_facts_along`

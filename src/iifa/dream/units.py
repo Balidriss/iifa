@@ -1,7 +1,7 @@
-"""A dream's unit of work (SPEC 5.6): one node the scope may change, with what
+"""A dream's unit of work: one node the scope may change, with what
 the model needs to judge it - its live facts, its edges and the nodes at their
 other end - read in one go with the revisions of every record, the snapshot its
-operations are checked against (rule 8). Merge candidates are not part of it:
+operations are checked against. Merge candidates are not part of it:
 they go to the adjudication (``iifa.dream.adjudicate``)."""
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from iifa.store.repo import Store
 from iifa.tokens import Tokenizer
 
 SCAN = 50  # node ids read at a time while looking for the next unit
-ALIKE = 10  # SPEC 5.6: task nodes a task unit shows beside its own
+ALIKE = 10  # task nodes a task unit shows beside its own
 TASK = "task"
 
 
@@ -44,7 +44,7 @@ class Unit:
     neighbours: tuple[Node, ...]
     summary_language: str
     snapshot: dict[str, int]
-    # SPEC 5.6: for a task node, the other task nodes sharing a word of its name
+    # for a task node, the other task nodes sharing a word of its name
     alike: tuple[Node, ...] = ()
 
     @property
@@ -57,7 +57,7 @@ class Unit:
     ) -> dict[str, Any]:
         """What the model reads: ids, names, statements - never a scope or a
         source. With ``facts`` / ``edges``, only those, and how many were left out
-        (SPEC 5.6: what one call reads is bounded)."""
+        (what one call reads is bounded)."""
         shown_facts = self.facts if facts is None else tuple(facts)
         shown_edges = self.edges if edges is None else tuple(edges)
         ends = {e.src for e in shown_edges} | {e.dst for e in shown_edges}
@@ -197,7 +197,7 @@ def read_unit(
 
 
 def _alike(store: Store, node: Node, view: Visibility) -> tuple[Node, ...]:
-    """SPEC 5.6: the other live task nodes of the node's scope set that share a
+    """The other live task nodes of the node's scope set that share a
     word of its name (the activity's word rule), the most shared first, at most
     ``ALIKE``."""
     forms = (node.name, *node.aliases)

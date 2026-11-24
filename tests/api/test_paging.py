@@ -1,5 +1,5 @@
-"""The node list (``GET /v1/nodes``) and cursor pagination of every list route
-(SPEC 8): a walk delivers each item exactly once whatever is written between
+"""The node list (``GET /v1/nodes``) and cursor pagination of every list route:
+a walk delivers each item exactly once whatever is written between
 its pages, a page stops at its limit or its budget, whichever comes first, and
 a cursor is opaque, signed and bound to its route, view, sort and filters."""
 

@@ -1,6 +1,6 @@
-"""The lifecycle routes (SPEC 8.1): the profile block at session start, turns
+"""The lifecycle routes: the profile block at session start, turns
 enqueued and nothing more, precompact's block and job, session end's job; and
-the operations routes' contracts (SPEC 8.4)."""
+the operations routes' contracts."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Time as a first-class dimension (P7, SPEC 8.2): the timeline of a node or a
+"""Time as a first-class dimension (P7): the timeline of a node or a
 scope, and what was known about a node at a date. Both read closed facts as
 well as live ones, apply the view before anything is counted (P9: a fact whose
 node is invisible never names it) and pack under the budget (P1).
@@ -81,7 +81,7 @@ def timeline(
     before: tuple[str, str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Fact changes (recorded, closed) newest first, of one node or of the view,
-    one page at a time (SPEC 8): at most ``limit`` changes after the keyset
+    one page at a time: at most ``limit`` changes after the keyset
     position ``before`` (``at``, fact id, change), the longest run of them that
     fits the budget. ``next`` is the position of the last change delivered when
     more follow, else ``None``. ``None`` when ``node_id`` is not a node the view

@@ -1,11 +1,11 @@
-"""The background ``embed`` job (SPEC 6.1): vectors for what has none of the
+"""The background ``embed`` job: vectors for what has none of the
 configured model (new records, changed text, a model change), in batches, under
 the gate and the run budget (P11). Then, for the nodes it just embedded:
 
 * **merge proposals** — two existing nodes close by their name vectors are never
   merged here; they become a ``merge`` proposal for the dream's review queue, and only
-  when their scope sets are identical (dream rule 12: never widen visibility);
-* **semantic links** (SPEC 5.2) — nodes whose summary vectors are close get a
+  when their scope sets are identical (a dream never widens visibility);
+* **semantic links** — nodes whose summary vectors are close get a
   proposed ``similar_to`` edge at reduced weight.
 
 Everything a comparison sees is what the node's own scopes see (P9).
@@ -29,7 +29,7 @@ SIMILAR_TO = "similar_to"
 SIMILAR_WEIGHT = 0.5
 MAX_ROUNDS = 1000  # a guard: every round stores a batch, so the queue shrinks
 
-# A test seam between the model call and the writes (the window SPEC 6.1 closes);
+# A test seam between the model call and the writes;
 # never set in service.
 _after_embed: Callable[[list[PendingVector]], None] | None = None
 
@@ -59,7 +59,7 @@ def embed(job: Job, ctx: JobContext) -> dict[str, Any] | None:
             if not store.put_vector(
                 item.record_id, item.facet, model=model, text=item.text, values=values
             ):
-                discarded += 1  # changed or forgotten during the call (SPEC 6.1, P5)
+                discarded += 1  # changed or forgotten during the call (P5)
                 continue
             embedded += 1
             if item.facet == NAME:
@@ -67,7 +67,7 @@ def embed(job: Job, ctx: JobContext) -> dict[str, Any] | None:
             elif item.facet == SUMMARY:
                 summaries.append(item.record_id)
         batches += 1
-    # SPEC 6.1: thresholds are per model; uncalibrated, nothing semantic is proposed
+    # thresholds are per model; uncalibrated, nothing semantic is proposed
     thresholds = config.thresholds(model)
     merges = links = 0
     if thresholds is not None:
@@ -115,7 +115,7 @@ def _propose_merges(store: Store, node_id: str, model: str, threshold: float) ->
     proposed = 0
     for other_id, score in neighbours(store, node_id, NAME, model, threshold):
         if store.scopes_of(other_id) != node.scopes:
-            continue  # dream rule 12: a merge never widens visibility
+            continue  # a merge never widens visibility
         if store.merge_proposed(node_id, other_id):
             continue
         store.add_proposal(

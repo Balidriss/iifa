@@ -1,4 +1,4 @@
-"""The Hermes Agent adapter (SPEC 10.3, 13.1): the provider driven the way Hermes'
+"""The Hermes Agent adapter: the provider driven the way Hermes'
 MemoryManager drives it, against the scripted fake service and the real one.
 
 P3 is the point: with the service down, hanging past the provider's deadline,

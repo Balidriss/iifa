@@ -1,5 +1,4 @@
--- Schema version 16: who started a dream, and an edge's decision revision
--- (SPEC 4.4, 8.6).
+-- Schema version 16: who started a dream, and an edge's decision revision.
 --
 -- * dream_runs.started_by: the name of the token that started a run, so that
 --   a list of the runs says it; null when unknown. The index serves that list,

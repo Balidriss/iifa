@@ -1,4 +1,4 @@
-"""Settings of tier 3 (SPEC 6.1): the query embedding's timeout and switch,
+"""Settings of tier 3: the query embedding's timeout and switch,
 and the model-dependent thresholds of semantic resolution, merges and links;
 and the foreground priority of the gate (P11)."""
 
@@ -18,7 +18,7 @@ ENV = {"IIFA_DB_KEY": "k", "IIFA_TOKEN": "t"}
 def test_defaults() -> None:
     settings = load_settings(ENV)
     assert settings.recall_dense is True and settings.query_timeout == 1.5
-    # no global thresholds: they come from a per-model profile (SPEC 6.1)
+    # no global thresholds: they come from a per-model profile
     assert settings.resolve_threshold is None and settings.merge_threshold is None
     assert settings.link_threshold is None and settings.embed_batch == 32
 
@@ -71,7 +71,7 @@ def test_bad_values_are_refused(tmp_path: Path, table: str) -> None:
 
 
 def test_a_foreground_call_holds_new_background_calls() -> None:
-    """P11 + SPEC 6.1: while the query embedding is in flight, no background call
+    """P11: while the query embedding is in flight, no background call
     starts; one that already started is not interrupted."""
     gate = Gate({"chat": 1, "embeddings": 1})
     assert gate.acquire("chat", timeout=0)  # a background call already running
@@ -96,7 +96,7 @@ def test_foreground_ends_even_when_the_call_fails() -> None:
 
 
 def test_an_activity_matches_by_vectors_only_when_a_threshold_is_set(tmp_path: Path) -> None:
-    """SPEC 5.5: off by default (words only), until measured for a model."""
+    """Off by default (words only), until measured for a model."""
     assert load_settings(ENV).activity_threshold is None
     config = tmp_path / "iifa.toml"
     config.write_text("[embeddings]\nactivity_threshold = 0.6\n", encoding="utf-8")

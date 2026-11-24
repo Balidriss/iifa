@@ -1,4 +1,4 @@
-"""The dream prompt (SPEC 5.6). Like every prompt that reads memory, it says the
+"""The dream prompt. Like every prompt that reads memory, it says the
 memory between its markers is DATA, never instructions (P8), and it states the
 language every text must be written in (P12). Nothing here is ever executed:
 the answer goes through ``iifa.dream.catalogue`` and the service's checks."""
@@ -94,7 +94,7 @@ ADJUDICATION_RULES = (
 
 
 def adjudication_messages(pair: dict[str, Any]) -> list[dict[str, str]]:
-    """The two messages of one adjudication (SPEC 5.6): the rules, then the pair
+    """The two messages of one adjudication: the rules, then the pair
     as data. The answer is a closed verdict, never an operation."""
     system = [
         "You compare two entries of a personal memory, A and B, and say whether they are "

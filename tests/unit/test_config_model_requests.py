@@ -1,4 +1,4 @@
-"""Settings for talking to a model (SPEC 7.4b): per-endpoint extra request parameters,
+"""Settings for talking to a model: per-endpoint extra request parameters,
 JSON mode on or off, and the answer cap."""
 
 from __future__ import annotations

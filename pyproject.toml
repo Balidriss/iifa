@@ -55,7 +55,10 @@ Homepage = "https://github.com/Balidriss/iifa"
 packages = ["src/iifa"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/iifa", "README.md", "docs", "LICENSE", "DEPENDENCIES.md", "CHANGELOG.md", "SPEC.md"]
+include = [
+  "src/iifa", "tests", "bench", "adapters", "examples", "docs",
+  "README.md", "LICENSE", "DEPENDENCIES.md", "CHANGELOG.md", "Dockerfile",
+]
 
 [tool.ruff]
 line-length = 100
@@ -68,7 +71,7 @@ ignore = [
   "PLR0913",  # many arguments on public constructors is fine
   "PLR2004",  # magic values in tests and BM25 constants
   "PLR0917",  # FastAPI route signatures and small engines take several arguments
-  "N818",     # NotFound, ScopeMismatch: spec vocabulary, not "Error" suffixes
+  "N818",     # NotFound, ScopeMismatch: the project's vocabulary, not "Error" suffixes
   "S101",     # asserts are the test language
   "RUF012",
 ]
@@ -108,7 +111,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
-  "security: proves an item of SPEC section 12 or a principle of section 2",
+  "security: proves an item of the security checklist or a principle (docs/principles.md)",
   "perf: latency or throughput threshold checked in CI at small scale",
   "exact_tokenizer: needs an exact tokenizer (tiktoken with a warm cache); skipped otherwise",
 ]

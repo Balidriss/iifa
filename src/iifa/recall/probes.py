@@ -1,6 +1,6 @@
-"""Probe scores (SPEC 11.2): run a stored probe set through ``recall`` exactly as
+"""Probe scores: run a stored probe set through ``recall`` exactly as
 an agent would, and compare two scores — what the dream measures before and
-after a run (SPEC 5.6 rule 9). Scores carry ids and numbers only (P5)."""
+after a run. Scores carry ids and numbers only (P5)."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class ProbeResult:
     used_tokens: int
     recall: float
     tier: int | None = None
-    summary_tokens: int = 0  # SPEC 11.2: what summary lines cost above the plain line
+    summary_tokens: int = 0  # what summary lines cost above the plain line
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -52,7 +52,7 @@ class ProbeScore:
     recall_per_1k_tokens: float | None
     scored: int
     probes: tuple[ProbeResult, ...]
-    summary_tokens: float = 0.0  # mean over scored probes (SPEC 11.2)
+    summary_tokens: float = 0.0  # mean over scored probes
     compared_per_1k_tokens: float | None = None  # recall per 1k tokens, summaries aside
 
     @property
@@ -82,7 +82,7 @@ def per_1k(recall: float, tokens: float) -> float | None:
 def run_probe_set(engine: RecallEngine, store: Store, probe_set: ProbeSet) -> ProbeScore:
     """Ask every probe through ``recall`` (the set's scope and ancestors, the set's
     budget). An expected record is found when the recall returns it or what
-    replaced it (P7: ``superseded_by``; SPEC 5.6: ``consolidated_into``,
+    replaced it (P7: ``superseded_by``; a dream: ``consolidated_into``,
     ``merged_into``)."""
     view = Visibility.of_scope(probe_set.scope)
     results: list[ProbeResult] = []

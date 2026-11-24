@@ -1,4 +1,4 @@
-"""Near names (SPEC 5.1): a name alike letter by letter is a candidate for the
+"""Near names: a name alike letter by letter is a candidate for the
 adjudication, never a match on its own. Ivana's facts never land on Ivan's
 node, whichever of the two is named first."""
 
@@ -84,7 +84,7 @@ def test_the_adjudication_may_still_attach_a_near_name(
     run_all(client, app)
     assert {f.statement for f in store.facts([youssef.id], VIEW)} == {statement, typo}
     # attached for this source only: a near form is proposed as an alias, never
-    # kept, so the next "Yousef" goes to the adjudication again (SPEC 5.1)
+    # kept, so the next "Yousef" goes to the adjudication again
     assert store.find_node("Yousef", VIEW) is None
     proposals = store.proposals([youssef.id], VIEW)
     assert [(p.kind, p.value) for p in proposals] == [("alias", "Yousef")]

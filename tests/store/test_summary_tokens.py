@@ -1,4 +1,4 @@
-"""Summary tokens (SPEC 11.2): per probe, what the summary lines of the node
+"""Summary tokens: per probe, what the summary lines of the node
 handles returned cost above the line of a node without a summary - never
 negative, at most the bound, none for a fact handle. The comparison uses
 recall per 1k tokens without them (``compared_per_1k_tokens``), computed the

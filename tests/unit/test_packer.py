@@ -82,7 +82,7 @@ def test_p1_negative_inputs_are_rejected() -> None:
 @given(costs=costs_strategy, budget=st.integers(min_value=0, max_value=20000))
 @settings(max_examples=300, deadline=None)
 def test_p1_a_page_is_the_longest_prefix_that_fits(costs: list[int], budget: int) -> None:
-    """A list page (SPEC 8) never skips an item: it is a prefix, at or under the
+    """A list page never skips an item: it is a prefix, at or under the
     budget, and the first item left out would have overflowed it."""
     result = pack_prefix(costs, budget)
     count = len(result.chosen)

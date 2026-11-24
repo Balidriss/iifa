@@ -1,6 +1,6 @@
-"""Revisions (SPEC 4.4): every change to a node, fact or edge moves its ``rev``,
+"""Revisions: every change to a node, fact or edge moves its ``rev``,
 whoever makes it - content, life, aliases, scope set - and a forgotten record
-has none. The dream's optimistic checks (rule 8) and undo (rule 4) rest on it,
+has none. The dream's optimistic checks and undo rest on it,
 so each kind of change gets its assertion."""
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _decision_rev(store: Store, edge_id: str) -> int:
 def test_an_edges_decision_revision_moves_only_on_what_a_person_decides(
     store: Store, memory: Memory, clock: object, change: str, moves: bool
 ) -> None:
-    """SPEC 4.4: status, life, ends, type and scope set move it; weight, use
+    """Status, life, ends, type and scope set move it; weight, use
     counters and evidence do not, while the full revision moves on all."""
     edge = store.add_edge(
         scopes=[SCOPE],

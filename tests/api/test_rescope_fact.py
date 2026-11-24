@@ -1,4 +1,4 @@
-"""Re-scoping a fact (SPEC 4.6): share it with a parent scope or a chosen few."""
+"""Re-scoping a fact: share it with a parent scope or a chosen few."""
 
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ def test_rescope_is_validated(client: TestClient) -> None:
 
 def test_rescope_bumps_the_revision(app: FastAPI, client: TestClient) -> None:
     """A dream that read the fact before the re-scope sees a newer revision and
-    applies nothing on it (SPEC 4.4, 5.6)."""
+    applies nothing on it."""
     store = app.state.store
     fact = remember(client, "Prefers cold palettes", scope=ARTIST)["fact"]
     rev = store.get_fact(fact["id"]).rev

@@ -1,4 +1,4 @@
-"""The activity of a source, in the agent perspective (SPEC 4.2).
+"""The activity of a source, in the agent perspective.
 
 What the owner asks the agent to do is what a later request repeats in other
 words, and a rule of method never resembles that request. So the extraction
@@ -51,7 +51,7 @@ def content_words(name: str) -> list[str]:
 
 
 def two_words(name: str) -> bool:
-    """SPEC 5.6, ``group_activities``: does ``name`` hold two words that count,
+    """``group_activities``: does ``name`` hold two words that count,
     or, in a script written without spaces, one of at least ``UNSPACED_NAME``
     letters? One word is the verb a model kept ("writing"), not an activity."""
     words = content_words(name)
@@ -59,7 +59,7 @@ def two_words(name: str) -> bool:
 
 
 def shared_by(name: str, others: Sequence[str]) -> bool:
-    """SPEC 5.6, ``group_activities``: does ``name`` hold at least one word that
+    """``group_activities``: does ``name`` hold at least one word that
     counts, and is every such word written whole in each of ``others``?"""
     words = content_words(name)
     return bool(words) and all(

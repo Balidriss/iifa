@@ -1,4 +1,4 @@
-"""Equivalence groups (SPEC 5.4): facts stating one value in other forms or
+"""Equivalence groups: facts stating one value in other forms or
 languages, linked by ``same_as`` to the group's first fact; read through the
 view (P9); ``forget`` of the first re-roots the group (P5)."""
 

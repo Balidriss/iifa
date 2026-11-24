@@ -1,4 +1,4 @@
-// iifa memory for opencode (SPEC 10.4): everything but the one import of
+// iifa memory for opencode: everything but the one import of
 // opencode's `tool` helper, which the entry file (../iifa.ts) passes in. No
 // dependency: tests run this file under `node --test` against iifa's fake
 // service.

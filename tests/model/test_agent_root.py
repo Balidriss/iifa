@@ -1,4 +1,4 @@
-"""A memory rooted at the agent (SPEC 4.6): no rule reads the kind of a scope
+"""A memory rooted at the agent: no rule reads the kind of a scope
 segment, so ``agent:nova`` with the owner as a node inside it behaves like
 ``user:alice`` with the agent as a node inside it - the owner's facts and the
 self's, the profile, recall, the scopes below and the tokens' bounds."""

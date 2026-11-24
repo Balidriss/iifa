@@ -1,8 +1,8 @@
-"""Summary maintenance (SPEC 6, tier 2): one line per node, rewritten from its
+"""Summary maintenance (tier 2): one line per node, rewritten from its
 live facts in the language of those facts (P12). A summary the model wrote in
 another language is rejected and asked for again once; the second answer is
 stored whatever its language, flagged ``language_mismatch`` on the node rather
-than silently. A summary cut by its token cap is never stored (SPEC 7.4b): it
+than silently. A summary cut by its token cap is never stored: it
 is asked for again once with twice the cap, then the summary is left as it was.
 """
 

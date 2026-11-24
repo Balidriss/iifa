@@ -1,4 +1,4 @@
-"""`subject_as_written` (SPEC 4.2): a known subject keeps its known name in
+"""`subject_as_written`: a known subject keeps its known name in
 `subject` (for resolution) and its spelling in the source in
 `subject_as_written`, which names it in the statement's script and becomes a
 source-anchored alias - only when the source and the statement hold that
@@ -121,7 +121,7 @@ def test_a_spelling_absent_from_the_statement_is_ignored(
 def test_a_spelling_that_is_another_nodes_name_is_ignored(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """The guard of SPEC 5.1: "Иван" is another known node's name; writing it as Karim's
+    """The guard: "Иван" is another known node's name; writing it as Karim's
     spelling in the source must not name Karim, nor become his alias."""
     remember(client, FRENCH, node={"name": "Karim", "kind": "person"})
     ivan = remember(client, "Иван любит чай.", node={"name": "Иван", "kind": "person"})

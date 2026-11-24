@@ -1,4 +1,4 @@
-"""The summary shown is bounded (SPEC 5.6): a node handle's line and a profile
+"""The summary shown is bounded: a node handle's line and a profile
 entry's summary show at most SUMMARY_LINE_TOKENS tokens of the summary,
 counted with the configured tokenizer, cut at a word boundary (a character
 boundary without spaces) and ended with "…" inside the bound. The stored

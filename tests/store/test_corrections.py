@@ -1,4 +1,4 @@
-"""The corrections journal at the store level (SPEC 5.7): the kind rule, the
+"""The corrections journal at the store level: the kind rule, the
 default node to keep, and undo when forget took part of what a correction
 touched."""
 

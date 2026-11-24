@@ -1,4 +1,4 @@
-"""Both transports of SPEC 9 with the official client: stdio (``python -m iifa.mcp``
+"""Both transports with the official client: stdio (``python -m iifa.mcp``
 as a subprocess toward a live service) and streamable HTTP (mounted on the
 service at ``/mcp``, behind the same bearer tokens as the API)."""
 

@@ -2,7 +2,7 @@
 sets, probe sets and the lexical index goes through ``Store``. One connection, one lock,
 one writer.
 
-Visibility (a ``Visibility`` view, SPEC section 4.6) is applied inside every
+Visibility (a ``Visibility`` view) is applied inside every
 read query, before any statistic or score is computed (P9)."""
 
 from __future__ import annotations
@@ -34,13 +34,13 @@ FORGETTABLE = ("node", "fact", "edge", "src")
 _TABLES = {"node": "nodes", "fact": "facts", "edge": "edges", "src": "sources"}
 
 PROPOSED, CONFIRMED = "proposed", "confirmed"
-MAX_MERGED = 50  # SPEC 5.5: the nodes merged into one activity that are read, at most
+MAX_MERGED = 50  # the nodes merged into one activity that are read, at most
 _EPISODE_SQL = "(',' || f.flags || ',') LIKE '%,episode,%'"
 PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
 ALIAS, MERGE, FACT = "alias", "merge", "fact"
 PROPOSAL_KINDS = (ALIAS, MERGE, FACT)
-SELF_RULE = "self:rule"  # SPEC 4.2: why a rule of the self waits in review
-RULE_FAMILIES = ("commitment", "preference")  # SPEC 4.2: the key families of a rule
+SELF_RULE = "self:rule"  # why a rule of the self waits in review
+RULE_FAMILIES = ("commitment", "preference")  # the key families of a rule
 FACT_PAYLOAD_KEYS = (
     "attribute",
     "value",
@@ -52,13 +52,13 @@ FACT_PAYLOAD_KEYS = (
     "part_kind",
     "part_ref",
     "read_at",
-    "observed_at",  # SPEC 4.2: an observation keeps its day
-    "activities",  # SPEC 4.2, agent perspective: the activities it was learnt during
+    "observed_at",  # an observation keeps its day
+    "activities",  # agent perspective: the activities it was learnt during
     "confidence",
-    "why",  # SPEC 4.2: a fact proposed because its intent is in doubt says which
+    "why",  # a fact proposed because its intent is in doubt says which
     "subject",  # ...and whom it is about, when no node is named yet
 )
-# the embedded facets of a record (SPEC 6.1)
+# the embedded facets of a record
 TEXT, NAME, SUMMARY = "text", "name", "summary"
 REINDEX_NODES = "reindex_nodes"  # service_state mark set by migration 11
 
@@ -81,7 +81,7 @@ class VectorRow:
 
 
 def _plain_aliases(aliases: Iterable[str]) -> list[str]:
-    """The aliases that pass ``checked_name``, as the store keeps them (SPEC 5.1):
+    """The aliases that pass ``checked_name``, as the store keeps them:
     one that is no name is left out."""
     kept: list[str] = []
     for alias in aliases:
@@ -113,7 +113,7 @@ class ProposalDecided(ValueError):
 class ProposalNotApplicable(ValueError):
     """A proposal this path cannot accept: a merge, which only a reviewer's decision
     applies - a reviewed ``merge_nodes`` of a dream, or a person's merge through
-    the review path (SPEC 4.4b, 5.6, 5.7)."""
+    the review path."""
 
 
 NAME_MAX_CHARS = 300
@@ -121,7 +121,7 @@ NAME_MAX_CHARS = 300
 
 def checked_name(text: str) -> str:
     """The one name rule every node name and alias passes before the store keeps
-    it (SPEC 5.1, 5.7): Markdown stripped and brackets balanced (``require_name``),
+    it: Markdown stripped and brackets balanced (``require_name``),
     its whitespace collapsed to single spaces, at most ``NAME_MAX_CHARS``
     characters. Raises ``InvalidName``."""
     name = " ".join(require_name(text).split())
@@ -131,7 +131,7 @@ def checked_name(text: str) -> str:
 
 
 class ScopeMismatch(ValueError):
-    """Records whose scope sets differ may not be merged or consolidated (§5.6)."""
+    """Records whose scope sets differ may not be merged or consolidated."""
 
 
 @dataclass(frozen=True)
@@ -367,7 +367,7 @@ class Store:
         return self._set_scopes(record_id, unique)
 
     def require_identical_scopes(self, record_ids: Sequence[str]) -> tuple[str, ...]:
-        """The guard a dream must pass before merging or consolidating records (§5.6):
+        """The guard a dream must pass before merging or consolidating records:
         every record has exactly the same scope set, or nothing happens."""
         if not record_ids:
             raise ValueError("no records")
@@ -423,7 +423,7 @@ class Store:
         external_id: str | None = None,
         language: str | None = None,
     ) -> Node:
-        """A new node. Its name and aliases go through ``checked_name`` (SPEC 5.1):
+        """A new node. Its name and aliases go through ``checked_name``:
         Markdown stripped; a name that is no name raises ``InvalidName``, such
         an alias is left out."""
         name = checked_name(name)
@@ -532,8 +532,8 @@ class Store:
     ) -> Node:
         """Change the summary (with the language it is written in, P12), add aliases,
         replace the flags, rename the node or change its kind (a person's
-        correction, SPEC 5.7). The new name passes ``checked_name``; an added
-        alias that does not is left out (SPEC 5.1). ``updated_at`` moves only
+        correction). The new name passes ``checked_name``; an added
+        alias that does not is left out. ``updated_at`` moves only
         when something changed."""
         new_name = None if name is None else checked_name(name)
         aliases = _plain_aliases(add_aliases)
@@ -556,7 +556,7 @@ class Store:
                     " updated_at = ? WHERE id = ?",
                     (summary, language, self.now(), node_id),
                 )
-                if summary != before.summary:  # SPEC 6.1: embedded text changed
+                if summary != before.summary:  # embedded text changed
                     self._drop_vector(node_id, SUMMARY)
             elif language is not None:
                 self._execute("UPDATE nodes SET language = ? WHERE id = ?", (language, node_id))
@@ -622,7 +622,7 @@ class Store:
         after: tuple[str, str] | None,
         limit: int,
     ) -> list[dict[str, Any]]:
-        """The nodes the view sees, a page at a time (SPEC 8.2), in one query plus
+        """The nodes the view sees, a page at a time, in one query plus
         one for their aliases, never one per node.
 
         ``mark`` is a ULID: only nodes, and facts counted in ``changed_at``, whose
@@ -712,7 +712,7 @@ class Store:
         self, view: Visibility, *, limit: int = DEFAULT_NODE_INDEX_LIMIT
     ) -> list[tuple[str, str, str, str, tuple[str, ...]]]:
         """``(id, kind, name, name_norm, alias_norms)`` of the visible, live nodes, most
-        recently updated first, bounded: what fuzzy resolution (SPEC 5.1 step 2)
+        recently updated first, bounded: what fuzzy resolution
         compares a mention against. Names only, never a fact (P9 applies:
         only visible nodes are candidates)."""
         if view.is_empty or limit <= 0:
@@ -764,7 +764,7 @@ class Store:
 
     def session_texts(self, session_id: str, view: Visibility, *, limit: int = 200) -> list[str]:
         """The texts of the visible sources recorded under ``session_id``, the
-        newest ``limit`` of them (SPEC 5.1: what the session has named)."""
+        newest ``limit`` of them (what the session has named)."""
         if not session_id or view.is_empty:
             return []
         with self._lock:
@@ -870,10 +870,10 @@ class Store:
         observed_at: str | None = None,
         activities: Sequence[str] = (),
     ) -> Fact:
-        """``value_norm``: the value's comparison form (SPEC 5.4), kept beside the
+        """``value_norm``: the value's comparison form, kept beside the
         fact and read only by ``value_norms``: never part of the record, never
-        indexed. ``activities``: the task nodes it was learnt or done during
-        (SPEC 4.2), links beside its subject."""
+        indexed. ``activities``: the task nodes it was learnt or done during,
+        links beside its subject."""
         fact_id = new_id("fact")
         now = self.now()
         with self._lock, self._transaction():
@@ -949,7 +949,7 @@ class Store:
         scopes: Sequence[str] | None = None,
     ) -> Fact:
         """Attach a free-standing fact to a node (or detach it), pin it, and/or
-        replace its scope set (SPEC 4.6) - all in one transaction."""
+        replace its scope set - all in one transaction."""
         with self._lock, self._transaction():
             fact = self.get_fact(fact_id)
             if node_id is not None:
@@ -991,7 +991,7 @@ class Store:
             return self.get_fact(fact_id)
 
     def observe_again(self, fact_id: str, day: str) -> bool:
-        """SPEC 4.2: an observed fact seen again - its ``observed_at`` moves to
+        """An observed fact seen again - its ``observed_at`` moves to
         ``day`` when that is later. Returns whether it moved."""
         with self._lock, self._transaction():
             moved = self._execute(
@@ -1003,7 +1003,7 @@ class Store:
 
     def observed_days(self, fact_ids: Sequence[str]) -> dict[str, str]:
         """``fact id -> observed_at`` for the observed ones among facts already
-        known to be visible (recall's ranking, SPEC 4.2)."""
+        known to be visible (recall's ranking)."""
         if not fact_ids:
             return {}
         with self._lock:
@@ -1035,7 +1035,7 @@ class Store:
         )
 
     def free_facts(self, view: Visibility, *, flag: str) -> list[Fact]:
-        """The live, visible free-standing facts carrying ``flag`` (SPEC 4.2: the
+        """The live, visible free-standing facts carrying ``flag`` (the
         speaker facts a new one is compared with), most recent first."""
         with self._lock:
             vis, params = self._fact_visible_sql(view)
@@ -1051,7 +1051,7 @@ class Store:
         self, node_ids: Sequence[str], view: Visibility, *, flag: str, limit: int
     ) -> list[Fact]:
         """At most ``limit`` live, visible facts of ``node_ids`` carrying ``flag``
-        (SPEC 5.4: the elements of sets the extraction prompt lists), oldest first."""
+        (the elements of sets the extraction prompt lists), oldest first."""
         if not node_ids:
             return []
         with self._lock:
@@ -1088,7 +1088,7 @@ class Store:
             return self._facts_from_rows(rows)
 
     def value_norms(self, fact_ids: Sequence[str]) -> dict[str, str]:
-        """The comparison forms of these facts' values (SPEC 5.4), by fact id; a
+        """The comparison forms of these facts' values, by fact id; a
         fact without one is left out. For the write path's comparison only: the
         caller already holds the facts through its view (P9)."""
         if not fact_ids:
@@ -1102,7 +1102,7 @@ class Store:
         return {r["id"]: r["value_norm"] for r in rows}
 
     def fact_roots(self, fact_ids: Sequence[str]) -> dict[str, str]:
-        """The first fact of each fact's equivalence group (SPEC 5.4): its
+        """The first fact of each fact's equivalence group: its
         ``same_as``, or itself."""
         if not fact_ids:
             return {}
@@ -1133,7 +1133,7 @@ class Store:
 
     def attribute_keys(self, node_ids: Sequence[str], view: Visibility) -> dict[str, list[str]]:
         """The attribute keys the visible live facts of ``node_ids`` carry, as
-        stored, most recent first (SPEC 5.4: what the prompt asks to reuse)."""
+        stored, most recent first (what the prompt asks to reuse)."""
         if not node_ids:
             return {}
         with self._lock:
@@ -1168,7 +1168,7 @@ class Store:
 
     def external_only(self, node_ids: Sequence[str], view: Visibility) -> set[str]:
         """The nodes among ``node_ids`` whose live, visible facts are all
-        external content (SPEC 8.5); a node with no such fact is not one."""
+        external content; a node with no such fact is not one."""
         if not node_ids:
             return set()
         with self._lock:
@@ -1201,7 +1201,7 @@ class Store:
 
     def pinned_facts(self, view: Visibility) -> list[Fact]:
         """Live, visible, pinned facts in creation order: the stable part of the
-        profile block (SPEC 8.1). Nothing here depends on the current time."""
+        profile block. Nothing here depends on the current time."""
         if view.is_empty:
             return []
         with self._lock:
@@ -1296,7 +1296,7 @@ class Store:
         or of the whole view: ``recorded`` at ``created_at``, ``closed`` at
         ``valid_to``. Newest first (ties: id, then ``recorded`` before ``closed``),
         inside ``[since, until]``, strictly after the keyset position ``before`` in
-        that order, at most ``limit`` (the timeline's pages, SPEC 8)."""
+        that order, at most ``limit`` (the timeline's pages)."""
         if view.is_empty or limit <= 0:
             return []
         with self._lock:
@@ -1361,7 +1361,7 @@ class Store:
 
     def add_evidence(self, edge_id: str, source_id: str) -> int:
         """Record that ``source_id`` observed the edge; returns the number of distinct
-        sources that now evidence it (what SPEC 5.2's confirmation rule counts)."""
+        sources that now evidence it (what the confirmation rule counts)."""
         with self._lock, self._transaction():
             self.get_edge(edge_id)
             self.get_source(source_id)
@@ -1376,7 +1376,7 @@ class Store:
             return int(row["n"])
 
     def confirm_edge(self, edge_id: str) -> Edge:
-        """A confirmed edge never decays away (SPEC 5.3)."""
+        """A confirmed edge never decays away."""
         with self._lock, self._transaction():
             self.get_edge(edge_id)
             self._execute(
@@ -1387,7 +1387,7 @@ class Store:
 
     def set_edge_status(self, edge_id: str, status: str) -> Edge:
         """Put the edge back to ``status`` (what undoing a person's confirmation
-        does, SPEC 5.7)."""
+        does)."""
         if status not in (PROPOSED, CONFIRMED):
             raise ValueError(f"unknown edge status {status!r}")
         with self._lock, self._transaction():
@@ -1403,7 +1403,7 @@ class Store:
     ) -> Edge | None:
         """The live, visible edge of ``type`` from ``src`` to ``dst`` (or from
         ``dst`` to ``src`` with ``either_way``), confirmed first, else the oldest:
-        the one an explicit link confirms rather than adding a twin (SPEC 5.2)."""
+        the one an explicit link confirms rather than adding a twin."""
         found = [
             e
             for e in self.edges_between([src, dst], view)
@@ -1413,7 +1413,7 @@ class Store:
         return found[0] if found else None
 
     def reinforce_edge(self, edge_id: str, *, step: float = REINFORCE_STEP) -> Edge | None:
-        """The expand signal (SPEC 5.3): the edge was used by a recall the agent then
+        """The expand signal: the edge was used by a recall the agent then
         expanded. Its use count grows, its last use is now, its weight grows by
         ``step`` up to ``MAX_EDGE_WEIGHT``. A closed or archived edge is left alone."""
         with self._lock, self._transaction():
@@ -1444,7 +1444,7 @@ class Store:
     def decay_edges(
         self, *, half_life_days: float, prune_below: float, view: Visibility | None = None
     ) -> dict[str, int]:
-        """SPEC 5.3 with the store's clock: every live ``proposed`` edge loses weight
+        """Edge decay with the store's clock: every live ``proposed`` edge loses weight
         by a half-life counted from the later of its last use and its last decay
         (or its creation), and one that falls under ``prune_below`` is closed,
         never deleted (P5). Confirmed edges are never touched. Limited to the
@@ -1528,7 +1528,7 @@ class Store:
             ).fetchall()
             return self._edges_from_rows(rows)
 
-    # ------------------------------------------------------------------ vectors (SPEC 6.1)
+    # ------------------------------------------------------------------ vectors
 
     def put_vector(
         self, record_id: str, facet: str, *, model: str, text: str, values: Sequence[float]
@@ -1698,7 +1698,7 @@ class Store:
                 out.extend(VectorRow(r[0], r[1], int(r[2]), bytes(r[3])) for r in rows)
         return out
 
-    # ------------------------------------------------------------------ proposals (SPEC 4.4b)
+    # ------------------------------------------------------------------ proposals
 
     def add_proposal(
         self,
@@ -1715,13 +1715,13 @@ class Store:
         """Record a proposal with the scope set of its source. The same pending
         proposal (kind, node, normalised value) is recorded once: the existing
         one is returned. Only a fact proposal may have no node (a free speaker
-        fact, SPEC 4.4b); its ``payload`` holds the rest of the fact."""
+        fact); its ``payload`` holds the rest of the fact."""
         if kind not in PROPOSAL_KINDS:
             raise ValueError(f"unknown proposal kind {kind!r}")
         if node_id is None and kind != FACT:
             raise ValueError(f"a {kind} proposal needs a node")
         text = " ".join(value.split())
-        if kind == ALIAS:  # SPEC 5.1: what is no name is not proposed either
+        if kind == ALIAS:  # what is no name is not proposed either
             text = require_name(text)
         norm = normalize(text)
         if not norm:
@@ -1786,7 +1786,7 @@ class Store:
             return [self._proposal_from_row(r, scopes.get(r["id"], ())) for r in rows]
 
     def newer_pending(self, facts: Iterable[Fact], view: Visibility) -> set[str]:
-        """SPEC 8.5: the live observed facts among ``facts`` whose node has a
+        """The live observed facts among ``facts`` whose node has a
         pending fact proposal visible in ``view`` (P9) that is itself an
         observation of the same attribute with another value, observed on a
         later day: memory did not close them, yet a newer observation waits in
@@ -1824,7 +1824,7 @@ class Store:
         return out
 
     def newer_observed(self, facts: Iterable[Fact], view: Visibility) -> set[str]:
-        """SPEC 8.5: the live observed facts among ``facts`` whose node holds
+        """The live observed facts among ``facts`` whose node holds
         another live observed fact, visible in ``view`` (P9), under another
         attribute and observed on a later day. Computed, never stored."""
         observed = [
@@ -1864,7 +1864,7 @@ class Store:
         return out
 
     def contested(self, facts: Iterable[Fact], view: Visibility) -> set[str]:
-        """SPEC 8.5: the live facts among ``facts`` that a live fact, visible in
+        """The live facts among ``facts`` that a live fact, visible in
         ``view`` (P9) and still flagged ``conflict``, names in
         ``conflicts_with``: the other side of an open conflict. Only a fact of
         at least the same authority counts (P6): an explicit fact is contested
@@ -1894,7 +1894,7 @@ class Store:
         return out
 
     def read_flags(self, facts: Iterable[Fact], view: Visibility) -> dict[str, set[str]]:
-        """SPEC 8.5: the flags computed when facts are read, by fact id:
+        """The flags computed when facts are read, by fact id:
         ``newer_pending``, ``newer_observed`` and the other side of an open
         ``conflict``. Never stored."""
         listed = list(facts)
@@ -1919,7 +1919,7 @@ class Store:
         """Every pending proposal visible in ``view`` (P9), of ``kind`` when given,
         oldest first: the only place a fact proposal without a node shows. With
         ``after`` (``created_at``, id), only those after that keyset position;
-        with ``limit``, at most that many (SPEC 8 pages)."""
+        with ``limit``, at most that many."""
         if view.is_empty:
             return []
         with self._lock:
@@ -1939,7 +1939,7 @@ class Store:
 
     def decide_proposal(self, proposal_id: str, *, accept: bool) -> Proposal:
         """Accept (apply it: an alias proposal adds the alias to its node; a fact
-        proposal writes an explicit fact that keeps its provenance, SPEC 4.4b) or
+        proposal writes an explicit fact that keeps its provenance) or
         reject (only the status changes). A decided proposal raises
         ``ProposalDecided``."""
         with self._lock, self._transaction():
@@ -1947,14 +1947,14 @@ class Store:
             if proposal.status != PENDING:
                 raise ProposalDecided(proposal_id)
             if accept and proposal.kind == MERGE:
-                # SPEC 6.1: a merge belongs to the dream and its review queue, never applied here
+                # a merge belongs to the dream and its review queue, never applied here
                 raise ProposalNotApplicable(proposal_id)
             applied: str | None = None
             if accept and proposal.kind == FACT:
                 applied = self._apply_fact_proposal(proposal)
             elif accept:
                 assert proposal.node_id is not None  # only a fact proposal goes without
-                require_name(proposal.value)  # SPEC 5.1: no alias to add, InvalidName
+                require_name(proposal.value)  # no alias to add, InvalidName
                 self.update_node(proposal.node_id, add_aliases=[proposal.value])
             self._execute(
                 "UPDATE proposals SET status = ?, decided_at = ?, applied_id = ? WHERE id = ?",
@@ -2000,7 +2000,7 @@ class Store:
         return fact.id
 
     def _flag_rule_twin(self, fact: Fact, why: Any) -> None:
-        """SPEC 4.2: an accepted rule of the self whose topic holds another
+        """An accepted rule of the self whose topic holds another
         value under the other rule family (``preference.<topic>`` beside
         ``commitment.<topic>``) is flagged ``conflict`` with that fact, which
         stays live: the accept closes nothing there. Read like
@@ -2028,7 +2028,7 @@ class Store:
                 return
 
     def _replace_commitment(self, fact: Fact, why: Any) -> None:
-        """SPEC 4.2: a commitment of the self accepted from review replaces the
+        """A commitment of the self accepted from review replaces the
         live one of its topic, as it would have when written without review -
         the reviewer's accept is the decision. Only a commitment with a topic
         (one current value per topic), only one proposed as a rule of the
@@ -2056,7 +2056,7 @@ class Store:
         return [old for old in self.facts([node_id], view) if old.attribute == attribute]
 
     def replaced_by(self, proposal: Proposal) -> list[Fact]:
-        """SPEC 4.4b: the live facts accepting this pending proposal would
+        """The live facts accepting this pending proposal would
         close, so that a reviewer reads them before deciding. The same rule
         as the accept itself; none for any proposal that closes nothing."""
         if proposal.kind != "fact" or proposal.status != PENDING:
@@ -2067,7 +2067,7 @@ class Store:
         )
 
     def _live_nodes(self, node_ids: Any) -> list[str]:
-        """SPEC 4.2: the activities a fact proposal named whose node is still
+        """The activities a fact proposal named whose node is still
         there (forgetting one deletes the links to it, P5)."""
         if not isinstance(node_ids, list):
             return []
@@ -2087,7 +2087,7 @@ class Store:
     def activity_facts(
         self, activity_ids: Sequence[str], view: Visibility, *, rules: int, episodes: int
     ) -> list[Fact]:
-        """SPEC 5.5: a family's block from the store - the ``rules`` newest live,
+        """A family's block from the store - the ``rules`` newest live,
         visible ``method`` facts linked to one of ``activity_ids`` or to a node
         merged into one, then their ``episodes`` newest linked episodes."""
         with self._lock:
@@ -2119,7 +2119,7 @@ class Store:
             return self._facts_from_rows(found)
 
     def node_rules(self, node_id: str, view: Visibility, limit: int) -> list[Fact]:
-        """SPEC 5.5: the ``limit`` newest live, visible ``method`` facts of a node."""
+        """The ``limit`` newest live, visible ``method`` facts of a node."""
         with self._lock:
             vis, params = self._fact_visible_sql(view)
             rows = self._execute(
@@ -2131,7 +2131,7 @@ class Store:
             return self._facts_from_rows(rows)
 
     def fact_activities(self, fact_ids: Sequence[str]) -> dict[str, list[str]]:
-        """SPEC 4.2: ``fact id -> the activities it is linked to`` (stored ids;
+        """``fact id -> the activities it is linked to`` (stored ids;
         a reader follows ``merge_target`` and checks visibility)."""
         if not fact_ids:
             return {}
@@ -2191,7 +2191,7 @@ class Store:
             applied_id=row["applied_id"],
         )
 
-    # ------------------------------------------------------------------ probe sets (SPEC 11.2)
+    # ------------------------------------------------------------------ probe sets
 
     def create_probe_set(
         self,
@@ -2310,7 +2310,7 @@ class Store:
     def successors(self, record_id: str, *, limit: int = 16) -> list[str]:
         """What replaced a record, in order: for a fact, the fact that superseded it
         or a dream consolidated it into, and so on; for a node, the node a dream
-        merged it into, and so on (SPEC 11.2). Bounded, so a cycle cannot loop."""
+        merged it into, and so on. Bounded, so a cycle cannot loop."""
         kind = kind_of(record_id)
         if kind == "fact":
             sql = (
@@ -2332,7 +2332,7 @@ class Store:
         return chain
 
     def _reroot(self, fact_id: str) -> None:
-        """P5 (SPEC 5.4): the group a forgotten first fact led is led by its next
+        """P5: the group a forgotten first fact led is led by its next
         member; no ``same_as`` names a forgotten fact."""
         members = [
             r["id"]
@@ -2353,7 +2353,7 @@ class Store:
     def _forget_expected(self, record_id: str) -> int:
         """Delete every probe that expected a forgotten record, question included
         (P5): a question may carry the forgotten content, and a probe that lost an
-        answer no longer measures the same thing (SPEC 11.2). Returns how many."""
+        answer no longer measures the same thing. Returns how many."""
         touched = [
             r["probe_id"]
             for r in self._execute(
@@ -2365,11 +2365,11 @@ class Store:
             self._execute("DELETE FROM probes WHERE id = ?", (probe_id,))
         return len(touched)
 
-    # ------------------------------------------------------------------ dream (SPEC 4.4, 5.6)
+    # ------------------------------------------------------------------ dream
 
     def revisions(self, record_ids: Sequence[str]) -> dict[str, int]:
         """The current ``rev`` of each node, fact or edge among ``record_ids`` that
-        exists (SPEC 4.4); a forgotten or unknown id is simply absent."""
+        exists; a forgotten or unknown id is simply absent."""
         by_kind: dict[str, list[str]] = {}
         for record_id in dict.fromkeys(record_ids):
             kind = kind_of(record_id)
@@ -2387,7 +2387,7 @@ class Store:
 
     def node_ids_after(self, view: Visibility, after: str, limit: int) -> list[str]:
         """Live nodes the view sees with an id above ``after``, in id order (ids
-        sort by creation, SPEC 7): what a dream walks, unit by unit."""
+        sort by creation): what a dream walks, unit by unit."""
         if view.is_empty or limit <= 0:
             return []
         with self._lock:
@@ -2400,7 +2400,7 @@ class Store:
             return [r["id"] for r in rows]
 
     def live_proposed_edges(self, view: Visibility) -> list[Edge]:
-        """The live ``proposed`` edges the view sees (what decay works on, SPEC 5.3)."""
+        """The live ``proposed`` edges the view sees (what decay works on)."""
         if view.is_empty:
             return []
         with self._lock:
@@ -2427,7 +2427,7 @@ class Store:
             return None if row is None else self._node_from_row(row)
 
     def remove_aliases(self, node_id: str, aliases: Iterable[str]) -> Node:
-        """Remove aliases from a node (undoing a merge, SPEC 5.6)."""
+        """Remove aliases from a node (undoing a merge)."""
         with self._lock, self._transaction():
             self.get_node(node_id)
             removed = 0
@@ -2468,7 +2468,7 @@ class Store:
         self, node_id: str, *, name: str, kind: str, aliases: Iterable[str]
     ) -> Node:
         """Put back exactly a node's name, kind and alias set (undoing a person's
-        correction, SPEC 5.7): the stored text as it was, not run through the
+        correction): the stored text as it was, not run through the
         name rule again."""
         wanted = {normalize(a): a for a in aliases}
         with self._lock, self._transaction():
@@ -2497,7 +2497,7 @@ class Store:
     def consolidate_facts(
         self, fact_ids: Sequence[str], *, into: str, valid_to: str | None = None
     ) -> None:
-        """Close facts as consolidated into another one (SPEC 5.6): not a change
+        """Close facts as consolidated into another one: not a change
         of value, so ``superseded_by`` is left alone."""
         with self._lock, self._transaction():
             self.get_fact(into)
@@ -2550,7 +2550,7 @@ class Store:
             return self.get_fact(fact_id)
 
     def merge_node(self, node_id: str, *, into: str) -> Node:
-        """Archive a node as merged into another (SPEC 5.6): it stays, with
+        """Archive a node as merged into another: it stays, with
         ``merged_into``, and leaves recall like any archived node."""
         with self._lock, self._transaction():
             self.get_node(into)
@@ -2649,8 +2649,8 @@ class Store:
         return row is not None
 
     def remove_pending_proposal(self, proposal_id: str) -> bool:
-        """Delete a proposal a dream created, while nobody decided it (SPEC 5.6:
-        undoing a run removes the merge proposals its ``unsure`` verdicts left)."""
+        """Delete a proposal a dream created, while nobody decided it (undoing
+        a run removes the merge proposals its ``unsure`` verdicts left)."""
         with self._lock, self._transaction():
             row = self._execute(
                 "SELECT status FROM proposals WHERE id = ?", (proposal_id,)
@@ -2690,7 +2690,7 @@ class Store:
 
     def remove_created(self, record_id: str) -> None:
         """Delete a node, fact or edge a dream operation created, when undoing it
-        (SPEC 5.6: undo deletes what that operation created - nothing else). The
+        (undo deletes what that operation created - nothing else). The
         journal is left alone: it is the journal doing the undo."""
         kind = self._kind(record_id, ARCHIVABLE)
         with self._lock, self._transaction():
@@ -2704,7 +2704,7 @@ class Store:
 
     def probe_sets_within(self, scope: str) -> list[ProbeSet]:
         """Every probe set of ``scope`` or of a scope below it, with its probes
-        (what a dream on ``scope`` is measured by, SPEC 5.6 rule 9)."""
+        (what a dream on ``scope`` is measured by)."""
         with self._lock:
             rows = self._execute("SELECT id, scope FROM probe_sets ORDER BY id").fetchall()
             return [self.get_probe_set(r["id"]) for r in rows if within(r["scope"], scope)]
@@ -2751,8 +2751,8 @@ class Store:
         first (ties: id, descending); with ``before`` (``archived_at``, id), only
         those after that keyset position; with ``limit``, at most that many.
 
-        Each item says what a person needs to choose between restore and forget
-        (SPEC 8.3): a node's name and kind, a fact's statement and node, an
+        Each item says what a person needs to choose between restore and forget:
+        a node's name and kind, a fact's statement and node, an
         edge's type, status and ends. A node the view does not see (a fact's, an
         edge's end) shows as null, its id and its name alike (P9)."""
         if view.is_empty:
@@ -2826,7 +2826,7 @@ class Store:
         return counts
 
     def _wipe_journal(self, record_ids: Sequence[str]) -> int:
-        """P5 (SPEC 5.6): the dream journal entries that mention a forgotten record
+        """P5: the dream journal entries that mention a forgotten record
         lose their content (payload, the model's reason, before/after states) and
         the record's id; they can no longer be undone, and a queued one is
         dropped. Returns how many entries were wiped."""
@@ -2852,7 +2852,7 @@ class Store:
         return len(wiped)
 
     def _wipe_corrections(self, record_ids: Sequence[str]) -> int:
-        """P5 (SPEC 5.7): the corrections journal entries that mention a forgotten
+        """P5: the corrections journal entries that mention a forgotten
         record lose their content (what was asked, the state they changed) and
         the record's id; they can no longer be undone. Returns how many."""
         wiped: set[str] = set()
@@ -2870,7 +2870,7 @@ class Store:
         return len(wiped)
 
     def _forget_adjudications(self, record_ids: Sequence[str]) -> int:
-        """P5 (SPEC 5.6): an adjudication's reason may quote what it read, so every
+        """P5: an adjudication's reason may quote what it read, so every
         adjudication that read a forgotten record is deleted."""
         deleted: set[str] = set()
         for record_id in record_ids:
@@ -2918,7 +2918,7 @@ class Store:
         return counts
 
     def _forget_session_facts(self, node_id: str) -> tuple[int, int]:
-        """P5 (SPEC 5.8): the session facts about a forgotten node - their subject is
+        """P5: the session facts about a forgotten node - their subject is
         its name or one of its aliases - go with it, and so do the turns of a
         trace that name it (whole words: "Karima" does not name Karim). A source
         forgotten takes its session facts and its trace along by itself (they
@@ -2959,7 +2959,7 @@ class Store:
             counts["vectors"] += self._drop_vector(fact_id)
             counts["probes_deleted"] += self._forget_expected(fact_id)
             self._reroot(fact_id)
-            # the originals of a forgotten consolidation stay closed (SPEC 5.6)
+            # the originals of a forgotten consolidation stay closed
             self._execute(
                 "UPDATE facts SET consolidated_into = NULL WHERE consolidated_into = ?", (fact_id,)
             )
@@ -3044,7 +3044,7 @@ class Store:
                 self._execute("DELETE FROM service_state WHERE key = ?", (REINDEX_NODES,))
 
     def _reindex_node(self, node_id: str) -> None:
-        # SPEC 6.1: names and aliases only - a summary is model-written text,
+        # names and aliases only - a summary is model-written text,
         # shown in handles, never ranked by recall
         row = self._execute("SELECT name FROM nodes WHERE id = ?", (node_id,)).fetchone()
         aliases = [
@@ -3288,7 +3288,7 @@ class Store:
 
 def decayed_weight(weight: float, since: str, now: datetime, half_life_days: float) -> float:
     """``weight`` after the time from ``since`` (an ISO timestamp) to ``now`` at the
-    given half-life (SPEC 5.3): a pure function of time, rounded to six decimals
+    given half-life: a pure function of time, rounded to six decimals
     so that running it twice on the same clock reading changes nothing."""
     try:
         then = datetime.fromisoformat(since)

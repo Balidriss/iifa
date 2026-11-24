@@ -1,5 +1,5 @@
 """A secret said in a conversation is never memory, and a queued job can be
-forgotten before it runs (SPEC P5, 12).
+forgotten before it runs (P5, 12).
 
 The model is scripted at its worst: it writes the password in a statement,
 under a ``password`` attribute, in a quote, in a session fact, in a fact left

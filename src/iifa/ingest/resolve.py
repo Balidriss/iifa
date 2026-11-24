@@ -1,4 +1,4 @@
-"""Entity resolution on the write path (SPEC 5.1): mention -> node.
+"""Entity resolution on the write path: mention -> node.
 
 In order, stopping at the first confident match:
 
@@ -7,7 +7,7 @@ In order, stopping at the first confident match:
    name), of a compatible kind - a match; names alike letter by letter (typos,
    near names) and one subject in two forms (a slug or file name and a title)
    are only candidates for step 4;
-3. embedding similarity (tier 3, SPEC 6.1): the extractor embeds the new
+3. embedding similarity (tier 3): the extractor embeds the new
    mentions of a job in one call and hands the near nodes to
    ``set_semantic``; they only ever make a mention **ambiguous** (a candidate
    for step 4), never resolve it on their own;
@@ -35,7 +35,7 @@ DEFAULT_FUZZY_THRESHOLD = 0.86
 CONTAINMENT_SCORE = 0.9
 MIN_FUZZY_CHARS = 4
 MIN_CONTAINMENT_CHARS = 3
-# SPEC 5.1, one subject in two forms: a file extension ends a name (a dot
+# one subject in two forms: a file extension ends a name (a dot
 # right after a letter or digit, then one to five letters or digits, the first
 # a letter)
 _EXTENSION = re.compile(r"(?<=[^\W_])\.[^\W\d_][^\W_]{0,4}$")
@@ -70,7 +70,7 @@ class _Entry:
     _forms: tuple[frozenset[str], ...] | None = None
 
     def forms(self) -> tuple[frozenset[str], ...]:
-        """The form words (SPEC 5.1) of every name and alias, computed once."""
+        """The form words of every name and alias, computed once."""
         if self._forms is None:
             self._forms = tuple(form_words(f) for f in dict.fromkeys((*self.raw, *self.norms)))
         return self._forms
@@ -83,7 +83,7 @@ def name_words(name: str) -> frozenset[str]:
 
 
 def part_of(mention: str, name: str) -> bool:
-    """SPEC 5.1: every word of ``mention`` is a word of the longer ``name``
+    """Every word of ``mention`` is a word of the longer ``name``
     ("Karim" of "Karim Benali"), never the reverse ("Karim Haddad" is not part
     of "Karim") and never a piece of a word ("Anne" of "Marie-Anne")."""
     words, whole = name_words(mention), name_words(name)
@@ -105,14 +105,14 @@ def contained(a: str, b: str) -> bool:
 
 
 def form_words(name: str) -> frozenset[str]:
-    """SPEC 5.1: the words of a name read as a slug or a file name - split on any
+    """The words of a name read as a slug or a file name - split on any
     separator, case and diacritics folded, without a file extension
     ("the-north-garden.pdf", "North garden.pdf")."""
     return frozenset(tokenize(_EXTENSION.sub("", name.strip())))
 
 
 def same_form(a: str, b: str) -> bool:
-    """SPEC 5.1: may ``a`` and ``b`` write one subject in two forms (a slug or a
+    """May ``a`` and ``b`` write one subject in two forms (a slug or a
     file name and a title)? At least two words in common, more words in common
     than apart, and at most one word of each the other does not hold. Only how
     the names are written counts, never a word list of one language; the answer
@@ -131,7 +131,7 @@ def _same_words(wa: frozenset[str], wb: frozenset[str]) -> bool:
 
 
 def written_as_slug(name: str, other: str) -> bool:
-    """SPEC 5.1: is ``name`` written as a slug or a file name, next to ``other``?
+    """Is ``name`` written as a slug or a file name, next to ``other``?
     A file extension; words joined without spaces by an underscore, or by any
     separator without a capital ("the-north-garden"; a hyphenated proper name,
     "Jean-Pierre", "Saint-Étienne", is not one); or cased letters without a
@@ -149,7 +149,7 @@ def written_as_slug(name: str, other: str) -> bool:
 
 
 def form_duplicate(name: str, kind: str, other: str, other_kind: str) -> bool:
-    """SPEC 5.1: should a new node ``name`` be proposed for a merge with a node
+    """Should a new node ``name`` be proposed for a merge with a node
     ``other``? Two forms of one subject, one of them written as a slug, of
     compatible kinds, and not one name (that is an exact match)."""
     return (
@@ -200,7 +200,7 @@ class Resolver:
         self._entries: list[_Entry] | None = None
         self._pending: list[_Entry] = []
         self._cache: dict[tuple[str, str | None], Resolution] = {}
-        # SPEC 5.1 step 4: what the adjudication attached stays attached, whatever
+        # what the adjudication attached stays attached, whatever
         # the answer proposes afterwards (a proposal clears ``_cache``)
         self._decided: dict[str, Resolution] = {}
         self._semantic: dict[str, list[Candidate]] = {}
@@ -227,7 +227,7 @@ class Resolver:
         return [(e.key, e.name) for e in self._index()[:limit]]
 
     def form_nodes(self, name: str, kind: str) -> list[str]:
-        """SPEC 5.1: the known nodes (never one the current answer proposes) that
+        """The known nodes (never one the current answer proposes) that
         a new node ``name`` is proposed to be merged with (``form_duplicate``).
         Their display names only: a stored alias keeps neither case nor dots."""
         return [e.key for e in self._index() if form_duplicate(name, kind, e.name, e.kind)]
@@ -239,17 +239,17 @@ class Resolver:
         self._cache.clear()
 
     def set_semantic(self, mention: str, candidates: Sequence[Candidate]) -> None:
-        """The nodes close to ``mention`` by their name vectors (SPEC 5.1 step 3),
+        """The nodes close to ``mention`` by their name vectors,
         computed by the caller in one batched embedding call."""
         self._semantic[mention] = list(candidates)
         self._forget(mention)
 
     def semantic_candidates(self, mention: str) -> list[Candidate]:
-        """SPEC 5.1 step 3, tier 3: what ``set_semantic`` found for ``mention``."""
+        """Tier 3: what ``set_semantic`` found for ``mention``."""
         return list(self._semantic.get(mention, ()))
 
     def contest(self, mention: str, keys: Sequence[str]) -> None:
-        """SPEC 5.1, the source form of a subject: ``mention`` is never a match
+        """The source form of a subject: ``mention`` is never a match
         on its own; the nodes ``keys`` name join its candidates for the
         adjudication, beside whatever it resolves to."""
         self._contested[mention] = list(dict.fromkeys(keys))
@@ -306,7 +306,7 @@ class Resolver:
             if norm in entry.norms:
                 return Resolution(mention, entry.key, EXACT)
         # 2. the mention's words inside exactly one known name of a compatible
-        # kind; 3. anything else alike is a candidate only (SPEC 5.1: a wrong
+        # kind; 3. anything else alike is a candidate only (a wrong
         # attachment corrupts another person's memory, a split node is visible)
         scored: list[Candidate] = []
         containing: set[str] = set()

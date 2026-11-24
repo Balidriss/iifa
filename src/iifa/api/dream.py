@@ -1,4 +1,4 @@
-"""Dream and review routes (SPEC 8.6). Starting, following, cancelling and
+"""Dream and review routes. Starting, following, cancelling and
 undoing a dream need the ``dream`` permission; listing and deciding the review
 queue need ``review``, which ``dream`` does not imply. A token reaches a run only
 when it is bound to the run's scope or above (otherwise the run does not exist
@@ -114,7 +114,7 @@ def start_dream(
     body: DreamStart,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/dream", "dream")],
 ) -> dict[str, Any]:
-    """Start a run (SPEC 5.6): recorded and queued at once, executed by the
+    """Start a run: recorded and queued at once, executed by the
     background worker under the mode, the gate and ``yield`` (P11)."""
     auth.require_write_scopes(principal, [body.scope])
     dreamer = _dreamer(request)
@@ -168,8 +168,8 @@ def list_dreams(
     limit: LimitQ = LIST_LIMIT,
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
-    """The runs on ``scope`` and below it, newest first, a page at a time
-    (SPEC 8.6): every run the token reaches, whichever client started it."""
+    """The runs on ``scope`` and below it, newest first, a page at a time:
+    every run the token reaches, whichever client started it."""
     try:
         validate_scope(scope)
     except ScopeError as exc:
@@ -218,8 +218,8 @@ def dream_plan(
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
     """The run's operations in order, each with what became of it and why
-    (content: the model's texts and reasons), a page at a time under budget
-    (SPEC 8). ``after`` is the same position as ``cursor``, as a plain ``seq``."""
+    (content: the model's texts and reasons), a page at a time under budget.
+    ``after`` is the same position as ``cursor``, as a plain ``seq``."""
     run = _run(request, principal, run_id)
     if after is not None and cursor:
         raise HTTPException(422, "give after or cursor, not both")
@@ -250,7 +250,7 @@ def undo_dream(
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/dream/{run_id}/undo", "dream")],
     body: DreamUndo | None = None,
 ) -> dict[str, Any]:
-    """Revert a run (all or nothing) or one of its operations (SPEC 5.6 rule 4)."""
+    """Revert a run (all or nothing) or one of its operations."""
     run = _run(request, principal, run_id)
     dreamer = _dreamer(request)
     op_id = body.op_id if body else None
@@ -308,7 +308,7 @@ def _sees_all(store: Any, view: Visibility, records: tuple[str, ...]) -> bool:
 
 
 def _adjudication(journal: Journal, a: str, b: str) -> dict[str, Any] | None:
-    """The latest verdict on a pair (SPEC 5.6), shown to the reviewer beside it."""
+    """The latest verdict on a pair, shown to the reviewer beside it."""
     latest = journal.latest_adjudication(a, b)
     if latest is None:
         return None
@@ -377,7 +377,7 @@ def _fact_statements(store: Any, view: Visibility, ids: list[str]) -> dict[str, 
 
 
 def _replaced(store: Any, view: Visibility, proposal: Any) -> list[dict[str, Any]]:
-    """The live facts accepting a fact proposal would close (SPEC 4.4b), by
+    """The live facts accepting a fact proposal would close, by
     their statement: an accepted commitment of the self replaces the one of
     its topic, and the topic is the extraction's reading - a reviewer must see
     what goes before deciding. Only what the view sees (P9)."""
@@ -448,9 +448,9 @@ def review_queue(
     limit: LimitQ = LIST_LIMIT,
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
-    """One queue (SPEC 4.4b, 8.6): pending alias, fact and merge proposals and
+    """One queue: pending alias, fact and merge proposals and
     queued dream operations the view sees, oldest first, a page at a time under
-    budget (SPEC 8). A merge proposal carries the latest adjudication of its
+    budget. A merge proposal carries the latest adjudication of its
     pair, and stands aside when its merge_nodes is queued (that item carries the
     same verdict). A fact proposal whose accept would close live facts carries
     ``replaces``, each one by its statement. An item about nodes carries
@@ -517,8 +517,8 @@ def decide_review_item(
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/review/{item_id}", "review")],
 ) -> dict[str, Any]:
     """Accept or reject one item of the queue: a proposal (accepting a merge
-    proposal merges the two nodes as a person's decision, SPEC 5.7), or a queued
-    operation - checked again against memory as it is now (rule 8: ``stale`` is
+    proposal merges the two nodes as a person's decision), or a queued
+    operation - checked again against memory as it is now (``stale`` is
     a 409)."""
     accept = body.decision == "accept"
     kind = kind_of(item_id)

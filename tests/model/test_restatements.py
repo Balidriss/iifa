@@ -1,4 +1,4 @@
-"""The same value told again in other words or units (SPEC 5.4, "Restatements"):
+"""The same value told again in other words or units ("Restatements"):
 within one language, a value the comparison proves the same, or that the
 restatement question answers ``same``, keeps the fact already held - nothing
 is written, nothing closed, and the job report counts it (``kept_same``). A
@@ -54,7 +54,7 @@ def told(subject: str, statement: str, key: str, value: str) -> Reply:
         "statement": statement,
         "attribute": key,
         "value": value,
-        "cardinality": "one",  # a free-form key: one current value (SPEC 5.4, sets)
+        "cardinality": "one",  # a free-form key: one current value (sets)
         "quote": statement,
     }
     return answer(nodes=[{"name": subject, "kind": "object"}], facts=[fact])

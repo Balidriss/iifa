@@ -1,4 +1,4 @@
-"""Sets (SPEC 5.4): an aspect that holds several elements at once, told one
+"""Sets: an aspect that holds several elements at once, told one
 element at a time. The model proposes a cardinality per fact and the value an
 element ``removes``; the service decides, for free-form keys, with what the
 store knows: a set's element adds, an unsure cardinality adds with a visible
@@ -235,7 +235,7 @@ def test_control_a_city_said_to_hold_one_value_still_supersedes(
             cardinality="one",
         )
 
-    # a free-form key of one value goes to the replacement ingredient (SPEC 5.4)
+    # a free-form key of one value goes to the replacement ingredient
     replaces = chat_json({"replacements": [{"pair": 0, "verdict": "replaces"}]})
     fake_openai.script(chat=[say(city("Paris")), say(city("Lyon")), replaces])
     ingest(client, app, "Karim lives in Paris.")
@@ -447,8 +447,8 @@ def test_a_removal_earlier_than_the_element_closes_nothing(
 def test_removes_on_a_key_that_is_not_a_set_is_ignored(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """Only a set loses an element through ``removes``: on ``one``, the rules of
-    SPEC 5.4 apply as without it."""
+    """Only a set loses an element through ``removes``: on ``one``, the contradiction
+    rules apply as without it."""
     fake_openai.script(
         chat=[
             say(
@@ -527,7 +527,7 @@ def test_the_label_of_a_set_is_bounded() -> None:
 def test_a_removal_never_closes_a_free_speaker_element(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2: without a declared owner several people may speak in one scope,
+    """Without a declared owner several people may speak in one scope,
     so a free speaker fact is never closed, by a removal either."""
     mine = told(
         INGREDIENTS[0],

@@ -1,4 +1,4 @@
-"""What one dream call reads is bounded (SPEC 5.6): a local server truncates an
+"""What one dream call reads is bounded: a local server truncates an
 over-long prompt from the start - the system prompt, the P8 wall, first - so
 every unit and every adjudication is counted with the service's counter before
 it is sent and, over its budget, carries fewer records: pinned first, then

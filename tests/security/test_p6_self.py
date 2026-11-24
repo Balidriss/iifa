@@ -1,4 +1,4 @@
-"""The agent's own memory (P6, SPEC 4.2 and 4.6): with a self declared, what
+"""The agent's own memory (P6): with a self declared, what
 the agent says about itself and the rules of method it states are memory, but
 a page read in the same turn never gives the agent a belief or a method -
 whether the reply restates it word for word or in other words - and the
@@ -271,7 +271,7 @@ def test_p6_no_claim_in_the_answer_lets_a_restated_rule_through(
     assert result["facts"]["written"] == 0 and result["facts"]["proposed"] == 3
     assert {p.payload["why"] for p in fact_proposals(app)} == {"self:outside"}
     assert live_facts(app) == []
-    # a later turn, with no page in it (it names the task, SPEC 5.1)
+    # a later turn, with no page in it (it names the task)
     later = ingest(client, app, "Once more, your rules for writing a recipe card.", assistant=reply)
     assert later["facts"]["written"] == 3 and later["facts"]["method"] == 3
     # an answer key outside the closed schema is no way through either
@@ -590,7 +590,7 @@ def test_p6_vouching_never_gives_a_fact_about_the_owner(
 def test_p6_neither_the_reply_nor_a_page_sets_the_activity(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer, where: str, quote: str
 ) -> None:
-    """SPEC 4.2: only the owner's words set what the agent is doing, so a page
+    """Only the owner's words set what the agent is doing, so a page
     (vouched or not) or the agent's reply never decides which activity a rule
     belongs to - whatever the answer claims, the quote's part decides."""
     rule = fact(
@@ -637,7 +637,7 @@ def test_p6_neither_the_reply_nor_a_page_sets_the_activity(
 def test_an_activity_named_like_no_node_may_be_is_refused(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer, name: str
 ) -> None:
-    """SPEC 4.2, 5.1: a name mixing two scripts in one word, or the word for the
+    """A name mixing two scripts in one word, or the word for the
     person speaking, is never a node - the activity's name included."""
     activity = {"name": name, "quote": "User asks: draw a map of the balcony"}
     fake_openai.script(

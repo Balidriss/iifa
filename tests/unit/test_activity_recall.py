@@ -1,4 +1,4 @@
-"""A request for an activity (SPEC 5.5): a request that matches an activity
+"""A request for an activity: a request that matches an activity
 - a word of its name written whole in the request, or at tier 3 a close
 vector neighbour - brings that activity's rules first, then the rules of what
 it uses, then its newest episode, ahead of the facts that only share words.

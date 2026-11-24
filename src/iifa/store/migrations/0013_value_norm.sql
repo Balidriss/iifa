@@ -1,4 +1,4 @@
--- Schema version 13: a value's comparison form (SPEC 5.4).
+-- Schema version 13: a value's comparison form.
 --
 -- With [extraction] value_norm on, an extracted fact keeps the canonical form
 -- the model gave for its value. It is read only to compare two values across

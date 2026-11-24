@@ -7,7 +7,7 @@ iifa service:
     IIFA_URL=http://127.0.0.1:8765 IIFA_TOKEN=agent-secret IIFA_SCOPE=user:alice/agent:demo \\
     python examples/minimal_agent.py
 
-The moments (SPEC 3.2, 8.1):
+The moments:
   1. session start   POST /v1/session/start: the profile block, injected as recalled DATA (P8)
   2. before a turn   recall handles for the user message, inject them as recalled DATA
   3. after a turn    POST /v1/turns: record the turn (enqueued only); explicit memory: /remember

@@ -172,7 +172,7 @@ def health(
 
 
 def _vectors_status(request: Request) -> dict[str, Any] | None:
-    """Tier 3 as health reports it (SPEC 6.1, P10): the model, the counts, whether
+    """Tier 3 as health reports it (P10): the model, the counts, whether
     recall embeds the query, and which arithmetic path runs (and past which size
     the pure-Python path misses the latency target). Counts only, no model call."""
     dense = _engine(request).dense
@@ -266,7 +266,7 @@ def list_nodes(
     limit: LimitQ = LIST_LIMIT,
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
-    """The nodes the view sees, a page at a time (SPEC 8.2): id, name, kind,
+    """The nodes the view sees, a page at a time: id, name, kind,
     aliases, live facts, pending proposals and last change, by name or by last
     change. ``prefix`` matches the start of the name or of an alias, compared in
     their normalised form (case and Latin diacritics folded). A walk lists the
@@ -340,7 +340,7 @@ def timeline(
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/timeline", "read")],
 ) -> dict[str, Any]:
     """Fact changes of a node, or of the whole view, inside a date range (P7),
-    newest first, a page at a time (SPEC 8)."""
+    newest first, a page at a time."""
     view = _view(principal, body)
     budget = _budget(request, body.budget_tokens)
     context = {
@@ -452,7 +452,7 @@ def list_archived(
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
     """Archived nodes, facts and edges the view sees, most recently archived
-    first, a page at a time (SPEC 8)."""
+    first, a page at a time."""
     view = _query_view(principal, scope, scopes, subtree)
     budget = _budget(request, budget_tokens)
     context = {"route": "archive", "view": view_context(view)}
@@ -494,7 +494,7 @@ def remember(
     if body.node and body.node_id:
         raise HTTPException(422, "give node or node_id, not both")
     if body.node:
-        try:  # the one name rule (SPEC 5.7), checked before anything is written
+        try:  # the one name rule, checked before anything is written
             for name in (body.node.name, *(a for a in body.node.aliases if a.strip())):
                 checked_name(name)
         except InvalidName as exc:
@@ -540,7 +540,7 @@ def remember(
             pinned=body.pinned,
             external_id=body.external_id,
         )
-    _worker(request).request_embeddings(scopes)  # tier 3: enqueue only (SPEC 6.1)
+    _worker(request).request_embeddings(scopes)  # tier 3: enqueue only
     log.event(
         "remember",
         fact=fact.id,
@@ -564,11 +564,11 @@ def remember(
 
 
 def _remember_self(request: Request, body: RememberRequest, scopes: list[str]) -> RememberResponse:
-    """SPEC 8.3, the agent remembering about itself: on the self's node, origin
+    """The agent remembering about itself: on the self's node, origin
     ``extracted``, provenance ``assistant``. No model is called (P3): the same
     thing said again is an echo and writes nothing; another value of a key the
     self holds is written in conflict with it, never closing it. A rule's key
-    is also its topic under the other rule family (SPEC 4.2)."""
+    is also its topic under the other rule family."""
     if body.node or body.node_id:
         raise HTTPException(422, "about_self names the node: give neither node nor node_id")
     agent = _worker(request).pipeline.agent(scopes)
@@ -586,7 +586,7 @@ def _remember_self(request: Request, body: RememberRequest, scopes: list[str]) -
                 scopes=[agent.scope], name=agent.name, kind="other", aliases=agent.aliases
             )
         live = store.facts([node.id], view)
-        # SPEC 4.2: the key's own facts first; when none holds a value, the
+        # the key's own facts first; when none holds a value, the
         # same topic under the other rule family stands for the key
         same_key = [f for f in live if key is not None and canonical_key(f.attribute) == key]
         if not any(f.value for f in same_key):
@@ -625,7 +625,7 @@ def _remember_self(request: Request, body: RememberRequest, scopes: list[str]) -
     if echoed is not None:
         log.event("remember", fact=echoed.id, node=node.id, echo=True, scopes=len(scopes))
         return _remembered(echoed, node, None, created_node, echo=True)
-    _worker(request).request_embeddings(scopes)  # tier 3: enqueue only (SPEC 6.1)
+    _worker(request).request_embeddings(scopes)  # tier 3: enqueue only
     log.event("remember", fact=fact.id, node=node.id, created_node=created_node, scopes=len(scopes))
     return _remembered(fact, node, source.id, created_node)
 
@@ -654,7 +654,7 @@ def _edge_out(edge: Edge) -> dict[str, Any]:
         "scopes": list(edge.scopes),
         "status": edge.status,
         "external_id": edge.external_id,
-        "rev": edge.decision_rev,  # an edge's API rev is its decision revision (SPEC 4.4)
+        "rev": edge.decision_rev,  # an edge's API rev is its decision revision
     }
 
 
@@ -665,9 +665,9 @@ def link(
     body: LinkRequest,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/link", "write")],
 ) -> dict[str, Any]:
-    """An explicit, confirmed edge (SPEC 5.2). When the pair already has the live
+    """An explicit, confirmed edge. When the pair already has the live
     edge of that type the token touches, that edge is confirmed (journalled as a
-    person's decision, SPEC 5.7) and returned rather than a twin added."""
+    person's decision) and returned rather than a twin added."""
     store = _store(request)
     try:
         scopes = auth.require_write_scopes(principal, body.target_scopes())
@@ -716,7 +716,7 @@ def decide_edge(
     body: EdgeDecision,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/edges/{edge_id}", "write")],
 ) -> dict[str, Any]:
-    """A person's decision on a proposed edge (SPEC 5.7): ``confirm`` makes it
+    """A person's decision on a proposed edge: ``confirm`` makes it
     confirmed, ``reject`` archives it - journalled with the token's name, undoable."""
     store = _store(request)
     if kind_of(edge_id) != "edge":
@@ -743,7 +743,7 @@ def decide_edge(
 def _require_rescope(
     principal: auth.Principal, current: Sequence[str], wanted: Sequence[str]
 ) -> None:
-    """SPEC 4.6: a token grants and takes away only scopes it owns - every scope
+    """A token grants and takes away only scopes it owns - every scope
     added and every scope removed is at or below one of its bound scopes."""
     changed = sorted(set(current) ^ set(wanted))
     if changed and not principal.may_write(changed):
@@ -876,7 +876,7 @@ def patch_fact(
             and node_id is not None
             and not Visibility.of_scopes(scopes).sees(store.scopes_of(node_id))
         ):
-            # SPEC 4.6: archiving or forgetting the node reaches the fact, so the
+            # archiving or forgetting the node reaches the fact, so the
             # fact may not leave every scope its node is in.
             raise HTTPException(
                 409,
@@ -910,7 +910,7 @@ def decide_proposal(
     ],
 ) -> dict[str, Any]:
     """Accept (apply: an alias proposal adds the alias, a fact proposal writes an
-    explicit fact) or reject a proposal (SPEC 4.4b), by a token bound to one of its
+    explicit fact) or reject a proposal, by a token bound to one of its
     scopes; a decided one is not decided again. A fact proposal - a fact about the
     owner that was not the owner's words (P6) - is decided only with ``review``:
     an agent fooled by the page it came from must neither apply nor hide it."""
@@ -933,8 +933,8 @@ def decide_proposal_item(
     keep: str | None = None,
 ) -> dict[str, Any]:
     """The decision on one proposal, shared by ``/v1/proposals`` and the review
-    queue (SPEC 8.6). A merge proposal is accepted only in the review queue,
-    where accepting it merges the two nodes as a person's decision (SPEC 5.7);
+    queue. A merge proposal is accepted only in the review queue,
+    where accepting it merges the two nodes as a person's decision;
     ``/v1/proposals``, an agent's ``write`` route, refuses it."""
     store = _store(request)
     if kind_of(proposal_id) != "prop":
@@ -965,7 +965,7 @@ def decide_proposal_item(
         except ProposalDecided as exc:
             raise HTTPException(409, f"proposal already {proposal.status}") from exc
         except InvalidName as exc:
-            raise HTTPException(422, "this alias is not a name (SPEC 5.1): reject it") from exc
+            raise HTTPException(422, "this alias is not a name: reject it") from exc
         except ProposalNotApplicable as exc:
             raise HTTPException(409, MERGE_IN_REVIEW) from exc
     if proposal.status == "accepted":
@@ -988,7 +988,7 @@ def _accept_merge(
     request: Request, principal: auth.Principal, proposal: Proposal, keep: str | None
 ) -> dict[str, Any]:
     """A reviewer accepts a merge proposal: the two nodes are merged as a person's
-    decision (SPEC 5.7). Called under the store lock."""
+    decision. Called under the store lock."""
     if not principal.can("review"):  # the route says so too; a merge never goes without it
         raise HTTPException(403, "a merge needs the 'review' permission")
     if proposal.status != "pending":
@@ -1002,7 +1002,7 @@ def _accept_merge(
     if keep is None:
         first, second = store.get_node(pair[0]), store.get_node(pair[1])
         if first.kind != second.kind:
-            # the kept node keeps its kind (SPEC 5.7): the default must not pick it
+            # the kept node keeps its kind: the default must not pick it
             raise HTTPException(422, {"reason": "keep_required", "records": pair})
         kept, absorbed = default_keep(store, first, second)
         keep_id, absorb_id = kept.id, absorbed.id
@@ -1031,7 +1031,7 @@ def _merge(
     proposal: Proposal | None = None,
     revs: dict[str, int] | None = None,
 ) -> Correction:
-    """The one merge path of a person (SPEC 5.7), under the store lock."""
+    """The one merge path of a person, under the store lock."""
     store = _store(request)
     try:
         entry = Corrections(store).merge(
@@ -1063,7 +1063,7 @@ def patch_node(
     body: NodePatch,
     principal: Annotated[auth.Principal, auth.declare("PATCH", "/v1/nodes/{node_id}", "write")],
 ) -> dict[str, Any]:
-    """A person's correction of a node (SPEC 5.7): rename it (the old name stays an
+    """A person's correction of a node: rename it (the old name stays an
     alias unless ``keep_old_name`` is false), change its kind, add and remove
     aliases - journalled with the token's name, undoable."""
     store = _store(request)
@@ -1108,7 +1108,7 @@ def merge_nodes(
     body: NodeMerge,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/nodes/merge", "review")],
 ) -> dict[str, Any]:
-    """Merge two nodes a person knows are one (SPEC 5.7): their merge proposal -
+    """Merge two nodes a person knows are one: their merge proposal -
     the pending one, else one recorded now - is accepted through the review
     path, so the same guard and the same journal apply."""
     store = _store(request)
@@ -1162,7 +1162,7 @@ def get_correction(
         auth.Principal, auth.declare("GET", "/v1/corrections/{correction_id}", "read")
     ],
 ) -> dict[str, Any]:
-    """One entry of the corrections journal (SPEC 5.7): what was changed, by which
+    """One entry of the corrections journal: what was changed, by which
     token, when, and whether it was undone."""
     store = _store(request)
     with store.lock:
@@ -1177,7 +1177,7 @@ def undo_correction(
         auth.Principal, auth.declare("POST", "/v1/corrections/{correction_id}/undo", auth.ANY)
     ],
 ) -> dict[str, Any]:
-    """Revert one correction exactly (SPEC 5.7); refused, naming the records, when
+    """Revert one correction exactly; refused, naming the records, when
     a later write depends on it. It needs the permission that made the
     correction: ``write`` for a patch, ``review`` for a merge."""
     store = _store(request)
@@ -1209,7 +1209,7 @@ def list_proposals(
     budget_tokens: Annotated[int | None, Query(ge=0)] = None,
 ) -> dict[str, Any]:
     """The pending proposals visible in the view, oldest first, a page at a time
-    under budget (SPEC 4.4b, 8.3): the only place a fact proposal without a node
+    under budget: the only place a fact proposal without a node
     shows."""
     view = _query_view(principal, scope, scopes, subtree)
     budget = _budget(request, budget_tokens)
@@ -1253,12 +1253,12 @@ def proposal_item(proposal: Proposal) -> dict[str, Any]:
         item["attribute"] = data.get("attribute")
         item["fact_value"] = data.get("value")
         item["provenance"] = data.get("provenance")
-        item["why"] = data.get("why")  # SPEC 4.2: "intent:..." when the intent is in doubt
+        item["why"] = data.get("why")  # "intent:..." when the intent is in doubt
         item["subject"] = data.get("subject")
     return item
 
 
-# --------------------------------------------------------------------------- probe sets (SPEC 8.7)
+# --------------------------------------------------------------------------- probe sets
 
 
 def _probe_set(store: Store, principal: auth.Principal, set_id: str) -> ProbeSet:
@@ -1281,7 +1281,7 @@ def create_probe_set(
     body: ProbeSetCreate,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/probes", "dream")],
 ) -> dict[str, Any]:
-    """Store a probe set (SPEC 11.2). Its expected records must be visible from its
+    """Store a probe set. Its expected records must be visible from its
     scope; changing what gates a dream is the ``dream`` permission's."""
     store = _store(request)
     auth.require_write_scopes(principal, [body.scope])
@@ -1346,7 +1346,7 @@ def run_probes(
     set_id: str,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/probes/{set_id}/run", "read")],
 ) -> dict[str, Any]:
-    """Run a probe set now: the probe score (SPEC 11.2), ids and numbers only."""
+    """Run a probe set now: the probe score, ids and numbers only."""
     store = _store(request)
     probe_set = _probe_set(store, principal, set_id)
     score = run_probe_set(_engine(request), store, probe_set)
@@ -1367,7 +1367,7 @@ def delete_probe_set(
     return {"id": probe_set.id, "deleted": deleted}
 
 
-# --------------------------------------------------------------------------- lifecycle (SPEC 8.1)
+# --------------------------------------------------------------------------- lifecycle
 
 
 def _write_view(scopes: list[str]) -> Visibility:
@@ -1512,7 +1512,7 @@ def session_end(
     return _queued(job, worker)
 
 
-# --------------------------------------------------------------------------- operations (SPEC 8.4)
+# --------------------------------------------------------------------------- operations
 
 
 @router.get("/background")

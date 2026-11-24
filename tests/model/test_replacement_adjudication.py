@@ -1,4 +1,4 @@
-"""Role, team and preferences (SPEC 5.4): they may hold several values at
+"""Role, team and preferences: they may hold several values at
 once, so with the replacement question switched on the adjudication asks
 whether the new value replaces the old one or both are true. replaces
 supersedes, same links, both keeps both live without a conflict, unsure (or
@@ -191,7 +191,7 @@ def test_within_one_language_an_added_role_keeps_both(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
     """ "je suis aussi photographe" after "je suis comptable": the accountant role
-    is still true, so it is not closed (SPEC 5.4, single-valued assumption)."""
+    is still true, so it is not closed (single-valued assumption)."""
     old, result = _same_language(client, app, fake_openai, replacement("both"))
     assert len(fake_openai.chat_calls) == 2
     assert '"replacements"' in fake_openai.chat_calls[1].body["messages"][0]["content"]

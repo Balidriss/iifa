@@ -1,4 +1,4 @@
-"""A small-scale latency check with p95 thresholds (SPEC 7.4, 13.1). The full
+"""A small-scale latency check with p95 thresholds. The full
 10k-fact measurement is ``bench/recall_latency.py``."""
 
 from __future__ import annotations

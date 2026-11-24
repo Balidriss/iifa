@@ -1,4 +1,4 @@
-"""Attribute keys through the pipeline (SPEC 5.4): the prompt steers them (base
+"""Attribute keys through the pipeline: the prompt steers them (base
 vocabulary, the subject's existing keys), the write path aligns them (a table
 of unambiguous variants without a model, near free-form keys by embeddings at
 tier 3), so that a change of value supersedes the old one - and, when we cannot
@@ -65,7 +65,7 @@ def karim_answer(statement: str, attribute: str, value: str) -> Any:
                 "statement": statement,
                 "attribute": attribute,
                 "value": value,
-                "cardinality": "one",  # free-form keys close only on "one" (SPEC 5.4)
+                "cardinality": "one",  # free-form keys close only on "one"
                 "quote": statement,
             }
         ],
@@ -172,7 +172,7 @@ def test_a_bare_family_key_never_supersedes(
         assert len(live_keys(app, node)) == 2
 
 
-# --------------------------------------------------------------------------- tier 3 (step 4)
+# ------------------------------------------------------------------ tier 3 (key alignment)
 
 
 def tier3_app(
@@ -196,7 +196,7 @@ def test_tier3_a_near_free_form_key_is_aligned_by_embeddings(
     try:
         fake_openai.set_vectors({"commute mode": NEAR, "transport mode": NEAR, "Karim": FAR})
         node, old = karim_with(app, "commute_mode", "vélo", COMMUTE)
-        # an aligned free-form key goes to the replacement question (SPEC 5.4)
+        # an aligned free-form key goes to the replacement question
         replaces = chat_json({"replacements": [{"pair": 0, "verdict": "replaces"}]})
         fake_openai.script(chat=[karim_answer(TRAIN, "transport_mode", "train"), replaces])
         with make_client(app) as client:
@@ -215,7 +215,7 @@ def test_tier3_a_vocabulary_key_is_never_renamed_nor_a_target(
     tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
 ) -> None:
     """A new "employer" must not be matched to "role" and close it; a free-form
-    "dwelling" must not be matched to "home" either: step 4 is for free-form keys."""
+    "dwelling" must not be matched to "home" either: the alignment is for free-form keys."""
     app = tier3_app(tmp_path, fake_openai, clock, key_threshold=0.5)
     try:
         fake_openai.set_vectors({"role": NEAR, "employer": NEAR, "home": NEAR, "dwelling": NEAR})
@@ -256,7 +256,7 @@ def test_tier3_family_keys_compare_their_topics_only(
             chat=[
                 karim_answer(music, "preference.music", "jazz"),
                 karim_answer(beverage, "preference.beverage", "café"),
-                # a preference never closes on its own (SPEC 5.4): it is asked
+                # a preference never closes on its own: it is asked
                 chat_json({"replacements": [{"pair": 0, "verdict": "replaces"}]}),
             ]
         )
@@ -279,7 +279,7 @@ def test_tier3_family_keys_compare_their_topics_only(
 def test_tier3_uncalibrated_keys_are_not_embedded(
     tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
 ) -> None:
-    app = tier3_app(tmp_path, fake_openai, clock)  # no key_threshold: step 4 is off
+    app = tier3_app(tmp_path, fake_openai, clock)  # no key_threshold: no alignment
     try:
         fake_openai.set_vectors({"commute mode": NEAR, "transport mode": NEAR})
         _, old = karim_with(app, "commute_mode", "vélo", COMMUTE)

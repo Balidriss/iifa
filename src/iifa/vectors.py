@@ -1,11 +1,11 @@
-"""Vector arithmetic for tier 3 (SPEC 6.1).
+"""Vector arithmetic for tier 3.
 
 Vectors are stored unit-normalised as float32 blobs, so a cosine is a dot
 product. Two paths compute the same ranking: numpy when the optional
 ``vectors`` extra is installed (milliseconds for 10 000 vectors of dimension
 1024), otherwise pure Python (``math.sumprod`` on 3.12, a slower loop on 3.11):
 correct, only slower, and ``/v1/health`` says which one runs and past which
-size the 50 ms target of SPEC 7.4 is missed without numpy (P10).
+size the 50 ms target is missed without numpy (P10).
 
 Reciprocal rank fusion (``rrf``) merges the lexical and dense rankings.
 """

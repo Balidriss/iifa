@@ -1,4 +1,4 @@
-"""What a node name or an alias is, whatever path writes it (SPEC 5.1).
+"""What a node name or an alias is, whatever path writes it.
 
 A model often answers in Markdown, and the source it reads may be a reply
 written in Markdown: ``**Name A`` or ``Name A (Name B``
@@ -26,7 +26,7 @@ __all__ = [
 
 
 class InvalidName(ValueError):
-    """A name or alias that is not one once its formatting is removed (SPEC 5.1)."""
+    """A name or alias that is not one once its formatting is removed."""
 
 
 _WORDISH = r"[^\W_]"  # a letter or a digit

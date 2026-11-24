@@ -1,5 +1,5 @@
 -- Schema version 2: the persisted ingestion queue and the operational state that
--- must survive a restart (SPEC 7.2, P11). A job is a row before the request that
+-- must survive a restart (P11). A job is a row before the request that
 -- created it answers; a row found `running` at startup was interrupted by a
 -- crash and goes back to `pending`. Payloads live in the same encrypted file as
 -- everything else and are cleared as soon as a job is done (P5).

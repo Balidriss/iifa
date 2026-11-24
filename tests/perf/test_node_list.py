@@ -1,4 +1,4 @@
-"""The node list at small scale (SPEC 7.4, 8.2): a page of 100 out of 1000 nodes,
+"""The node list at small scale: a page of 100 out of 1000 nodes,
 by name and by last change, stays well under the threshold, and a whole walk
 reads every node once."""
 

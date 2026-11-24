@@ -1,4 +1,4 @@
-"""Closing a session (SPEC 5.8): its work in progress, consolidated or expired.
+"""Closing a session: its work in progress, consolidated or expired.
 
 When a session ends - the host calls session end, or it went idle - the facts
 it kept as session state (``task``, ``unsure``, and in a named session a note of
@@ -18,7 +18,7 @@ expires: the session's facts are deleted. A ``task`` fact never becomes
 memory on its own.
 
 The model call happens first, then everything is written in one transaction
-(a budget that runs out puts the job back untouched, SPEC 7.4b).
+(a budget that runs out puts the job back untouched).
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def parse_consolidation(content: str, unsure: Sequence[int]) -> Consolidation:
 
 def _window(facts: Sequence[sessions.SessionFact]) -> list[sessions.SessionFact]:
     """The newest facts, in order, within the note bounds: the work notes
-    first, the observation notes in the room they leave (SPEC 5.8)."""
+    first, the observation notes in the room they leave."""
     chosen: set[int] = set()
     used = 0
     for observed in (False, True):
@@ -173,15 +173,15 @@ def close_session(
     subject = owner.name if owner is not None else SPEAKER_SUBJECT
     partner: str | None = None
     if agent is not None:
-        # SPEC 5.8, agent perspective: one episode, about the self
+        # agent perspective: one episode, about the self
         partner = subject if owner is not None else "the user"
         subject = agent.name
     language = _language([*(f.statement for f in window), *turns], forced)
     answer, calls = _ask(ctx, window, turns, subject, language, partner)
     report["calls"], report["rejected"] = calls, answer.rejected
-    # SPEC 5.8: an episode naming a known subject the session never named is
+    # an episode naming a known subject the session never named is
     # only proposed - the model may have filled a generic word with it
-    # SPEC 4.2, 5.8: the episode's activities - none in the user perspective,
+    # the episode's activities - none in the user perspective,
     # else the session's that are still live, visible task nodes (one list
     # for the episode written and the episode proposed)
     state = replace(state, activities=_live_activities(ctx, state) if agent else ())
@@ -318,7 +318,7 @@ def _plans(
             session_id=state.key or None,
             read_at=read_at,
             external=source.external,  # P6: the parts' offsets are not kept
-            activities=state.activities,  # SPEC 5.8: the episode's links
+            activities=state.activities,  # the episode's links
             # P5: the adjudications see the masked trace, never the source (a
             # secret only the turn's model saw is not known any more): without
             # a trace, the names alone
@@ -348,8 +348,8 @@ def _names_unnamed_subject(
     owner: Owner | None,
     agent: Owner | None = None,
 ) -> bool:
-    """SPEC 5.8: does ``episode`` name a known subject - a visible node's name
-    or alias, whole words (SPEC 5.1), not the person speaking nor the self nor
+    """Does ``episode`` name a known subject - a visible node's name
+    or alias, whole words, not the person speaking nor the self nor
     the session's current activity (set from the owner's words) - that no
     source of the session names?"""
     if not episode:
@@ -378,7 +378,7 @@ def _propose_episode(
     episode: str,
     subject: str,
 ) -> int:
-    """The episode as a fact proposal on the person speaking (SPEC 4.4b), decided
+    """The episode as a fact proposal on the person speaking, decided
     only by a ``review`` token; 1 when it was recorded."""
     anchor = _anchor(window)
     if anchor is None or not is_complete(episode) or mixed_script_words(episode):

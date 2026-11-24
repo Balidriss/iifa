@@ -187,6 +187,7 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 | Page | What is in it |
 |---|---|
+| [Principles](docs/principles.md) | the twelve rules the service holds to, and where each is explained |
 | [How it works](docs/how-it-works.md) | tiers, handles, the background, the write path, the dream, scopes, provenance |
 | [Configuration](docs/configuration.md) | environment variables, the TOML file, tokens and permissions, local models |
 | [API reference](docs/api.md) | every route, the MCP tools, the Python SDK |
@@ -194,7 +195,6 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 | [Security](docs/security.md) | what protects the memory, token counting, known limits |
 | [Benchmarks](docs/benchmarks.md) | every number, and the command that measured it |
 | [Development](docs/development.md) | checks, tests, platforms |
-| [SPEC.md](SPEC.md) | the design document, with every rule and its reasons |
 
 ## Security
 

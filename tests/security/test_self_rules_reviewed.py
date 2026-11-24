@@ -1,4 +1,4 @@
-"""A self's rules wait for a reviewer (SPEC 4.2, ``review_self_rules``): with
+"""A self's rules wait for a reviewer (``review_self_rules``): with
 the setting on, what the agent commits to and how it prefers to behave is never
 written by a turn, whoever said it - the owner or the agent - and only a
 ``review`` token makes it memory. Said again, a rule is asked about once, and

@@ -13,7 +13,7 @@ from iifa.tokens import Tokenizer
 
 LINE_CHARS = 140
 TITLE_CHARS = 80
-SUMMARY_LINE_TOKENS = 24  # SPEC 5.6: the accepted price of a summary shown
+SUMMARY_LINE_TOKENS = 24  # the accepted price of a summary shown
 ELLIPSIS = "…"
 
 
@@ -26,7 +26,7 @@ def one_line(text: str, limit: int = LINE_CHARS) -> str:
 
 
 def summary_line(summary: str, tokenizer: Tokenizer, limit: int = SUMMARY_LINE_TOKENS) -> str:
-    """SPEC 5.6: the summary as a handle or a profile shows it - whole when it
+    """The summary as a handle or a profile shows it - whole when it
     fits ``limit`` tokens, else its longest start that fits with "…", cut at a
     word boundary (a character boundary in a script written without spaces)."""
     flat = " ".join(summary.split())
@@ -70,13 +70,13 @@ def age_days(now: datetime, stamp: str | None) -> int | None:
     return max(0, (now - then).days)
 
 
-EXTERNAL_ONLY = "external_only"  # a node known only from what was read (SPEC 8.5)
+EXTERNAL_ONLY = "external_only"  # a node known only from what was read
 
 
 def with_read_flags(item: dict[str, Any], read: dict[str, set[str]]) -> dict[str, Any]:
     """``item`` (a fact handle, a fact expansion, or a fact a node's expansion
     lists) with the flags computed at read for its fact (``Store.read_flags``:
-    ``newer_pending``, ``newer_observed``, SPEC 8.5)."""
+    ``newer_pending``, ``newer_observed``)."""
     extra = read.get(str(item.get("id")))
     if extra:
         item["flags"] = sorted({*item.get("flags", []), *extra})
@@ -84,12 +84,12 @@ def with_read_flags(item: dict[str, Any], read: dict[str, set[str]]) -> dict[str
 
 
 def fact_from(fact: Fact) -> str | None:
-    """SPEC 8.5: where a fact came from, in a few tokens - the assistant's
+    """Where a fact came from, in a few tokens - the assistant's
     declared name (``assistant`` when none), or
     ``<kind> <ref> <day read>`` for external content - and None for the
     owner's own words and a fact without provenance (``remember``, an import)."""
     if fact.provenance == ASSISTANT:
-        return fact.part_ref or ASSISTANT  # its declared name (SPEC 4.6)
+        return fact.part_ref or ASSISTANT  # its declared name
     if fact.provenance != EXTERNAL:
         return None
     return " ".join(p for p in (fact.part_kind or EXTERNAL, fact.part_ref, fact.read_at) if p)
@@ -129,13 +129,13 @@ def fact_expansion(
     }
     if fact.conflicts_with is not None:
         out["conflicts_with"] = fact.conflicts_with
-    if fact_from(fact) is not None:  # SPEC 8.5: where it came from, in full
+    if fact_from(fact) is not None:  # where it came from, in full
         with_from(out, fact)
         out["provenance"] = fact.provenance
         for key in ("part_kind", "part_ref", "read_at"):
             if getattr(fact, key) is not None:
                 out[key] = getattr(fact, key)
-    if fact.observed_at is not None:  # SPEC 8.5: true as of that day
+    if fact.observed_at is not None:  # true as of that day
         out["observed_at"] = fact.observed_at
     if fact.language is not None:
         out["language"] = fact.language
@@ -188,7 +188,7 @@ def fact_handle(
         "title": one_line(title, TITLE_CHARS),
         "line": one_line(fact.statement),
         "why": why,
-        # SPEC 8.5: an observation's age counts from the day it was observed
+        # an observation's age counts from the day it was observed
         "age_days": age_days(now, fact.observed_at or fact.valid_from or fact.created_at),
         "expand_tokens": expand_tokens,
         "flags": sorted({*fact.flags, *(["pinned"] if fact.pinned else [])}),
@@ -206,7 +206,7 @@ def node_handle(
     external_only: bool = False,
 ) -> dict[str, Any]:
     """``external_only``: every live fact of the node the reader sees is
-    external content (SPEC 8.5)."""
+    external content."""
     summary = summary_line(node.summary, tokenizer)
     return {
         "id": node.id,

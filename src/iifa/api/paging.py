@@ -1,4 +1,4 @@
-"""Cursors of the list routes (SPEC 8).
+"""Cursors of the list routes.
 
 Positions are keyset (the last delivered item's unique sort key), never an
 offset; ``iifa.recall.paging`` cuts the pages. A cursor is opaque to the client:

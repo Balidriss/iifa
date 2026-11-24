@@ -1,4 +1,4 @@
-"""One subject in two forms (SPEC 5.1): a file name or slug and a title are
+"""One subject in two forms: a file name or slug and a title are
 candidates of each other for the adjudication, never a match; how they are
 written, never a list of words, decides."""
 
@@ -140,7 +140,7 @@ def test_form_nodes_name_the_known_nodes_in_another_form(store: Store) -> None:
 
 def test_a_form_candidate_never_attaches_whatever_the_threshold(store: Store) -> None:
     """A containment the letter score leaves below the threshold stays out of
-    step 2: the form rule makes a candidate, never a match."""
+    step 2 of ``iifa.ingest.resolve``: the form rule makes a candidate, never a match."""
     resume = store.create_node(scopes=["user:alice"], name="Résumé jardin du nord")
     strict = Resolver(store, ALICE, fuzzy_threshold=0.95).resolve("jardin du nord")
     assert strict.key is None and strict.method == AMBIGUOUS

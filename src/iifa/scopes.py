@@ -1,4 +1,4 @@
-"""Scopes (SPEC section 4.6): what a reader may see and what a writer may touch.
+"""Scopes: what a reader may see and what a writer may touch.
 
 A record belongs to a *set* of scope paths and is visible when any of them is
 visible. A reader's view is one of three modes:

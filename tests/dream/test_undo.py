@@ -1,4 +1,4 @@
-"""Every run is a changeset (SPEC 5.6 rule 4): undo reverts a run or one
+"""Every run is a changeset: undo reverts a run or one
 operation exactly, refuses - naming what depends on it - when a later write
 touched what it changed, and cannot undo what forget wiped (P5)."""
 

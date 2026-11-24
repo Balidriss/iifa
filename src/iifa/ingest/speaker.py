@@ -1,4 +1,4 @@
-"""Speaker words (SPEC 4.2): the subjects that, whole, name the person speaking.
+"""Speaker words: the subjects that, whole, name the person speaking.
 
 In an assistant the person speaking is the owner of the memory. A model that
 reads "User: I moved to Lyon." writes the subject "User", "the user",

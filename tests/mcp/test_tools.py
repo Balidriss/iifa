@@ -1,4 +1,4 @@
-"""SPEC 9 and 13.1 (MCP layer): the tool list, the doctrine in the descriptions,
+"""The MCP layer: the tool list, the doctrine in the descriptions,
 the budget on every result, results wrapped as data, no forget or dream tool by
 default, and a service that is down being an error result rather than a crash."""
 
@@ -47,7 +47,7 @@ def test_default_tool_list_has_no_forget_and_no_dream(server: MCPServer) -> None
     names = {t.name for t in tools_of(server)}
     assert names == set(CORE_TOOLS)
     assert FORGET_TOOL not in names and not any("dream" in n for n in names)
-    assert "memory_timeline" in names  # SPEC 9, over /v1/timeline
+    assert "memory_timeline" in names  # over /v1/timeline
 
 
 def test_descriptions_carry_the_doctrine(server: MCPServer) -> None:
@@ -298,6 +298,6 @@ def test_p3_service_down_is_an_error_result_not_a_crash(app: FastAPI) -> None:
 def test_remember_about_self_reaches_the_service(
     call: Callable[[str, dict[str, Any]], Any],
 ) -> None:
-    """SPEC 9: the flag goes through; this server's scope declares no self."""
+    """The flag goes through; this server's scope declares no self."""
     result = call("memory_remember", {"statement": "I answer briefly", "about_self": True})
     assert result.is_error and "no self is declared" in text_of(result)

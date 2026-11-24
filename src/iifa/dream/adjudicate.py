@@ -1,4 +1,4 @@
-"""Merge candidates and their adjudication (SPEC 5.6).
+"""Merge candidates and their adjudication.
 
 A wrong merge silently corrupts memory, so a merge is never decided on a name:
 not by the write path, not by a cosine, not by the unit's model reading one
@@ -46,7 +46,7 @@ class Chat(Protocol):
 
 
 def name_neighbours(store: Store, model: str, resolve: float) -> NameNeighbours:
-    """The candidates name vectors give (SPEC 5.6): the nodes the node's scopes
+    """The candidates name vectors give: the nodes the node's scopes
     see whose name vector of ``model`` is at least ``resolve`` from its own."""
 
     def find(node_id: str) -> list[tuple[str, float]]:
@@ -57,7 +57,7 @@ def name_neighbours(store: Store, model: str, resolve: float) -> NameNeighbours:
 
 def names_close(store: Store, model: str, merge: float) -> NamesClose:
     """Do two nodes' name vectors of ``model`` reach the calibrated ``merge``
-    threshold (SPEC 6.1)? No threshold of its own."""
+    threshold? No threshold of its own."""
 
     def close(a_id: str, b_id: str) -> bool:
         return any(other == b_id for other, _ in neighbours(store, a_id, NAME, model, merge))
@@ -66,7 +66,7 @@ def names_close(store: Store, model: str, merge: float) -> NamesClose:
 
 
 def names_fit(a: Node, b: Node, close: NamesClose | None) -> bool:
-    """SPEC 5.6: ``same`` only when the names fit - one spelling in two scripts
+    """``same`` only when the names fit - one spelling in two scripts
     (the strict comparison, never Daniela for Daniel), a shared name or alias,
     or a name cosine at the calibrated merge threshold."""
     forms_a, forms_b = (a.name, *a.aliases), (b.name, *b.aliases)
@@ -142,7 +142,7 @@ class Pair:
 
     def fitted(self, tokenizer: Tokenizer, budget: int) -> Fitted | None:
         """The adjudication within ``budget`` tokens: the two sides take facts in
-        turn, each by priority (SPEC 5.6); None when the two nodes alone are over."""
+        turn, each by priority; None when the two nodes alone are over."""
         ranked_a, ranked_b = by_priority(self.facts_a), by_priority(self.facts_b)
 
         def split(k: int) -> tuple[int, int]:

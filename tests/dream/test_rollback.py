@@ -1,4 +1,4 @@
-"""Must not make recall worse (SPEC 5.6 rule 9, 11.2): the probe sets of the
+"""Must not make recall worse: the probe sets of the
 run's scope and of the scopes below it are scored before and after; a
 regression or an inconclusive comparison rolls the run back."""
 
@@ -22,7 +22,7 @@ from tests.dream.conftest import (
 )
 from tests.fakes.openai_server import FakeOpenAIServer
 
-# what the report shows per set, before and after (SPEC 5.6 rule 9)
+# what the report shows per set, before and after
 NUMBERS = {"recall", "recall_per_1k_tokens", "compared_per_1k_tokens", "summary_tokens", "tier"}
 LONG_SUMMARY = (
     "Karim lives in Lyon, likes tea in the morning and drinks green tea every morning; "
@@ -251,7 +251,7 @@ def test_a_dry_run_measures_nothing(
 def test_a_probe_finds_what_a_dream_consolidated_or_merged(
     dream_client: TestClient, dream_app: FastAPI
 ) -> None:
-    """SPEC 11.2: an expected fact is found through ``consolidated_into``, an
+    """An expected fact is found through ``consolidated_into``, an
     expected node through ``merged_into``."""
     store, engine = dream_app.state.store, dream_app.state.engine
     memory = build_memory(store)
@@ -264,7 +264,7 @@ def test_a_probe_finds_what_a_dream_consolidated_or_merged(
     probe_set = store.create_probe_set(
         scope=SCOPE,
         name="follow",
-        # "Kiki" names Karim once merged: his facts come ahead of his handle (SPEC 5.5)
+        # "Kiki" names Karim once merged: his facts come ahead of his handle
         budget_tokens=1500,
         probes=[("green tea daily", [memory.green_tea.id]), ("Kiki", [memory.kiki.id])],
     )

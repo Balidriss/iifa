@@ -1,4 +1,4 @@
-"""The reference loop (SPEC 10.6) against the fake model server and the real
+"""The reference loop against the fake model server and the real
 service: it injects recalled data before a turn, remembers on demand, keeps
 under 200 lines, and never lets memory block the turn."""
 

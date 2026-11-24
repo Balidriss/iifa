@@ -1,5 +1,4 @@
-"""The ``--self`` corpus and its measures (SPEC 11.1, the agent perspective of
-SPEC 4.2).
+"""The ``--self`` corpus and its measures (the agent perspective).
 
 A scope of its own, ``user:alice/agent:nova``, declares its owner (Alice) and
 its self (Nova); nothing of the main corpus is in it, so the main corpus is
@@ -24,21 +23,21 @@ the lesson learnt on one customer's backup comes back for another customer's
 (``transfer``), and the rules read in the guide come back, ahead of the limits beside
 them, for a request in other words (``rules_first``).
 
-Each turn that asks the agent to do something names its activity (SPEC 4.2).
+Each turn that asks the agent to do something names its activity.
 The ``activity`` case reads a mapping guide while drawing a map, its rules
 hung on the guide as a real model does; a later request for another map
 (``ACTIVITY_QUERY``, the same noun, none of the rules' words) must bring them
-first (``activity_first``, SPEC 5.5). The Lumen request shares no word with
+first (``activity_first``). The Lumen request shares no word with
 its activity's name: only a vector neighbour can match it (tier 3).
 
 Four ``occurrence`` cases do one activity on four objects, each named with
 its object as a real model does (« sketching a floor plan of the kitchen »),
 each teaching one rule; ``family`` measures, before and after a dream
 (``--dream``), how many of the four rules a request for another floor plan
-brings, and lists the groups the dream made (SPEC 5.5, 5.6).
+brings, and lists the groups the dream made.
 
-At tier 3, ``vector_probes`` measures matching by vectors (SPEC 5.5,
-``activity_threshold``): requests in other words for three activities, with no
+At tier 3, ``vector_probes`` measures matching by vectors
+(``activity_threshold``): requests in other words for three activities, with no
 word of any name the model is likely to give them (positives), and requests
 no activity must answer (negatives). For each, the cosine of every task node
 the vector search returns, whether a word already matches it, and, per
@@ -75,7 +74,7 @@ MAP_GUIDE = "Verdant mapping guide"
 MAP_PRINT = "printed garden map"
 ACTIVITY_QUERY = "Make me a map of the orchard for the village fair."
 SINCERE = {"frame": "sincere", "frame_holds": False, "frame_ends": False}
-# SPEC 5.5, tier 3: requests in other words (the case whose rules must come)
+# tier 3: requests in other words (the case whose rules must come)
 # and requests no activity must answer (None)
 VECTOR_PROBES: tuple[tuple[str, str, str | None], ...] = (
     ("map-other-words", "Sketch the layout of my terrace pots, please.", "activity"),
@@ -138,7 +137,7 @@ VECTOR_PROBES: tuple[tuple[str, str, str | None], ...] = (
     ("negative-train", "When does the next train to Porto leave?", None),
 )
 ACTIVITY_THRESHOLDS = (0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75)
-# SPEC 5.5, 5.6: one activity on four objects, a rule each, then a request
+# one activity on four objects, a rule each, then a request
 OCCURRENCES = (
     ("kitchen", "Always mark the doors in red.", "always mark the doors in red"),
     ("attic", "Draw the windows as double lines.", "draw the windows as double lines"),
@@ -175,10 +174,10 @@ class Case:
     facts: tuple[dict[str, Any], ...]
     nodes: tuple[dict[str, Any], ...] = ()
     external: tuple[tuple[str, str, str | None], ...] = ()
-    vouched: bool = False  # the host vouched for every external part (SPEC 4.2)
+    vouched: bool = False  # the host vouched for every external part
     edges: tuple[dict[str, Any], ...] = ()
     frame: str = "sincere"
-    activity: tuple[str, str] | None = None  # SPEC 4.2: (name, the owner's quote)
+    activity: tuple[str, str] | None = None  # (name, the owner's quote)
     written: int = 0  # facts the service writes
     proposed: int = 0
     echoes: int = 0
@@ -667,7 +666,7 @@ def self_audit(
     budgets: Sequence[int],
     turns: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """What ``--self`` left (SPEC 11.1): per category, the facts written,
+    """What ``--self`` left: per category, the facts written,
     proposed and echoed against what each case must leave; ``hostile_written``
     and ``unmeant_written`` (must be 0; the one episode a role leaves is
     counted apart, as ``episodes``); the job report's own counters summed;
@@ -701,7 +700,7 @@ def self_audit(
         row = per[case.category]
         row["cases"] += 1
         row["expected_written"] += case.written
-        # SPEC 4.2: a frame that is not sincere may leave one episode about the
+        # a frame that is not sincere may leave one episode about the
         # person speaking; it is not the content's, so it is counted apart
         episodes = int(((result.get("intent") or {}).get("episodes") or {}).get("kept") or 0)
         row["episodes"] += episodes
@@ -757,7 +756,7 @@ def self_audit(
             ]
             map_ranks = sorted(asked.index(i) for i in map_rules if i in asked)
             per_budget[str(budget)] = {
-                # SPEC 5.5: the map's rules, first and together, for another map
+                # the map's rules, first and together, for another map
                 "activity_rules_shown": len(map_ranks),
                 "activity_rules_total": len(map_rules),
                 "activity_limits_shown": sum(1 for i in map_limits if i in asked),
@@ -783,7 +782,7 @@ def family_after_dream(
     budgets: Sequence[int],
     turns: Mapping[str, str],
 ) -> dict[str, Any]:
-    """``family_audit`` again once a dream has run (SPEC 5.6: its groups)."""
+    """``family_audit`` again once a dream has run (its groups)."""
     return family_audit(store, engines, budgets, _written_by_case(store, corpus, turns))
 
 
@@ -793,7 +792,7 @@ def family_audit(
     budgets: Sequence[int],
     written: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> dict[str, Any]:
-    """SPEC 5.5, 5.6: the groups of activities (generic name -> occurrence
+    """The groups of activities (generic name -> occurrence
     names) and, per engine and budget, how many of the occurrences' rules a
     request for another floor plan brings in an activity block."""
     view = Visibility.of_scope(SELF_SCOPE)
@@ -834,7 +833,7 @@ def vector_sweep(
     written: Mapping[str, Sequence[Mapping[str, Any]]],
     thresholds: Sequence[float] = ACTIVITY_THRESHOLDS,
 ) -> dict[str, Any]:
-    """SPEC 5.5, tier 3: per probe, every task node the vector search returns
+    """Tier 3: per probe, every task node the vector search returns
     with its cosine and whether a word of its name is in the request; per
     threshold, the positives whose rules came in a block (and how many of
     them) and the negatives that brought a block. Names only, no text."""
@@ -910,7 +909,7 @@ def _written_by_case(
                 "key": canonical_key(row["attribute"]),
                 "provenance": fact.provenance,
                 "flags": sorted(fact.flags),
-                # SPEC 4.2: the activities it is linked to, by name
+                # the activities it is linked to, by name
                 "activities": [names.get(a, a) for a in links.get(row["id"], [])],
             }
         )
@@ -923,7 +922,7 @@ def _task_names(store: Store) -> dict[str, str]:
 
 
 def _activities(store: Store) -> list[dict[str, Any]]:
-    """SPEC 4.2: every task node of the run, by name, with the facts linked
+    """Every task node of the run, by name, with the facts linked
     to it and how many are rules (what the model named the activities)."""
     rows = store.execute(
         "SELECT n.name, count(a.fact_id) AS linked,"

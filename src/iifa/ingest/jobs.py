@@ -1,16 +1,16 @@
 """Job handlers, by kind.
 
-The lifecycle jobs do the model-driven work of tier 2 (SPEC 6), each call going
+The lifecycle jobs do the model-driven work of tier 2, each call going
 through the job's ``ModelSession`` so that P11 holds whatever the job:
 
 * ``turn`` and ``precompact`` extract nodes, facts and edges from the text they
   carry (``iifa.ingest.extract``), in the language of that text (P12), with
   provenance (P6) and contradictions superseded (P7); at tier 0 they run the
   deterministic part only (known names mentioned -> co-occurrence edges);
-* ``session_end`` closes the session's state (``iifa.ingest.consolidate``,
-  SPEC 5.8: its work in progress consolidated, the rest expired), refreshes the
+* ``session_end`` closes the session's state (``iifa.ingest.consolidate``:
+  its work in progress consolidated, the rest expired), refreshes the
   summaries of the nodes the session touched (``iifa.ingest.summaries``) and
-  applies edge decay in the session's scopes (SPEC 5.3), with the store's clock;
+  applies edge decay in the session's scopes, with the store's clock;
 * ``session_close`` closes the state of a session nobody ended, once it has
   been idle long enough (queued by the worker), and nothing else.
 
@@ -84,7 +84,7 @@ def _owner_name(ctx: JobContext, scopes: list[str]) -> str | None:
 
 
 def turn(job: Job, ctx: JobContext) -> dict[str, Any] | None:
-    """A recorded turn: one source, extracted (SPEC 8.1)."""
+    """A recorded turn: one source, extracted."""
     scopes = list(job.scopes)
     source = turn_source(job.payload, _owner_name(ctx, scopes), ctx.config.assistant(scopes))
     if not source.text:
@@ -122,7 +122,7 @@ def precompact(job: Job, ctx: JobContext) -> dict[str, Any] | None:
 
 def session_end(job: Job, ctx: JobContext) -> dict[str, Any] | None:
     """The session's flush: summaries of the nodes it touched are rewritten from
-    their facts (tier 2), then unconfirmed edges in its scopes decay (SPEC 5.3)."""
+    their facts (tier 2), then unconfirmed edges in its scopes decay."""
     view = write_view(list(job.scopes))
     config = ctx.config
     closed = close_session(ctx, job.session_id, list(job.scopes), reason="end")
@@ -155,7 +155,7 @@ def session_end(job: Job, ctx: JobContext) -> dict[str, Any] | None:
 
 
 def session_close(job: Job, ctx: JobContext) -> dict[str, Any] | None:
-    """A session nobody ended, idle long enough: its state closed (SPEC 5.8)."""
+    """A session nobody ended, idle long enough: its state closed."""
     reason = str(job.payload.get("reason") or "idle")
     seen = job.payload.get("seen")
     if seen is not None:

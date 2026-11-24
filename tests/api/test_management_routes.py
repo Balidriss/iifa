@@ -1,5 +1,5 @@
-"""What a management page needs beside the node corrections (SPEC 5.7, 8.3,
-8.6): a person decides a proposed edge, an explicit link confirms the live
+"""What a management page needs beside the node corrections: a person decides a proposed
+edge, an explicit link confirms the live
 edge already there instead of adding a twin, the archive says what each record
 was, and the dreams of a scope can be listed whichever client started them."""
 
@@ -149,7 +149,7 @@ def test_only_a_live_proposed_edge_is_decided(client: TestClient, app: FastAPI) 
     assert store.get_edge(edge.id).status == "proposed"  # nothing refused wrote anything
 
 
-# --------------------------------------------------------------------------- the edge's rev (SPEC 4.4)
+# --------------------------------------------------------------------------- the edge's rev
 
 
 def _read_rev(client: TestClient, node_id: str, edge_id: str) -> int:

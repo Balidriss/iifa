@@ -18,7 +18,7 @@ What it does, in a throwaway encrypted store in a temporary directory:
    every tier-3 recall pays its embedding call): p50 and p95;
 4. prints the cosine between the names of one person across scripts (Karim,
    Карим, كريم, 卡里姆, カリム) and between different people, and the same for
-   one project name across languages: what the thresholds of SPEC 6.1
+   one project name across languages: what the embedding thresholds
    (resolve, merge, link) should sit between.
 
 ``--json`` writes every number with the exact command line, so a comparison

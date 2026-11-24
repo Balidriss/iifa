@@ -1,4 +1,4 @@
-"""The checks on what a real model writes (SPEC 4.2, 4.4b, 5.1, 5.2, 7.4b):
+"""The checks on what a real model writes:
 complete statements that name their subject, aliases grounded in the source,
 sentence-level co-occurrence, answer caps sized from the source, and the JSON
 object taken out of a plain answer when JSON mode is off."""
@@ -97,7 +97,7 @@ def test_a_statement_that_does_not_name_its_subject(statement: str, names: list[
     ],
 )
 def test_a_name_in_another_script_never_names_the_subject(statement: str, names: list[str]) -> None:
-    # SPEC 4.2: matching across scripts without the model's help is for embeddings
+    # matching across scripts without the model's help is for embeddings
     assert not names_subject(statement, names)
 
 
@@ -117,7 +117,7 @@ def test_a_name_in_the_statements_script_is_still_required() -> None:
     ],
 )
 def test_a_name_written_as_it_is_names_its_subject_in_any_script(statement: str, name: str) -> None:
-    """SPEC 4.2: a name in Latin letters written whole in a Cyrillic or Greek
+    """A name in Latin letters written whole in a Cyrillic or Greek
     statement names its subject, and the statement shares its script."""
     assert names_subject(statement, [name])
     assert shares_script(statement, [name])
@@ -134,7 +134,7 @@ def test_a_name_in_another_script_still_does_not_name_by_its_sound() -> None:
 
 
 def test_arabic_attached_prefixes_are_a_known_limitation() -> None:
-    # SPEC 4.2: "وكريم" (and Karim) is not split, so it does not count as naming كريم.
+    # "وكريم" (and Karim) is not split, so it does not count as naming كريم.
     # Documented, not guessed: the fact is asked for again, then dropped.
     assert names_subject("كريم يقود التخطيط.", ["كريم"])
     assert not names_subject("وكريم يقود التخطيط.", ["كريم"])

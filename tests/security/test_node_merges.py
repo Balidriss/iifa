@@ -1,4 +1,4 @@
-"""SPEC 5.7 guardrails: two nodes are merged only by an explicit decision of a
+"""Guardrails: two nodes are merged only by an explicit decision of a
 token holding ``review`` - never by a ``write`` token, a dream token or a model -
 never across scope sets, and a person's merge undoes exactly."""
 

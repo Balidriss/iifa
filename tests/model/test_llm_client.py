@@ -1,4 +1,4 @@
-"""The model client (SPEC 7.5): OpenAI-compatible chat and embeddings, the model
+"""The model client: OpenAI-compatible chat and embeddings, the model
 explicit in every request body, failures mapped to short retryable-or-not
 reasons, and every call counted by the fake server."""
 

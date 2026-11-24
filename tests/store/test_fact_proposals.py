@@ -1,4 +1,4 @@
-"""Fact proposals in the store (SPEC 4.4b): a fact about the owner the write
+"""Fact proposals in the store: a fact about the owner the write
 path would not write, kept with the rest of the fact, possibly without a node;
 accepting one writes an explicit fact that keeps its provenance. Schema 8 keeps
 every proposal a version-7 file held."""

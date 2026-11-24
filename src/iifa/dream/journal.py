@@ -1,4 +1,4 @@
-"""The dream's runs and their journal (SPEC 5.6 rule 4), in the encrypted file.
+"""The dream's runs and their journal, in the encrypted file.
 
 A run is a row with its scope, status, budget, policy, the state it resumes
 from and, once finished, its report (counts and ids only). Every operation it
@@ -64,7 +64,7 @@ class Run:
 
 @dataclass(frozen=True)
 class Adjudication:
-    """What the model said about a pair (SPEC 5.6), kept for the reviewer."""
+    """What the model said about a pair, kept for the reviewer."""
 
     id: str
     run_id: str

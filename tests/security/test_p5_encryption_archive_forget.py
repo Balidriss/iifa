@@ -69,7 +69,7 @@ def test_p5_forget_leaves_no_trace_in_the_file(tmp_path: Path) -> None:
             source_id=source.id,
             attribute=f"attr {CANARY}",
             value=f"value {CANARY}",
-            value_norm=f"norm {CANARY}",  # SPEC 5.4: the comparison form goes with it
+            value_norm=f"norm {CANARY}",  # the comparison form goes with it
         )
         keep = store.add_fact(
             scopes=["user:alice"], statement="unrelated fact stays", origin="explicit"
@@ -234,7 +234,7 @@ def test_p5_forget_deletes_every_probe_that_expected_the_record(tmp_path: Path) 
 def test_p5_forgetting_a_turns_source_leaves_no_trace_in_the_queue_or_anywhere(
     tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
 ) -> None:
-    """SPEC 12, the queue too: a turn's words wait in the queue until the turn
+    """The queue too: a turn's words wait in the queue until the turn
     is processed. Once its source is forgotten they are nowhere in the raw file:
     not in the queue, the tables or the lexical index. An unencrypted store, so
     the scan can see plaintext."""

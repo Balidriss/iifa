@@ -1,4 +1,4 @@
-"""The embed job's race (SPEC 6.1, P5): the job reads a facet's text, calls the
+"""The embed job's race (P5): the job reads a facet's text, calls the
 model, then writes the vector. Whatever changed in between - the record
 forgotten, or its text rewritten - the write is discarded and counted, never
 applied: no vector derived from forgotten content, no stale vector used

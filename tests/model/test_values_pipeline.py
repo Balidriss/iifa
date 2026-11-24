@@ -1,4 +1,4 @@
-"""Values across languages through the write path (SPEC 5.4): deterministic
+"""Values across languages through the write path: deterministic
 same / different first, the chat model asked only for the unknown ones, on
 single-valued keys, when the new fact is later; an equivalence links, a
 supersession closes the whole group, and the explicit is never closed (P6)."""

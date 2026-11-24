@@ -1,4 +1,4 @@
-"""SPEC 7.4: the turn ingestion call only enqueues and answers in under 10 ms.
+"""The turn ingestion call only enqueues and answers in under 10 ms.
 Measured at the queue (one insert) and through the route in-process."""
 
 from __future__ import annotations

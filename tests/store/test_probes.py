@@ -1,6 +1,6 @@
-"""Probe sets (SPEC 4.7, 11.2): stored questions with the records that answer
+"""Probe sets: stored questions with the records that answer
 them, run through recall, scored, and compared before/after (what the dream's
-rollback rule 9 needs)."""
+rollback needs)."""
 
 from __future__ import annotations
 

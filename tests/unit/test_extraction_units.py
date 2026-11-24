@@ -1,6 +1,6 @@
 """The pure parts of the write path: the strict answer schema and its wall (P8),
 edge-type normalisation, chunking, quote location (P6), tier-0 mention
-detection, entity resolution (SPEC 5.1) and edge decay (SPEC 5.3)."""
+detection, entity resolution and edge decay."""
 
 from __future__ import annotations
 
@@ -240,7 +240,7 @@ def test_pipeline_config_forced_language_follows_scope_ancestors() -> None:
     assert PipelineConfig().forced_language(["user:alice"]) is None
 
 
-# --------------------------------------------------------------------------- resolution (SPEC 5.1)
+# --------------------------------------------------------------------------- resolution
 
 
 def test_similarity_is_language_agnostic_and_careful_with_short_names() -> None:
@@ -285,7 +285,7 @@ def test_resolver_exact_then_fuzzy_then_ambiguous(store: Store) -> None:
     assert resolver.semantic_candidates("anything") == []  # the tier-3 seam
 
 
-# --------------------------------------------------------------------------- decay (SPEC 5.3)
+# --------------------------------------------------------------------------- decay
 
 
 def test_decayed_weight_is_a_pure_function_of_time() -> None:
@@ -338,7 +338,7 @@ def test_facts_language_is_the_majority_or_the_forced_one() -> None:
 
 
 def test_a_tie_in_summary_languages_goes_to_the_newest_fact() -> None:
-    """SPEC P12: the majority, undetermined facts left out; a tie goes to the
+    """P12: the majority, undetermined facts left out; a tie goes to the
     newest of the tied facts (the store gives the newest first)."""
     newest_first = [
         _fact("Карим живёт в Лионе", "ru"),
@@ -366,7 +366,7 @@ def test_clean_summary_keeps_the_first_line_unquoted_and_bounded() -> None:
     [("Karim", "Karima"), ("Ivan", "Ivana"), ("Paris", "Parisa"), ("Karima", "Karim")],
 )
 def test_a_near_name_is_a_candidate_never_a_match(store: Store, known: str, mention: str) -> None:
-    """SPEC 5.1: as strings one name is in the other, as words it is not; alike
+    """As strings one name is in the other, as words it is not; alike
     letter by letter, it goes to the adjudication and never attaches alone."""
     node = store.create_node(scopes=["user:alice"], name=known)
     resolution = Resolver(store, ALICE).resolve(mention)
@@ -401,7 +401,7 @@ def test_a_near_name_proposed_by_the_same_answer_is_a_candidate_too(store: Store
 def test_containment_attaches_whole_words_of_one_name_only(
     store: Store, known: str, kind: str, mention: str, mention_kind: str | None
 ) -> None:
-    """SPEC 5.1: words, not tokens (a hyphen joins a name), the mention's words
+    """Words, not tokens (a hyphen joins a name), the mention's words
     inside the known name and not the reverse, and never across kinds: each of
     these is a candidate for the adjudication, never a match."""
     node = store.create_node(scopes=["user:alice"], name=known, kind=kind)
@@ -437,7 +437,7 @@ def test_an_adjudicated_choice_survives_a_node_proposed_afterwards(store: Store)
 
 
 def test_two_statements_without_letters_are_not_one_language() -> None:
-    """SPEC 5.4, when we cannot tell, we do not supersede: no script on either
+    """When we cannot tell, we do not supersede: no script on either
     side is not one language."""
     assert _one_language("und", "2024-05-01", _fact("2023-01-01", None)) is False
     assert _one_language("und", "Karim 2024", _fact("Karim 2023", None)) is True
@@ -454,6 +454,6 @@ def test_two_statements_without_letters_are_not_one_language() -> None:
 def test_the_owner_is_named_by_as_many_words_as_the_name_has(
     statement: str, owner: str, named: bool
 ) -> None:
-    """SPEC 4.2: the owner's name and the statement are split into words the
+    """The owner's name and the statement are split into words the
     same way (a hyphen too)."""
     assert names_owner(statement, owner) is named

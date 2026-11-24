@@ -1,4 +1,4 @@
-"""Model-dependent tests (SPEC 13.1): the app at tier 2 against the scripted fake
+"""Model-dependent tests: the app at tier 2 against the scripted fake
 model server, the worker in ``on_demand`` mode (see ``tests.tier2``)."""
 
 from __future__ import annotations

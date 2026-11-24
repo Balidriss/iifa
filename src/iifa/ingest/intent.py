@@ -1,4 +1,4 @@
-"""Intent before content (SPEC 4.2): was it meant, as a fact, for good?
+"""Intent before content: was it meant, as a fact, for good?
 
 The extraction answer says, for the source as a whole, how its words are meant
 (the **frame**: ``sincere``, ``pretend``, ``example``, ``irony``, ``voice``,
@@ -16,7 +16,7 @@ language-bound and would drop "I test cars for a living":
   under the key ``activity`` and flagged ``episode``, never carrying a value of
   the content it reframes (one that does is only proposed);
 * a frame or a modality that is ``unsure`` - or not given at all - makes a
-  **fact proposal** (SPEC 4.4b): a wrong fact costs more than a missing one;
+  **fact proposal**: a wrong fact costs more than a missing one;
 * an ``observed`` duration is memory like ``lasting``, true at a date: the
   write path flags and dates it;
 * a ``task`` or ``unsure`` duration keeps the fact as **session state**
@@ -43,7 +43,7 @@ SINCERE, UNSURE = "sincere", "unsure"
 FACT: Final = "fact"
 LASTING: Final = "lasting"
 TASK: Final = "task"
-OBSERVED: Final = "observed"  # true at a date: memory, dated (SPEC 4.2)
+OBSERVED: Final = "observed"  # true at a date: memory, dated
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ACTIVITY = "activity"  # the key every episode is stored under
 EPISODE = "episode"  # the flag every episode carries

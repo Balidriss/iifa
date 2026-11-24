@@ -1,4 +1,4 @@
-"""The MCP server (SPEC section 9): Door 1, the tools a model calls.
+"""The MCP server: Door 1, the tools a model calls.
 
 The tools are a thin layer over the HTTP API through the async client, so the
 same code serves both transports: over stdio the server is a separate process
@@ -10,7 +10,8 @@ Doctrine lives in the tool descriptions (recall returns handles, expand only wha
 you need, remember durable facts, archive is reversible). Every content-returning
 tool obeys the budget (P1) *including* the wrapper that labels the result as
 recalled data (P8). ``memory_forget`` is off by default (P5) and there is no
-dream tool (SPEC 5.6, rule 11). ``memory_timeline`` reads ``/v1/timeline``.
+dream tool (a dream is started by the operator or the harness). ``memory_timeline``
+reads ``/v1/timeline``.
 """
 
 from __future__ import annotations

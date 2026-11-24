@@ -28,10 +28,12 @@ EXTERNAL = ("http://", "https://", "mailto:", "data:")
 
 
 def documents() -> list[Path]:
-    """The public pages a reader follows: README, changelog, docs/, the adapters'."""
+    """The public pages a reader follows: README, changelog, docs/, the adapters',
+    the security checklist."""
     pages = [ROOT / "README.md", ROOT / "CHANGELOG.md"]
     pages += sorted((ROOT / "docs").rglob("*.md"))
     pages += sorted((ROOT / "adapters").glob("*/*.md"))
+    pages.append(ROOT / "tests" / "security" / "CHECKLIST.md")
     return pages
 
 
@@ -101,6 +103,7 @@ def broken_links(path: Path, root: Path = ROOT) -> list[str]:
 def test_the_docs_exist() -> None:
     names = {p.name for p in documents()}
     for expected in (
+        "principles.md",
         "configuration.md",
         "api.md",
         "how-it-works.md",

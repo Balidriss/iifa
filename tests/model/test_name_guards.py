@@ -1,4 +1,4 @@
-"""Names the write path will not take as they come (SPEC 4.2, 5.1): a word that
+"""Names the write path will not take as they come: a word that
 mixes two spaced scripts never becomes a node, a subject or an alias ("\u0643azan"
 is a node qwen3.5:9b proposes on the synthetic corpus); an alias that is a description
 rather than a name becomes a proposal, even when the source holds it."""
@@ -55,7 +55,7 @@ def node(app: FastAPI, name: str) -> Any:
     return found
 
 
-# --------------------------------------------------------------------------- mixed scripts (SPEC 4.2)
+# --------------------------------------------------------------------------- mixed scripts
 
 
 def test_a_node_name_mixing_two_scripts_never_becomes_a_node(
@@ -119,7 +119,7 @@ def test_an_alias_mixing_two_scripts_is_dropped(
     assert result["aliases"]["proposed"] == 0 and result["aliases"]["invented"] == 1
 
 
-# --------------------------------------------------------------------------- descriptive aliases (SPEC 5.1)
+# --------------------------------------------------------------------------- descriptive aliases
 
 
 def test_a_grounded_alias_that_is_a_description_becomes_a_proposal(

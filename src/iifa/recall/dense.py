@@ -1,4 +1,4 @@
-"""Dense retrieval for tier 3 (SPEC 6.1).
+"""Dense retrieval for tier 3.
 
 The query is embedded once, in the foreground (it does not wait at the
 background gate, and holds new background calls while in flight), bounded by a
@@ -113,8 +113,8 @@ class Dense:
 
     def search(self, values: Sequence[float], view: Visibility, limit: int) -> list[DenseHit]:
         """The best ``limit`` records (facts by their statement, nodes by their
-        name) for the query vector, inside the view. Never by a summary (SPEC
-        6.1): its vector serves link proposals only."""
+        name) for the query vector, inside the view. Never by a summary: its
+        vector serves link proposals only."""
         model = self.model
         if model is None or limit <= 0:
             return []

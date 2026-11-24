@@ -1,4 +1,4 @@
-"""The HTTP API (SPEC section 8)."""
+"""The HTTP API."""
 
 from iifa.api.app import create_app
 

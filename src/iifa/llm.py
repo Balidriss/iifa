@@ -1,4 +1,4 @@
-"""OpenAI-compatible chat and embeddings clients (SPEC 7.5).
+"""OpenAI-compatible chat and embeddings clients.
 
 The model is **explicit on every call**: ``chat`` and ``embed`` take ``model``
 as a required keyword and put it in the request body, so nothing ever relies on
@@ -35,7 +35,7 @@ DEFAULT_TIMEOUT = 120.0
 TRUNCATED = "length"
 
 # What iifa puts in a request body itself: an operator's extra parameters
-# (SPEC 7.4b) may add to a request, never replace any of these.
+# may add to a request, never replace any of these.
 RESERVED_REQUEST_KEYS: frozenset[str] = frozenset(
     {"model", "messages", "input", "stream", "max_tokens", "temperature", "response_format"}
 )
@@ -234,7 +234,7 @@ class ModelClient:
         on every call. ``wait_timeout`` bounds the wait at the gate, not the call.
 
         An answer cut by ``max_tokens`` (``finish_reason: length``) raises
-        ``ModelError("length")`` so that no caller ever parses it (SPEC 7.4b); a
+        ``ModelError("length")`` so that no caller ever parses it; a
         caller that wants nothing but the call itself says ``accept_truncated``."""
         endpoint = self._require(CHAT, model)
         body: dict[str, Any] = {
@@ -285,7 +285,7 @@ class ModelClient:
     ) -> EmbeddingsResult:
         """Embeddings for ``inputs``, in input order. ``model`` is required.
 
-        ``foreground`` is the query embedding of a recall (SPEC 6.1): it does not
+        ``foreground`` is the query embedding of a recall: it does not
         wait at the background gate; while it is in flight the gate starts no
         background call. ``timeout`` bounds the call itself (at most the
         endpoint's own timeout)."""
@@ -396,7 +396,7 @@ class ModelClient:
 
 
 class QueryEmbedder:
-    """What the recall engine holds at tier 3 (P3, SPEC 6.1): it embeds one query,
+    """What the recall engine holds at tier 3 (P3): it embeds one query,
     in the foreground, with a bounded timeout, and can do nothing else - no chat,
     no background call."""
 

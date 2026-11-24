@@ -1,4 +1,4 @@
-"""A free-form key that holds one value (SPEC 5.4): a key is a slug the model
+"""A free-form key that holds one value: a key is a slug the model
 chose, and a generic one (``content``, ``info``) may carry two unrelated
 statements about one subject. A shared key alone does not prove a
 replacement, so with the replacement question on a changed free-form value

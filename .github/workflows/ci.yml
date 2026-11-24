@@ -50,7 +50,7 @@ jobs:
         run: node --test adapters/opencode/test/plugin.test.ts
 
   docker-e2e:
-    # SPEC 13.1: the image end to end - start, health, remember, recall,
+    # the image end to end - start, health, remember, recall,
     # archive, stop, restart on the same volume. Standard library only.
     needs: lint-and-types
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 """P12's detector: scripts, function words, sentences of a mixed source, and an
-honest ``und`` when the text holds no evidence (SPEC 13.1: multilingual fixtures)."""
+honest ``und`` when the text holds no evidence (multilingual fixtures)."""
 
 from __future__ import annotations
 

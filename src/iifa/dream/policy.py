@@ -1,4 +1,4 @@
-"""Review by risk (SPEC 5.6 rule 5).
+"""Review by risk.
 
 Each risk class either applies automatically (``auto``) or goes to the review
 queue (``review``). The default: only ``low`` applies; ``medium`` and ``high``
@@ -22,7 +22,7 @@ from iifa.scopes import ROOT_SCOPE, within
 AUTO, REVIEW = "auto", "review"
 # Permanent, not pending a measurement: the model follows an identity claim
 # found in memory, and between two namesakes the names fit - only a reviewer
-# stops that merge (SPEC 5.6 rule 5).
+# stops that merge.
 ALWAYS_REVIEW: frozenset[str] = frozenset({"merge_nodes"})
 
 

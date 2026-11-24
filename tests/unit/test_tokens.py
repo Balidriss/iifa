@@ -1,4 +1,4 @@
-"""The default token counter must be conservative in every script (P1, SPEC 7.3)."""
+"""The default token counter must be conservative in every script (P1)."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def test_registry_and_unknown_name() -> None:
 @pytest.mark.parametrize("language", sorted(SAMPLES))
 def test_p1_conservative_estimate_is_at_or_above_the_exact_count(language: str) -> None:
     """When an exact counter is installed (CI on Linux warms its cache), the
-    estimate must never be lower than the truth, in any script (SPEC 7.3)."""
+    estimate must never be lower than the truth, in any script."""
     exact = _exact_or_skip()
     text = SAMPLES[language]
     # The JSON form is what the budget counts: the service's own serializer,

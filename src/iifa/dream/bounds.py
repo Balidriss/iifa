@@ -1,9 +1,9 @@
-"""What one dream call reads is bounded (SPEC 5.6).
+"""What one dream call reads is bounded.
 
 A local server given a prompt longer than its context window truncates it
 silently from the start - the system prompt, and with it the P8 wall, first.
 So every unit and every adjudication is counted with the service's own counter
-(SPEC 7.3) before it is sent and, over ``prompt_max_tokens``, carries fewer
+before it is sent and, over ``prompt_max_tokens``, carries fewer
 records: pinned facts first, then explicit ones, then the most recent; the
 data says how many were left out. A call whose fixed part alone is over the
 budget is not sent at all (``oversized``).

@@ -1,4 +1,4 @@
-"""Each operation of the catalogue (SPEC 5.6): what the service checks before
+"""Each operation of the catalogue: what the service checks before
 applying it, what applying does, and that undo reverts it exactly. One test
 per row of the table, one per reason an operation is dropped."""
 
@@ -273,7 +273,7 @@ def test_a_consolidation_is_written_in_the_scopes_forced_language(
     status: str,
     language: str | None,
 ) -> None:
-    """SPEC 5.6 rule 13: a forced language wins over the originals' own (here
+    """A forced language wins over the originals' own (here
     English facts kept from before the scope forced French)."""
     applier = Applier(store, journal, forced_language=lambda scopes: "fr")
     entry = submit(
@@ -342,7 +342,7 @@ def test_consolidate_keeps_a_key_and_value_every_original_shares(
 def test_a_consolidation_keeps_the_activity_every_original_shares(
     store: Store, applier: Applier, journal: Journal, memory: Memory, both: bool
 ) -> None:
-    """SPEC 4.2, 5.6: the activity a rule was learnt during survives its
+    """The activity a rule was learnt during survives its
     consolidation only when every original was learnt during it."""
     task = store.create_node(scopes=[SCOPE], name="brewing tea", kind="task")
     linked = [memory.tea.id, memory.green_tea.id] if both else [memory.tea.id]
@@ -380,7 +380,7 @@ def test_a_consolidation_must_say_one_thing_again(
     first: tuple[str | None, str | None],
     second: tuple[str | None, str | None],
 ) -> None:
-    """SPEC 5.6 rule 14: the service checks the originals share one key and an
+    """The service checks the originals share one key and an
     equivalent value. Measured: qwen3.5:9b folded two team facts into "... in
     the Atlas and Orion teams." - a dream may not join two values in one."""
     ids = [
@@ -465,9 +465,9 @@ def _bare_fact(fact_id: str, attribute: str | None, value: str | None, **kw: Any
     )
 
 
-def test_one_same_as_group_counts_as_one_value_in_rule_14() -> None:
-    # rule 13 keeps groups out of a consolidation today, so _consolidate never
-    # reaches this; rule 14 still holds on its own (defense in depth)
+def test_one_same_as_group_counts_as_one_value_in_a_consolidation() -> None:
+    # one language per consolidation keeps groups out of it today, so _consolidate
+    # never reaches this; the one-value check still holds on its own (defense in depth)
     lyon = _bare_fact("f1", "home", "Lyon")
     lione = _bare_fact("f2", "home", "Lione", same_as="f1")
     lione_too = _bare_fact("f3", "home", "Lyon city", same_as="f1")
@@ -771,7 +771,7 @@ def test_supersede_fact_the_write_path_would_not_make_is_downgraded_to_a_conflic
             attribute="role",
             value="photographer",
         )
-    elif case == "set":  # SPEC 5.4: two elements of a set, a free-form key
+    elif case == "set":  # two elements of a set, a free-form key
         old = store.add_fact(
             scopes=[SCOPE],
             node_id=memory.karim.id,
@@ -908,7 +908,7 @@ def test_an_operation_on_a_forgotten_record_is_dropped(
 def test_a_record_outside_the_dreams_scope_is_never_changed(
     store: Store, applier: Applier, journal: Journal, memory: Memory
 ) -> None:
-    """Rule 12: a dream on user:alice/agent:coder reads user:alice as context and
+    """Never widen visibility: a dream on user:alice/agent:coder reads user:alice as context and
     changes none of it."""
     run = new_run(journal, scope=f"{SCOPE}/agent:coder")
     entry = submit(
@@ -982,7 +982,7 @@ def test_a_consolidation_keeps_where_its_facts_came_from_when_they_share_it(
     second_ref: str,
     kept: tuple[str | None, ...],
 ) -> None:
-    """SPEC 4.2: the part's kind and ref stay when every original shares them,
+    """The part's kind and ref stay when every original shares them,
     with the latest day read."""
     read = [
         store.add_fact(
@@ -1028,7 +1028,7 @@ def test_a_consolidation_of_observations_is_one_as_of_their_latest_day(
     second_day: str | None,
     kept: tuple[str | None, bool],
 ) -> None:
-    """SPEC 4.2: observed when every original is, as of the latest day."""
+    """Observed when every original is, as of the latest day."""
     seen = [
         store.add_fact(
             scopes=[SCOPE],

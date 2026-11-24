@@ -1,4 +1,4 @@
-"""The service's own reading of secrets (SPEC P5): what it finds, what it
+"""The service's own reading of secrets (P5): what it finds, what it
 leaves alone, and how a quote, a trace or an answer loses a value. The
 reading by wording is ``detect_secrets_by_wording`` (off by default): the
 ``collect`` and ``detect`` of this file turn it on; the tests of the default

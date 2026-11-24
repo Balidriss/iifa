@@ -1,5 +1,5 @@
-"""Calibrate ``[embeddings] key_threshold`` (SPEC 5.4 step 4) for one embedding
-model: the cosine between attribute-key texts exactly as step 4 embeds them (a
+"""Calibrate ``[embeddings] key_threshold`` for one embedding
+model: the cosine between attribute-key texts exactly as the write path embeds them (a
 free-form key's words, a family key's topic only), for pairs that name the same
 aspect and for traps that must never be aligned.
 
@@ -7,7 +7,7 @@ aspect and for traps that must never be aligned.
         --model bge-m3 --json key-names-bge-m3.json
 
 A threshold is only worth setting when the two groups are clearly apart: the
-lowest "same" cosine above the highest "trap" one. Otherwise step 4 stays off
+lowest "same" cosine above the highest "trap" one. Otherwise the alignment stays off
 (when we cannot tell, we do not supersede). The inputs are key names only.
 """
 

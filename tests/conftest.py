@@ -1,6 +1,6 @@
 """Suite-wide fixtures.
 
-Two rules from SPEC section 13.2 live here and apply to every test:
+Two rules live here and apply to every test:
 
 * **No network.** An autouse fixture blocks every socket connection and every
   name resolution that is not the loopback interface. It also enforces P4: a

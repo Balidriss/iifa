@@ -1,4 +1,4 @@
-"""The Claude Code adapter (SPEC 10.2, 13.1): the hook script run as Claude Code
+"""The Claude Code adapter: the hook script run as Claude Code
 runs it, against the scripted fake service and against the real one.
 
 P3 is the point: with the service down, hanging past the hook's deadline, or

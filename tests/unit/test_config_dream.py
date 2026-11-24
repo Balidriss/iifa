@@ -1,4 +1,4 @@
-"""Settings of the dream (SPEC 5.6): its own model endpoint, the
+"""Settings of the dream: its own model endpoint, the
 probe tolerance, the default budget and the review policy per scope."""
 
 from __future__ import annotations

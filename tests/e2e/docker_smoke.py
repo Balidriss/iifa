@@ -1,5 +1,5 @@
-"""End-to-end check of the Docker image (SPEC 13.1): start the container, health,
-remember, recall, archive, stop - plus what the image promises (SPEC 12, P5): a
+"""End-to-end check of the Docker image: start the container, health,
+remember, recall, archive, stop - plus what the image promises (P5): a
 non-root user, the key neither in the image nor on the data volume, the database
 encrypted on that volume, memory kept across a restart, the default bind on
 127.0.0.1 inside the container.

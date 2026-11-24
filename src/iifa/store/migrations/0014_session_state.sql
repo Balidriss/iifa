@@ -1,5 +1,5 @@
--- Schema version 14: session state (SPEC 5.8). What the service keeps for one
--- session while it runs: the frame an earlier turn opened (SPEC 4.2) and the
+-- Schema version 14: session state. What the service keeps for one
+-- session while it runs: the frame an earlier turn opened and the
 -- facts that hold only for the work in progress. Never recalled, never
 -- exported; consolidated, then deleted, when the session ends or goes idle.
 

@@ -1,4 +1,4 @@
-"""What was observed is true at a date (SPEC 4.2, 5.4, 8.5): the state of
+"""What was observed is true at a date: the state of
 something that changes without anyone telling the memory - a shelf, a
 service, a queue - seen at one moment. The model reads it (the ``observed``
 duration) and the service reads it from provenance (a lasting fact in a
@@ -193,7 +193,7 @@ def test_with_the_intent_reading_off_the_tool_rule_alone_applies(
         application.state.store.close()
 
 
-# ------------------------------------------------------------------ seen again, replaced (SPEC 5.4)
+# ------------------------------------------------------------------ seen again, replaced
 
 
 def test_a_newer_observation_of_the_same_key_closes_the_older_without_a_question(
@@ -342,7 +342,7 @@ def test_the_owner_saying_it_again_leaves_the_date(
     assert held.observed_at == MONDAY and result["facts"]["observed_again"] == 0
 
 
-# ------------------------------------------------------------------ proposals keep it (SPEC 4.4b)
+# ------------------------------------------------------------------ proposals keep it
 
 
 def test_a_proposed_observation_keeps_its_flag_and_day_once_accepted(
@@ -397,7 +397,7 @@ def test_a_proposed_observation_keeps_its_flag_and_day_once_accepted(
         application.state.store.close()
 
 
-# ------------------------------------------------------------------ handles and ranking (SPEC 8.5)
+# ------------------------------------------------------------------ handles and ranking
 
 
 def _observed(store: Store, node_id: str, statement: str, day: str | None) -> Fact:
@@ -486,8 +486,7 @@ def _in_review(
     scopes: tuple[str, ...] = (SCOPE,),
 ) -> tuple[Fact, str]:
     """An observation "the relay is down" made on Monday, and an observation of
-    the same attribute made on ``proposal_day`` that is only a fact proposal
-    (SPEC 4.4b, 8.5)."""
+    the same attribute made on ``proposal_day`` that is only a fact proposal."""
     node = store.create_node(scopes=[SCOPE], name="Relay", kind="object")
     fact = store.add_fact(
         scopes=[SCOPE],
@@ -595,7 +594,7 @@ def _two_keys(
     closed: bool = False,
 ) -> tuple[Fact, Fact]:
     """The relay observed down on Monday (``state``), then observed holding
-    four jobs on ``day`` under another key (``queue``) (SPEC 8.5)."""
+    four jobs on ``day`` under another key (``queue``)."""
     node = store.create_node(scopes=[SCOPE], name="Relay", kind="object")
     older = store.add_fact(
         scopes=[SCOPE],
@@ -666,7 +665,7 @@ def _contradicted(
     newer_provenance: str = "owner",
 ) -> tuple[Fact, Fact]:
     """The relay observed down, then a later lasting fact under the same key
-    written in conflict with it (SPEC 5.4, 8.5)."""
+    written in conflict with it."""
     node = store.create_node(scopes=[SCOPE], name="Relay", kind="object")
     older = store.add_fact(
         scopes=[SCOPE],

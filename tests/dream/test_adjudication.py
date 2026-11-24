@@ -1,8 +1,8 @@
-"""Merge candidates and their adjudication (SPEC 5.6): a merge is never decided
+"""Merge candidates and their adjudication: a merge is never decided
 on a name - one model call per pair reads both nodes whole and answers a closed
 verdict; ``same`` queues a ``merge_nodes`` for review, ``different`` changes
 nothing, ``unsure`` leaves a visible proposal; the verdict and its reason are
-shown to the reviewer beside the pair (SPEC 4.4b, 8.6)."""
+shown to the reviewer beside the pair."""
 
 from __future__ import annotations
 
@@ -260,7 +260,7 @@ def _story(store: Any) -> tuple[Any, Any]:
 def test_a_same_whose_names_do_not_fit_becomes_unsure(
     dream_client: TestClient, dream_app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.6: the service enforces the half of the rule the model dropped -
+    """The service enforces the half of the rule the model dropped -
     `same` only when the names fit. A downgrade of label, never a merge
     decision: the pair goes to review as `unsure`, with the model's reason."""
     store = dream_app.state.store
@@ -317,7 +317,7 @@ def test_a_same_whose_names_fit_stays_same(
 
 def test_names_are_close_only_at_the_calibrated_merge_threshold(dream_app: FastAPI) -> None:
     """The name cosine counts at ``merge``, the threshold calibrated for the
-    model (SPEC 6.1) - not at ``resolve``, which only makes a candidate."""
+    model - not at ``resolve``, which only makes a candidate."""
     store = dream_app.state.store
     bob = store.create_node(scopes=[SCOPE], name="Bob", kind="person")
     robert = store.create_node(scopes=[SCOPE], name="Robert", kind="person")

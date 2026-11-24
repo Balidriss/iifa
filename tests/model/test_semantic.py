@@ -1,5 +1,5 @@
-"""Semantic resolution, merge proposals and semantic links (SPEC 5.1 step 3,
-5.2, 6.1): a near mention in another script becomes a candidate that the
+"""Semantic resolution, merge proposals and semantic links: a near mention in another
+script becomes a candidate that the
 batched adjudication may attach; existing near nodes are proposed for a merge,
 never merged; close summaries get a proposed `similar_to` edge."""
 
@@ -66,7 +66,7 @@ def test_a_cross_script_mention_is_a_candidate_the_adjudication_attaches(
     report = run_all(client, app)
     turn = next(j for j in report["jobs"] if j["kind"] == "turn")["result"]
     assert turn["mentions_adjudicated"] == 1 and turn["nodes"]["created"] == 0
-    # SPEC 11.1: the report says what was asked and what the model answered
+    # the report says what was asked and what the model answered
     assert turn["adjudication_calls"] == 1
     [asked] = turn["adjudications"]
     assert asked["mention"] == "Карим" and asked["chosen"] == "Karim"
@@ -77,7 +77,7 @@ def test_a_cross_script_mention_is_a_candidate_the_adjudication_attaches(
     assert "Mention 0: 'Карим'" in prompt and karim in prompt
     store = app.state.store
     node = store.get_node(karim)
-    assert "Карим" in node.aliases  # in the source, now Karim's (SPEC 5.1)
+    assert "Карим" in node.aliases  # in the source, now Karim's
     assert [f.statement for f in store.facts([karim], VIEW) if f.origin == "extracted"] == [RUSSIAN]
 
 
@@ -175,7 +175,7 @@ def uncalibrated(
 def test_an_uncalibrated_model_proposes_nothing_semantic(
     uncalibrated: tuple[FastAPI, TestClient], fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 6.1: with no profile and no configured thresholds, identical vectors
+    """With no profile and no configured thresholds, identical vectors
     still make no candidate, no merge proposal and no similar_to edge."""
     app, client = uncalibrated
     fake_openai.set_vectors({"Karim": NEAR, "Карим": NEAR, "Kar": NEAR, "Kar summary": NEAR})

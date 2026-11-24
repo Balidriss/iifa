@@ -1,5 +1,5 @@
-"""Extraction against the failures real local models show in a manual run
-(SPEC 7.4b, 4.2, 4.4b, 5.1, 5.2): answers capped and never parsed when
+"""Extraction against the failures real local models show in a manual run:
+answers capped and never parsed when
 truncated, JSON mode optional, extra request parameters, complete statements
 that name their subject, aliases grounded in the source, co-occurrence within
 one sentence."""
@@ -478,7 +478,7 @@ def test_a_statement_that_names_no_one_in_its_script_is_a_fragment(
 def test_a_latin_name_inside_a_cyrillic_statement_is_written(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2: the subject's name written as it is in the statement names it,
+    """The subject's name written as it is in the statement names it,
     whatever the statement's main script: no retry, no ``cross_script`` drop."""
     statement = "report-2.pdf — корректный документ, страниц: 4."
     fake_openai.script(
@@ -537,7 +537,7 @@ def test_a_mention_of_the_answer_that_resolves_to_the_subject_names_it(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
     """The subject is written "Karim", the node is "Karim Benali": it reaches
-    the node only through resolution (the words of one known name, SPEC 5.1),
+    the node only through resolution (the words of one known name),
     and so does the edge end "Карим" (the node's stored alias). Both are
     mentions of the same node in this answer, so "Карим" names the subject in
     the statement's script; no retry is needed. (A typo would not do: it is
@@ -576,7 +576,7 @@ def test_an_alias_that_names_another_node_of_the_answer_is_a_proposal(
 ) -> None:
     """On the manual run's corpus:1, qwen3.5 attaches "lea 00" and "youssef 00" to
     Иван. Both are in the source, but they are the names of two other nodes of the
-    same answer: proposals (merge candidates), never aliases (SPEC 5.1)."""
+    same answer: proposals (merge candidates), never aliases."""
     fake_openai.script(
         chat=[
             answer(
@@ -699,7 +699,7 @@ def youssef_answer(statement: str) -> Reply:
 def test_a_word_mixing_scripts_is_rejected_then_dropped_and_counted(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 4.2: a malformed statement from the trap corpus, asked again once with a
+    """A malformed statement from the trap corpus, asked again once with a
     note naming the cause, still malformed: dropped, counted as mixed_script."""
     fake_openai.script(chat=[youssef_answer(MIXED), youssef_answer(MIXED)])
     post_turn(client, MIXED_SOURCE)

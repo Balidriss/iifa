@@ -1,4 +1,4 @@
-"""Place nodes the model proposes beside a value (SPEC 5.5, 6.1): a node named
+"""Place nodes the model proposes beside a value: a node named
 after another subject's value ("bureau de Osaka" for where Karim works) is
 still written, but with no fact of its own its handle never ranks ahead of a
 fact that matched every word it matched; a place with facts of its own is
@@ -115,7 +115,7 @@ def test_a_place_named_after_a_value_ranks_behind_the_facts_that_say_it(
     """Ranked without anchoring, as for a question naming two subjects: by
     score alone the places' short names outscore Karim's workplace fact on
     "bureau" and "de"; each comes after every fact that matched those words
-    too. Its summary, which names Karim, is never ranked (SPEC 6.1)."""
+    too. Its summary, which names Karim, is never ranked."""
     ids = _store(client, app, fake_openai)
     office, places = ids["office"], [ids["bureau de Osaka"], ids["bureau de Montréal"]]
     before = _unmoved(monkeypatch, app, QUESTION, anchoring=False)

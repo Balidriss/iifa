@@ -1,6 +1,6 @@
 """Tier 3 and P9: dense candidates are filtered by the view before any score,
 exactly as lexical ones; semantic resolution, merge proposals and semantic
-links never reach across a scope line (SPEC 6.1, dream rule 12)."""
+links never reach across a scope line (a dream never widens visibility)."""
 
 from __future__ import annotations
 
@@ -102,11 +102,11 @@ def test_p9_a_near_identical_node_in_another_scope_is_never_a_candidate(
     assert store.proposals([alice.id, bob.id], Visibility.of_subtree("user:alice")) == []
 
 
-def test_rule_12_a_merge_proposal_needs_identical_scope_sets(
+def test_p9_a_merge_proposal_needs_identical_scope_sets(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
     """Two nodes close by name in different scopes are never proposed for a
-    merge (dream rule 12: never widen visibility); in the same scope they are."""
+    merge (a dream never widens visibility); in the same scope they are."""
     fake_openai.set_vectors({"Karim": NEAR, "Карим": NEAR, "Kareem": NEAR})
     remember(client, "Karim fixes roofs.", scope=ALICE, node={"name": "Karim", "kind": "person"})
     remember(

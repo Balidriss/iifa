@@ -1,4 +1,4 @@
-"""The activity, in the agent perspective (SPEC 4.2, 5.8): a turn names what
+"""The activity, in the agent perspective: a turn names what
 the owner asks the agent to do, a session keeps it as its current activity,
 and the rules of method learnt meanwhile are linked to it beside their
 subject - never moved onto it."""
@@ -127,7 +127,7 @@ def node_named(app: FastAPI, name: str) -> Node:
 
 
 def links(app: FastAPI, fact: Fact) -> list[str]:
-    """The activities ``fact`` is linked to (SPEC 4.2)."""
+    """The activities ``fact`` is linked to."""
     return app.state.store.fact_activities([fact.id]).get(fact.id, [])
 
 
@@ -172,7 +172,7 @@ def test_the_session_carries_its_activity_to_a_rule_read_in_a_later_turn(
         chat=[
             reply(activity=asked()),
             # turn 2 never writes the activity's name: it is still no "known
-            # subject the source does not name" (SPEC 5.1)
+            # subject the source does not name"
             reply(rule(ACTIVITY, "herbs go in partial shade", SHADE)),
         ]
     )
@@ -422,7 +422,7 @@ def test_the_close_links_its_episode_to_the_current_activity(
     client: TestClient, app: FastAPI, fake_openai: FakeOpenAIServer
 ) -> None:
     """The episode names the activity, which no source of the session wrote
-    whole: it is still written (SPEC 5.8), and linked to it."""
+    whole: it is still written, and linked to it."""
     note = {
         "subject": "spring vegetable garden",
         "statement": "The spring vegetable garden needs a planting plan.",

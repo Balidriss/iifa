@@ -1,4 +1,4 @@
-"""Token counting (SPEC section 7.3).
+"""Token counting.
 
 The budget is a contract (P1), so the counter must never say "fewer" than the
 agent's real tokenizer will. The default is a conservative estimate that needs
@@ -32,7 +32,7 @@ class ConservativeTokenizer:
     Japanese and mixed samples:
 
     * lower-case ASCII letters and whitespace: 1 token per 3.5 characters
-      (the SPEC formula);
+      (the base formula);
     * upper-case letters and digits: 1 token each (identifiers such as
       ``fact_01J8Z3M4...`` and dates tokenize close to one piece per character);
     * other ASCII (punctuation, JSON syntax): 1 token per 2 characters;

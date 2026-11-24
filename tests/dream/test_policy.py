@@ -1,4 +1,4 @@
-"""Review by risk (SPEC 5.6 rule 5): only low applies by default, medium and high
+"""Review by risk: only low applies by default, medium and high
 go to review (measured: one consolidation, wrong, and no theme); the operator
 sets it per scope (nearest declaration wins); a request may only tighten it;
 merge_nodes always goes to review."""

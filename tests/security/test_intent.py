@@ -1,4 +1,4 @@
-"""Intent before content (SPEC 4.2, 12): the mechanics only. A faked model
+"""Intent before content: the mechanics only. A faked model
 cannot prove what a real one reads - the ``--intent`` corpus measures that -
 but it proves what the service does with what it is told: a non-sincere frame
 or a modality other than ``fact`` writes no fact from the content, a missing or
@@ -386,7 +386,7 @@ def test_a_frame_holds_over_its_session_until_a_turn_ends_it(
     assert statements == ["User played a role in an exercise.", "User moved to Porto."]
     (proposal,) = fact_proposals(app)
     assert proposal.value == "User's e-mail is daniela@example.org."
-    # no frame is left open, and the trace holds the sincere turn only (SPEC 5.8):
+    # no frame is left open, and the trace holds the sincere turn only:
     # nothing said inside the frame reaches the session's close
     state = sessions.load(app.state.store, "s1", [SCOPE])
     assert state.frame is None and state.facts == []

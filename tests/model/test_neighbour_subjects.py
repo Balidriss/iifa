@@ -1,4 +1,4 @@
-"""Neighbouring subjects (SPEC 5.1): a turn describing two subjects side by side.
+"""Neighbouring subjects: a turn describing two subjects side by side.
 A fact whose quote names the other subject and not its own, or whose value
 names both, is not attached on its own: it becomes a fact proposal, counted
 ``facts.neighbour``. Two subjects that each get their own facts lose nothing."""

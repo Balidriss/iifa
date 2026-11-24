@@ -1,5 +1,5 @@
 """Store additions of schema version 3: closing and flagging facts (P7, P6),
-edge evidence, confirmation, reinforcement and decay (SPEC 5.2, 5.3), the node
+edge evidence, confirmation, reinforcement and decay, the node
 index for resolution, what a session touched, and the history queries."""
 
 from __future__ import annotations

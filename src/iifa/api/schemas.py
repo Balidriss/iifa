@@ -85,7 +85,7 @@ class WriteScopes(Strict):
 
 
 class QueryVectorIn(Strict):
-    """A query vector the harness already computed (SPEC 6.1): used only when it
+    """A query vector the harness already computed: used only when it
     carries the configured embedding model and the stored dimension."""
 
     model: str = Field(min_length=1, max_length=200)
@@ -117,7 +117,7 @@ class NodeRef(Strict):
     @field_validator("name")
     @classmethod
     def _plain_name(cls, value: str) -> str:
-        return require_name(value)  # SPEC 5.1: Markdown stripped, debris a 422
+        return require_name(value)  # Markdown stripped, debris a 422
 
     @field_validator("aliases")
     @classmethod
@@ -139,7 +139,7 @@ class RememberRequest(WriteScopes):
     source_reference: str | None = Field(default=None, max_length=500)
     about_self: bool = Field(
         default=False,
-        description="A fact about the self of the target scopes (SPEC 8.3, agent perspective).",
+        description="A fact about the self of the target scopes (agent perspective).",
     )
 
 
@@ -167,7 +167,7 @@ class FactPatch(Strict):
         default=None,
         min_length=1,
         max_length=50,
-        description="Replace the fact's scope set (SPEC 4.6): the token must own every"
+        description="Replace the fact's scope set: the token must own every"
         " scope added and every scope removed.",
     )
 
@@ -182,7 +182,7 @@ class ProposalDecision(Strict):
 
 
 class EdgeDecision(Strict):
-    """A person's decision on a proposed edge (SPEC 5.7); ``rev`` is the edge's
+    """A person's decision on a proposed edge; ``rev`` is the edge's
     revision the author read."""
 
     decision: Literal["confirm", "reject"]
@@ -190,7 +190,7 @@ class EdgeDecision(Strict):
 
 
 class NodePatch(Strict):
-    """A person's correction of a node (SPEC 5.7): rename it, change its kind,
+    """A person's correction of a node: rename it, change its kind,
     add and remove aliases; ``rev`` is the revision the author read."""
 
     name: NameText | None = None
@@ -214,7 +214,7 @@ class NodePatch(Strict):
 
 
 class NodeMerge(Strict):
-    """Two nodes a person knows are one (SPEC 5.7): ``absorb`` is merged into
+    """Two nodes a person knows are one: ``absorb`` is merged into
     ``keep``; ``revs`` (node id -> rev) are the revisions the author read."""
 
     keep: str = Field(min_length=1, max_length=64)
@@ -230,7 +230,7 @@ class ProbeIn(Strict):
 
 
 class ProbeSetCreate(Strict):
-    """A probe set (SPEC 11.2): questions and the records that answer them, in one scope."""
+    """A probe set: questions and the records that answer them, in one scope."""
 
     scope: str
     name: str = Field(min_length=1, max_length=200)
@@ -255,11 +255,11 @@ class RememberResponse(BaseModel):
     node: dict[str, Any] | None
     source_id: str | None
     created_node: bool
-    # SPEC 8.3: about the self, the same thing said again: nothing was written
+    # about the self, the same thing said again: nothing was written
     echo: bool = False
 
 
-# --------------------------------------------------------------------------- lifecycle (SPEC 8.1)
+# --------------------------------------------------------------------------- lifecycle
 
 TURN_TEXT_CHARS = 100_000
 PRECOMPACT_TOTAL_CHARS = 400_000
@@ -283,7 +283,7 @@ class ExternalPart(Strict):
     vouched: bool = Field(
         default=False,
         description="The host's statement that the owner gave this content or asked for it:"
-        " the agent perspective may learn from it (SPEC 4.2). Never covers the owner's facts.",
+        " the agent perspective may learn from it. Never covers the owner's facts.",
     )
 
 
@@ -299,7 +299,7 @@ class TurnRequest(WriteScopes):
     external: list[ExternalPart] = Field(default_factory=list, max_length=20)
     occurred_at: str | None = Field(default=None, max_length=40)
     external_id: str | None = Field(default=None, max_length=200)
-    # SPEC 8.1: the host's statement that this turn is not to be remembered (a
+    # the host's statement that this turn is not to be remembered (a
     # test started inside a real session): nothing of it is written, not even queued
     record: bool = True
 
@@ -342,7 +342,7 @@ class SessionEndRequest(WriteScopes):
     reason: str | None = Field(default=None, max_length=40)
 
 
-# --------------------------------------------------------------------------- operations (SPEC 8.4)
+# --------------------------------------------------------------------------- operations
 
 BackgroundMode = Literal["auto", "paused", "on_demand"]
 
@@ -374,7 +374,7 @@ class YieldRequest(Strict):
     timeout_seconds: float | None = Field(default=None, gt=0, le=3600)
 
 
-# --------------------------------------------------------------------------- reading (SPEC 8.2)
+# --------------------------------------------------------------------------- reading
 
 DateText = Annotated[str, StringConstraints(min_length=4, max_length=40, strip_whitespace=True)]
 
@@ -404,7 +404,7 @@ class PathRequest(ViewMixin, BudgetMixin):
     max_hops: int = Field(default=3, ge=1, le=6)
 
 
-# --------------------------------------------------------------------------- dream (SPEC 8.6)
+# --------------------------------------------------------------------------- dream
 
 DreamOperation = Literal[
     "refresh_summary",
@@ -434,7 +434,7 @@ class ReviewPolicyIn(Strict):
 
 
 class DreamStart(Strict):
-    """Start a dream over one scope (SPEC 5.6): which operations, what budget,
+    """Start a dream over one scope: which operations, what budget,
     a dry run or not, a review policy that may only be stricter than the
     configured one."""
 

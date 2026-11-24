@@ -1,4 +1,4 @@
-"""What the ``--intent`` and ``--worksession`` corpora measure (SPEC 11.1).
+"""What the ``--intent`` and ``--worksession`` corpora measure.
 
 ``--intent``: the turns not meant as facts (hypotheses, questions, guesses,
 possibilities, examples, test personas) must write nothing from their content

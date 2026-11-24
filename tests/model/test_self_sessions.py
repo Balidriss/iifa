@@ -1,4 +1,4 @@
-"""The agent perspective beyond one turn (SPEC 4.2, 5.8, 8.1, 8.3): the
+"""The agent perspective beyond one turn: the
 session's close writes its episode about the self, the profile carries the
 self's commitments, and the agent may remember about itself."""
 

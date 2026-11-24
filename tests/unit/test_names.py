@@ -1,4 +1,4 @@
-"""What a name or an alias is (SPEC 5.1): Markdown stripped, unbalanced brackets
+"""What a name or an alias is: Markdown stripped, unbalanced brackets
 and quotes refused, never repaired by a guess; names that legitimately hold
 brackets, apostrophes, hyphens or another script are kept as they are."""
 

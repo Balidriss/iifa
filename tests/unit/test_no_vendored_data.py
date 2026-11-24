@@ -1,4 +1,4 @@
-"""Public benchmark datasets are downloaded, never vendored (SPEC 11): git
+"""Public benchmark datasets are downloaded, never vendored: git
 ignores ``bench/data/``, and nothing under it is tracked - LoCoMo is CC BY-NC
 4.0, which an Apache-2.0 repository must not carry."""
 

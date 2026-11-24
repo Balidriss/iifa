@@ -1,4 +1,4 @@
-"""Proposals (SPEC 4.4b) are records like the others: they carry text from a
+"""Proposals are records like the others: they carry text from a
 source, so they are read through the view (P9), decided only by a token bound
 to one of their scopes, and hard-deleted with their node or their source (P5)."""
 

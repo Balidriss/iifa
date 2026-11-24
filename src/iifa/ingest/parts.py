@@ -127,8 +127,8 @@ def turn_source(
     payload: dict[str, Any], owner: str | None = None, assistant: str | None = None
 ) -> SourceText:
     """The source of a turn: what the owner said (labelled with the owner's name
-    when one is declared, SPEC 4.2, else "User"), what the assistant answered
-    (labelled with its declared name, SPEC 4.6, else "Assistant"), and the
+    when one is declared, else "User"), what the assistant answered
+    (labelled with its declared name, else "Assistant"), and the
     external parts - tool summaries, pages, documents (P6)."""
     pieces: list[_Piece] = [
         (owner or "User", str(payload.get("user") or ""), OWNER, None, None, False),

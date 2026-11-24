@@ -1,5 +1,5 @@
 """The closed catalogue of dream operations and the strict schema of the dream
-model's answer (SPEC 5.6 rule 1, P8).
+model's answer (P8).
 
 The model proposes, the service applies. An answer is ONE JSON object,
 ``{"operations": [...]}``; each item is validated alone against a closed
@@ -31,7 +31,7 @@ from pydantic import (
 from iifa.ingest.schema import normalize_edge_type
 from iifa.names import require_name
 
-# SPEC 5.6, in the order of its table
+# in the order of its table
 OPERATIONS: tuple[str, ...] = (
     "refresh_summary",
     "decay_edges",
@@ -141,7 +141,7 @@ class CreateTheme(_Operation):
         flat = _flat(value)
         if not flat:
             raise ValueError("an empty name")
-        return require_name(flat)  # SPEC 5.1: the name a node is created with
+        return require_name(flat)  # the name a node is created with
 
     @field_validator("summary")
     @classmethod
@@ -160,7 +160,7 @@ class GroupActivities(_Operation):
         flat = _flat(value)
         if not flat:
             raise ValueError("an empty name")
-        return require_name(flat)  # SPEC 5.1: the name a node is created with
+        return require_name(flat)  # the name a node is created with
 
 
 class ConsolidateFacts(_Operation):
@@ -246,7 +246,7 @@ _FENCE = re.compile(r"^```[a-zA-Z]*\s*\n?(?P<body>.*?)\n?```\s*$", re.S)
 
 
 def parse_answer(content: str, *, allowed: Collection[str]) -> Parsed:
-    """The dream model's answer, item by item (SPEC 5.6). An answer that is not
+    """The dream model's answer, item by item. An answer that is not
     the expected object is a ``bad_answer``: nothing of it is used."""
     text = content.strip()
     fenced = _FENCE.match(text)
@@ -302,7 +302,7 @@ class Verdict:
 
 
 def parse_verdict(content: str) -> Verdict:
-    """The adjudication's answer (SPEC 5.6): ``{"verdict": "same" | "different" |
+    """The adjudication's answer: ``{"verdict": "same" | "different" |
     "unsure", "reason": "..."}`` and nothing else, or a ``bad_answer``."""
     text = content.strip()
     fenced = _FENCE.match(text)

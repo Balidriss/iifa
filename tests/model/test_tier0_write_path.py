@@ -1,4 +1,4 @@
-"""SPEC 6, tier 0: with no model at all, the write path still links known
+"""Tier 0: with no model at all, the write path still links known
 subjects. A recorded turn that mentions two known names yields a proposed
 co-occurrence edge, no model is called, and recall reaches the neighbour
 through the graph."""

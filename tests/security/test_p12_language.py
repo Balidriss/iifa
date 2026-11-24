@@ -2,7 +2,7 @@
 in every writing prompt; a fact or a summary the fake model writes in another
 language is rejected and asked for again once, then stored with a
 ``language_mismatch`` flag rather than silently. French and a non-Latin script
-(Russian) are the sources here, plus a mixed one (SPEC 13.2)."""
+(Russian) are the sources here, plus a mixed one."""
 
 from __future__ import annotations
 
@@ -169,7 +169,7 @@ def test_p12_a_mixed_source_keeps_each_fact_in_the_language_of_its_sentence(
             answer(
                 nodes=[
                     # the source spells Karim in Cyrillic too: the answer lists that
-                    # spelling, so "Карим переехал в Лион." names its subject (SPEC 4.2)
+                    # spelling, so "Карим переехал в Лион." names its subject
                     {"name": "Karim", "kind": "person", "aliases": ["Карим"]},
                     {"name": "Émilie", "kind": "person"},
                 ],
@@ -348,7 +348,7 @@ def test_p12_the_language_line_never_contradicts_an_english_target(code: str) ->
 
 
 def test_the_extraction_schema_asks_for_statements_that_name_their_subject() -> None:
-    """SPEC 4.2: a statement names its subject. Asking only for "one short
+    """A statement names its subject. Asking only for "one short
     sentence" lets qwen2.5:7b write "leads the installation planning" for Karim,
     and a retry note alone does not correct it."""
     system = extraction_messages("x", languages=["fr"])[0]["content"]
@@ -357,7 +357,7 @@ def test_the_extraction_schema_asks_for_statements_that_name_their_subject() -> 
 
 
 def test_the_extraction_schema_asks_for_the_source_spelling_of_a_subject() -> None:
-    """SPEC 4.2: a subject is named in the statement's script only; the base prompt
+    """A subject is named in the statement's script only; the base prompt
     asks for the source's spelling, never for spellings among the aliases (that
     makes models stuff aliases: only the retry note asks it)."""
     system = extraction_messages("x", languages=["fr"])[0]["content"]

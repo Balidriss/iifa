@@ -1,4 +1,4 @@
-"""``POST /v1/path`` (SPEC 8.2): how two nodes are related, by a bounded
+"""``POST /v1/path``: how two nodes are related, by a bounded
 breadth-first search over live edges. ``Store.edges_of`` applies the view to
 every edge and both of its ends before a hop is taken, so a path never crosses
 or names an invisible record (P9: a path through an invisible node is a leak).

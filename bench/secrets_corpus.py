@@ -1,4 +1,4 @@
-"""The ``secrets_bench`` corpus (SPEC P5): turns that say a secret, in many
+"""The ``secrets_bench`` corpus (P5): turns that say a secret, in many
 languages, beside turns that only look like they do.
 
 Every case is one turn of the owner (and sometimes a page or a tool output),

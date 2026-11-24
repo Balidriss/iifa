@@ -1,4 +1,4 @@
-"""Vector arithmetic for tier 3 (SPEC 6.1): unit-normalised float32 blobs, a
+"""Vector arithmetic for tier 3: unit-normalised float32 blobs, a
 numpy path and a pure-Python path that rank identically, and reciprocal rank
 fusion of the lexical and dense rankings."""
 
@@ -44,7 +44,7 @@ def test_rank_orders_by_cosine_then_index() -> None:
 
 
 def test_rank_skips_vectors_of_another_dimension() -> None:
-    # stale vectors are never compared with fresh ones (SPEC 6)
+    # stale vectors are never compared with fresh ones
     blobs = [pack([1.0, 0.0]), pack([1.0, 0.0, 0.0]), pack([0.5, 0.5])]
     for path in (PYTHON, NUMPY):
         assert [i for i, _ in rank([1.0, 0.0], blobs, path=path)] == [0, 2]
@@ -62,7 +62,7 @@ def test_rank_of_nothing_is_nothing() -> None:
     st.integers(min_value=2, max_value=48),
 )
 def test_numpy_and_pure_python_paths_rank_identically(seed: int, count: int, dim: int) -> None:
-    """SPEC 6.1: the optional numpy extra changes the speed, never the result."""
+    """The optional numpy extra changes the speed, never the result."""
     rng = random.Random(seed)
     blobs = []
     for _ in range(count):
@@ -84,7 +84,7 @@ def test_numpy_and_pure_python_paths_rank_identically(seed: int, count: int, dim
 
 def test_the_active_path_and_the_python_limit_are_reported() -> None:
     assert active_path() == NUMPY  # the dev install carries the extra
-    # the size past which the pure-Python path misses the 50 ms target (SPEC 7.4)
+    # the size past which the pure-Python path misses the 50 ms target
     limit = python_path_limit()
     assert 100 <= limit <= 10_000
     if sys.version_info < (3, 12):

@@ -1,4 +1,4 @@
-"""The persisted ingestion queue (SPEC 7.2): rows survive a restart, a claim is
+"""The persisted ingestion queue: rows survive a restart, a claim is
 atomic, an interrupted job runs again, a done job keeps no content (P5)."""
 
 from __future__ import annotations

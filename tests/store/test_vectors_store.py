@@ -1,4 +1,4 @@
-"""Schema version 5: vectors (SPEC 6, 6.1). Stamped with model, dimension and
+"""Schema version 5: vectors. Stamped with model, dimension and
 text hash; what is missing or stale is listed for the background `embed` job;
 a change of the embedded text drops the vector; comparisons only ever see live
 records inside the view (P9); `forget` deletes vectors (P5)."""

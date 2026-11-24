@@ -1,11 +1,11 @@
-"""Checking, applying, journalling and undoing dream operations (SPEC 5.6).
+"""Checking, applying, journalling and undoing dream operations.
 
 Every operation goes through ``Applier.submit`` in one transaction under the
 store lock: the revisions of the records it reads are compared with the
-snapshot the model saw (rule 8: a record that moved or is gone drops it as
+snapshot the model saw (a record that moved or is gone drops it as
 ``stale``), then the rules of the catalogue table are checked against memory as
 it is, then the operation is applied, queued for review or - in a dry run -
-planned, and journalled with what it takes to revert it (rule 4).
+planned, and journalled with what it takes to revert it.
 
 Undo reverts exactly what an operation did, provided every record it changed
 still carries the revision it left there; otherwise a later write depends on
@@ -49,10 +49,10 @@ from iifa.store.corrections import merge_nodes, merge_refusal, unmerge_nodes
 from iifa.store.models import Edge, Fact, Node
 from iifa.store.repo import Store, decayed_weight
 
-TASK = "task"  # SPEC 4.2: the kind of an activity's node
-INSTANCE_OF = "instance_of"  # SPEC 5.6: an occurrence to its generic activity
+TASK = "task"  # the kind of an activity's node
+INSTANCE_OF = "instance_of"  # an occurrence to its generic activity
 DREAM_ORIGIN = "dream"
-DREAM_EDGE_WEIGHT = 0.5  # a proposed edge is used at reduced weight (SPEC 5.2)
+DREAM_EDGE_WEIGHT = 0.5  # a proposed edge is used at reduced weight
 CONFLICT = "conflict"
 EXTERNAL, ASSISTANT = "external", "assistant"
 
@@ -93,21 +93,22 @@ def dream_view(scope: str) -> Visibility:
 
 
 def changeable(scopes: Iterable[str], scope: str) -> bool:
-    """Rule 12: a dream changes only records whose every scope is at or below its own."""
+    """Never widen visibility: a dream changes only records whose every scope is at
+    or below its own."""
     values = list(scopes)
     return bool(values) and all(within(s, scope) for s in values)
 
 
 def observed_as_of(facts: Sequence[Fact]) -> str | None:
-    """SPEC 4.2: a consolidation is observed, as of the latest day, when every
+    """A consolidation is observed, as of the latest day, when every
     fact it restates is observed; otherwise it is lasting (None)."""
     days = [f.observed_at for f in facts]
     return max(d for d in days if d) if days and all(days) else None
 
 
 def consolidated_flags(facts: Sequence[Fact]) -> list[str]:
-    """An element of a set stays one once consolidated (SPEC 5.4), and
-    observations stay one (SPEC 4.2)."""
+    """An element of a set stays one once consolidated, and
+    observations stay one."""
     return [
         *([MANY] if any(MANY in f.flags for f in facts) else []),
         *([OBSERVED] if observed_as_of(facts) else []),
@@ -115,9 +116,9 @@ def consolidated_flags(facts: Sequence[Fact]) -> list[str]:
 
 
 def says_one_thing(facts: Sequence[Fact]) -> bool:
-    """SPEC 5.6 rule 14: every fact has the same key and an equivalent value -
-    the same spelling, or one ``same_as`` group (rule 13 keeps groups out of a
-    consolidation today; this stays as defense in depth). A fact without a key
+    """Every fact has the same key and an equivalent value -
+    the same spelling, or one ``same_as`` group (one language per consolidation keeps groups out
+    of it today; this stays as defense in depth). A fact without a key
     never says the same thing as another."""
 
     def group(fact: Fact) -> str:
@@ -259,7 +260,7 @@ class Applier:
 
     def decide(self, op_id: str, *, accept: bool) -> Entry:
         """A reviewer's decision on a queued operation. Accepted, it is checked
-        again against memory as it is now - its snapshot first (rule 8)."""
+        again against memory as it is now - its snapshot first."""
         store = self.store
         with store.lock, store.transaction():
             entry = self.journal.get_op(op_id)
@@ -290,7 +291,7 @@ class Applier:
             )
 
     def _follow_proposal(self, op: Mapping[str, Any], status: str) -> str | None:
-        """A merge proposal between the two nodes follows its operation (SPEC 4.4b)."""
+        """A merge proposal between the two nodes follows its operation."""
         if op.get("op") != "merge_nodes":
             return None
         proposal = self.store.merge_proposal_between(str(op["keep"]), str(op["absorb"]))
@@ -336,7 +337,7 @@ class Applier:
             return len(entries)
 
     def rollback(self, run_id: str) -> list[str]:
-        """Rule 9: undo every applied operation that can be undone, latest first;
+        """The rollback: undo every applied operation that can be undone, latest first;
         drop the queued ones. Returns the operations a later write keeps."""
         store = self.store
         incomplete: list[str] = []
@@ -354,7 +355,7 @@ class Applier:
         return sorted(incomplete, key=lambda i: self.journal.get_op(i).seq)
 
     def _remove_created_proposals(self, run_id: str) -> None:
-        """SPEC 5.6: the merge proposals the run's ``unsure`` verdicts left go with
+        """The merge proposals the run's ``unsure`` verdicts left go with
         it while nobody decided them; its verdicts stay as a record."""
         for proposal_id in self.journal.proposals_created(run_id):
             self.store.remove_pending_proposal(proposal_id)
@@ -514,7 +515,7 @@ class Applier:
         return _Checked(dict(op), [], members_ids, apply)
 
     def _group_activities(self, scope: str, op: Mapping[str, Any]) -> _Checked:
-        """SPEC 5.6: the occurrences of one activity under one generic task node,
+        """The occurrences of one activity under one generic task node,
         whose name is only what their names share."""
         store = self.store
         members_ids = list(op["members"])
@@ -620,7 +621,7 @@ class Applier:
         def apply() -> Applied:
             provenances = {f.provenance for f in facts}
             provenance = provenances.pop() if len(provenances) == 1 else None
-            # SPEC 4.2: the part's kind and ref when every original shares them,
+            # the part's kind and ref when every original shares them,
             # and the latest day read
             parts = {(f.part_kind, f.part_ref) for f in facts}
             part_kind, part_ref = parts.pop() if len(parts) == 1 else (None, None)
@@ -662,8 +663,8 @@ class Applier:
         return _Checked(dict(op), [], [node.id, *fact_ids], apply)
 
     def _merge(self, scope: str, op: Mapping[str, Any]) -> _Checked:
-        """Always reviewed (rule 5): a wrong merge silently corrupts memory. A
-        merge that moves an explicit fact moves it unchanged (rule 3)."""
+        """Always reviewed: a wrong merge silently corrupts memory. A
+        merge that moves an explicit fact moves it unchanged (P6)."""
         store = self.store
         if op["keep"] == op["absorb"]:
             raise Drop("same_record")
@@ -743,7 +744,7 @@ class Applier:
     def decay_plan(
         self, scope: str, *, half_life_days: float, prune_below: float, now: datetime
     ) -> list[tuple[Edge, float, bool]]:
-        """SPEC 5.3 over the edges the dream may change: ``(edge, new weight,
+        """Edge decay over the edges the dream may change: ``(edge, new weight,
         pruned)`` for each one decay would change."""
         out: list[tuple[Edge, float, bool]] = []
         for edge in self.store.live_proposed_edges(Visibility.of_subtree(scope)):
@@ -841,7 +842,7 @@ class Applier:
 
 
 def _supersede_cause(old: Fact, by: Fact) -> str | None:  # noqa: PLR0911, PLR0912
-    """Why the write path (SPEC 5.4) would not let ``by`` close ``old``, or None:
+    """Why the write path would not let ``by`` close ``old``, or None:
     one return per rule, in the order the write path applies them."""
     if old.node_id is None or old.node_id != by.node_id:
         return "node"
@@ -857,7 +858,7 @@ def _supersede_cause(old: Fact, by: Fact) -> str | None:  # noqa: PLR0911, PLR09
     if key is None or not same_key(old.attribute, by.attribute):
         return "key"
     if multi_valued(key) or MANY in old.flags or MANY in by.flags:
-        return "several"  # SPEC 5.4: an element of a set is never superseded
+        return "several"  # an element of a set is never superseded
     if not supersedable(key):
         return "key"
     if old.valid_from and by.valid_from:
@@ -876,7 +877,7 @@ def _supersede_cause(old: Fact, by: Fact) -> str | None:  # noqa: PLR0911, PLR09
 
 
 def _one_language(a: Fact, b: Fact) -> bool:
-    """SPEC 5.4: both determined and equal, or, either undetermined, one script."""
+    """Both determined and equal, or, either undetermined, one script."""
     left, right = a.language or detect(a.statement), b.language or detect(b.statement)
     if UNDETERMINED not in (left, right):
         return left == right
@@ -885,7 +886,7 @@ def _one_language(a: Fact, b: Fact) -> bool:
 
 
 def shared_activities(store: Store, facts: Sequence[Fact]) -> list[str]:
-    """SPEC 4.2, 5.6: the activities every original is linked to."""
+    """The activities every original is linked to."""
     links = store.fact_activities([f.id for f in facts])
     common = set.intersection(*(set(links.get(f.id, ())) for f in facts)) if facts else set()
     return sorted(common)

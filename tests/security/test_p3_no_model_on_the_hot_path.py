@@ -88,7 +88,7 @@ def test_p3_no_model_call_on_any_hot_path_route(
     end = client.post("/v1/session/end", json={"scope": "user:alice"})
     assert turn.status_code == 202 and compact.status_code == 200 and end.status_code == 202
     client.post("/v1/recall", json={"scope": "user:alice", "query": "Karim"})
-    # no LLM call; tier 3 embeds each recall's query once, and nothing else (SPEC 6.1)
+    # no LLM call; tier 3 embeds each recall's query once, and nothing else
     assert fake_openai.chat_calls == []
     assert [c.body["input"] for c in fake_openai.embedding_calls] == [["solar project"], ["Karim"]]
     assert client.get("/v1/health").json()["backends"]["chat"]["calls"] == 0

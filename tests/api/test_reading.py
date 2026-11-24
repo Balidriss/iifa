@@ -1,4 +1,4 @@
-"""The reading routes of SPEC 8.2: ``/v1/timeline`` (fact
+"""The reading routes: ``/v1/timeline`` (fact
 changes in a date range), ``/v1/at`` (what was known at a date, P7) and
 ``/v1/path`` (how two nodes are related), each under budget (P1) and inside
 the view (P9)."""
@@ -335,7 +335,7 @@ def test_p9_timeline_of_a_view_never_names_an_invisible_node(client: TestClient)
     assert "Hidden subject" not in str(body)
 
 
-# --------------------------------------------------------------------------- reinforcement (SPEC 5.3)
+# --------------------------------------------------------------------------- reinforcement
 
 
 def test_expand_reinforces_the_edge_that_surfaced_the_item(

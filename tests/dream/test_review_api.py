@@ -1,4 +1,4 @@
-"""One review queue (SPEC 4.4b, 8.6): pending alias and fact proposals and the
+"""One review queue: pending alias and fact proposals and the
 dream's queued operations in one listing, under the one ``review`` permission;
 accepting a queued operation re-checks it against memory as it is now."""
 
@@ -26,7 +26,7 @@ from tests.helpers import auth
 
 def _queue_a_merge(client: TestClient, fake: FakeOpenAIServer, memory: Memory) -> dict[str, Any]:
     # the pending merge proposal makes the pair a candidate; the adjudication's
-    # "same" queues the merge (SPEC 5.6)
+    # "same" queues the merge
     store = client.app.state.store  # type: ignore[attr-defined]
     store.add_proposal(scopes=[SCOPE], kind="merge", node_id=memory.karim.id, value=memory.kiki.id)
     fake.set_default(
@@ -192,7 +192,7 @@ def test_proposals_are_decided_through_the_review_queue_too(
 def test_accepting_a_merge_proposal_in_the_review_queue_merges_the_two_nodes(
     dream_client: TestClient, dream_app: FastAPI
 ) -> None:
-    """SPEC 5.7: a reviewer's accept is a person's decision; Karim has the more
+    """A reviewer's accept is a person's decision; Karim has the more
     live facts, so Karim is kept."""
     store = dream_app.state.store
     memory = build_memory(store)

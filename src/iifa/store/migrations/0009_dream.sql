@@ -1,11 +1,11 @@
--- Schema version 9: what the dream needs (SPEC 4.4, 5.6).
+-- Schema version 9: what the dream needs.
 --
 -- * rev on nodes, facts and edges: a counter that grows with every change to the
 --   record, kept by triggers so that no write path can forget it - an UPDATE of
 --   the row (content, life, flags, links), an alias added or removed, a scope
 --   added to or removed from its set. A dream compares revisions to know that
---   what it read is still there (rule 8) and that nothing written since depends
---   on what it would undo (rule 4). The triggers only fire when the UPDATE left
+--   what it read is still there and that nothing written since depends
+--   on what it would undo. The triggers only fire when the UPDATE left
 --   rev alone, so their own UPDATE does not fire them again.
 -- * nodes.merged_into: the node a dream merged it into (it stays, archived).
 -- * facts.consolidated_into: the fact a dream consolidated it into (not

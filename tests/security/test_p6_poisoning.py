@@ -1,4 +1,4 @@
-"""Memory poisoning (P6, SPEC 12): content from outside the conversation - a web
+"""Memory poisoning (P6): content from outside the conversation - a web
 page, a tool result, a document - never becomes a fact about the owner, at most
 a fact proposal that only a ``review`` token may decide, and never closes what
 the owner said. The rules read the parts' offsets, never a label written in the

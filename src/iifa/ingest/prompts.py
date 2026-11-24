@@ -73,7 +73,7 @@ _CHATTER_TEXT = "and what the assistant says about itself."
 
 
 def schema_text(agent: str | None = None) -> str:
-    """The answer's shape (SPEC 4.2); in the agent perspective (``agent``, the
+    """The answer's shape; in the agent perspective (``agent``, the
     self's name) a ``task`` kind, and chatter without what the self says
     about itself. Without a self it is ``SCHEMA_TEXT`` exactly."""
     if agent is None:
@@ -84,7 +84,7 @@ def schema_text(agent: str | None = None) -> str:
 
 
 def _agent_line(agent: str) -> str:
-    """SPEC 4.2: the agent perspective - the assistant part is the self speaking."""
+    """The agent perspective - the assistant part is the self speaking."""
     return (
         f'The part labelled "{agent}:" is {agent} speaking in the first person: this memory is '
         f'also {agent}\'s own. For a fact about {agent} itself, use "{agent}", in exactly this '
@@ -117,7 +117,7 @@ def _agent_line(agent: str) -> str:
 
 
 def _activity_line(activity: str) -> str:
-    """SPEC 4.2: the session's current activity, a known subject (P8: a name
+    """The session's current activity, a known subject (P8: a name
     stored from the person's words, shown as data on one line)."""
     name = safe_line(activity)
     return (
@@ -128,7 +128,7 @@ def _activity_line(activity: str) -> str:
 
 
 def _speaker_line(owner: str | None) -> str:
-    """Who the person speaking is (SPEC 4.2): their facts are the most valuable
+    """Who the person speaking is: their facts are the most valuable
     ones, under one subject the service recognises."""
     if owner:
         return (
@@ -144,7 +144,7 @@ def _speaker_line(owner: str | None) -> str:
 
 
 def _assistant_line(assistant: str) -> str:
-    """SPEC 4.6: the assistant's part carries its declared name as a label."""
+    """The assistant's part carries its declared name as a label."""
     return (
         f'The part labelled "{assistant}:" is the answer of {assistant}, the assistant, not '
         "the words of the person speaking."
@@ -224,15 +224,15 @@ def extraction_messages(
     activity: str | None = None,
 ) -> list[dict[str, str]]:
     """The messages of one extraction call over ``text`` (one chunk of a source).
-    ``known_keys``: the attribute keys the known subjects' live facts carry (SPEC 5.4);
-    ``owner``: the scope's declared owner (SPEC 4.6); ``assistant``: the name its
-    assistant's part is labelled with (SPEC 4.6); ``external``: the source holds
+    ``known_keys``: the attribute keys the known subjects' live facts carry;
+    ``owner``: the scope's declared owner; ``assistant``: the name its
+    assistant's part is labelled with; ``external``: the source holds
     content from outside the conversation (P6); ``value_norm``: ask for each value's
-    comparison form (SPEC 5.4); ``intent``: ask for the frame, modality and
-    duration (SPEC 4.2); ``session``: what the session's state shows (SPEC 5.8),
+    comparison form; ``intent``: ask for the frame, modality and
+    duration; ``session``: what the session's state shows,
     placed before the source between its own markers; ``agent``: the self's
-    name in the agent perspective (SPEC 4.2), None for the user perspective;
-    ``activity``: the session's current activity there (SPEC 4.2)."""
+    name in the agent perspective, None for the user perspective;
+    ``activity``: the session's current activity there."""
     system = [
         "You extract durable memory from a conversation record for a personal memory service.",
         WALL,
@@ -282,7 +282,7 @@ def extraction_messages(
 def adjudication_messages(
     mentions: Sequence[tuple[str, str, Sequence[tuple[str, str, str, str]]]],
 ) -> list[dict[str, str]]:
-    """One batched call for every ambiguous mention (SPEC 5.1 step 4). Each mention
+    """One batched call for every ambiguous mention. Each mention
     is ``(text, context, candidates)`` with candidates ``(id, name, kind, summary)``."""
     lines = [
         "Decide, for each mention below, whether it refers to one of the listed known "
@@ -333,7 +333,7 @@ def summary_messages(
 
 def value_adjudication_messages(pairs: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
     """One batched call for every pair of values of one key that the
-    deterministic comparison could not settle across languages (SPEC 5.4)."""
+    deterministic comparison could not settle across languages."""
     system = [
         "You compare pairs of values that a personal memory service recorded about the same "
         "subject and the same attribute, in two different languages. For each pair, decide "
@@ -356,7 +356,7 @@ def replacement_adjudication_messages(pairs: Sequence[dict[str, Any]]) -> list[d
     """One batched call for every changed value of an aspect that may hold
     several values at once (role, team, preferences), or of a free-form key,
     which may hold two unrelated statements, that the deterministic comparison
-    could not settle (SPEC 5.4)."""
+    could not settle."""
     system = [
         "You compare pairs of facts that a personal memory service recorded about the same "
         "subject under the same attribute key (a role, a team, a preference, or any other "
@@ -385,7 +385,7 @@ def replacement_adjudication_messages(pairs: Sequence[dict[str, Any]]) -> list[d
 
 def restatement_adjudication_messages(pairs: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
     """One batched call for every pair of values of one key, within one language,
-    that may be the same value told again in other words or units (SPEC 5.4)."""
+    that may be the same value told again in other words or units."""
     system = [
         "You compare pairs of facts that a personal memory service recorded about the same "
         "subject and the same attribute, in one language; fact b was learnt after fact a. "
@@ -408,7 +408,7 @@ def restatement_adjudication_messages(pairs: Sequence[dict[str, Any]]) -> list[d
 
 def rule_adjudication_messages(pairs: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
     """One batched call for every pair of a rule of the self just stated and a
-    rule already held, waiting for a reviewer or refused by one (SPEC 4.2)."""
+    rule already held, waiting for a reviewer or refused by one."""
     system = [
         "You compare pairs of rules of conduct that a memory service holds about one "
         "agent. Rule a is already known to the service; rule b was just stated. For each "

@@ -1,4 +1,4 @@
-"""A value's comparison form through the write path (SPEC 5.4): switched on,
+"""A value's comparison form through the write path: switched on,
 the extraction prompt asks for a ``value_norm`` and the service keeps it beside
 the fact; across languages, two values whose forms compare the same are
 linked without asking the model. A form only ever links: forms that differ

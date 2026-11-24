@@ -38,7 +38,7 @@ def test_node_fact_edge_round_trip(store: Store) -> None:
 
     assert karim.aliases == ("K", "my brother")
     assert karim.scopes == ("user:alice",)
-    # adding a fact touched the node, so only its revision moved (SPEC 4.4)
+    # adding a fact touched the node, so only its revision moved
     assert store.get_node(karim.id) == replace(karim, rev=store.get_node(karim.id).rev)
     assert store.get_fact(fact.id) == fact
     assert fact.node_id == karim.id and fact.origin == "explicit" and fact.excerpt_end == 5
@@ -178,7 +178,7 @@ def test_archive_hides_restore_brings_back_unchanged(store: Store, clock: FakeCl
     assert store.restore(fact.id) == "fact"
     restored = store.get_fact(fact.id)
     assert restored == replace(fact, updated_at=restored.updated_at, rev=restored.rev)
-    assert restored.rev > fact.rev  # archive and restore are changes (SPEC 4.4)
+    assert restored.rev > fact.rev  # archive and restore are changes
     assert restored.archived_at is None
 
     # Archiving a node takes its facts and edges out of every read.
@@ -309,7 +309,7 @@ def test_sources_can_be_kept_as_hash_only(tmp_path: Path) -> None:
 
 
 def test_update_node_aliases_reindex_and_the_summary_is_never_searched(store: Store) -> None:
-    """SPEC 6.1: a node is found by its name and aliases; its summary is
+    """A node is found by its name and aliases; its summary is
     model-written text, shown in handles but never ranked by recall."""
     node = store.create_node(scopes=["user:alice"], name="Karim")
     assert store.postings(["kar"], ALICE) == []

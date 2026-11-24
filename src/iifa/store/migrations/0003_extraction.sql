@@ -1,4 +1,4 @@
--- Schema version 3: what the model-driven write path needs (SPEC 5.1-5.4, P6, P7, P12).
+-- Schema version 3: what the model-driven write path needs (P6, P7, P12).
 --
 -- * facts.language: the language the statement is written in, detected from the
 --   text (P12); NULL when undetermined. facts.conflicts_with: the explicit fact an
@@ -8,11 +8,11 @@
 --   sources.language is the dominant language of the source text.
 -- * nodes.language is the language of the maintained summary; nodes.flags carries
 --   `language_mismatch` when a summary could not be written in that language.
--- * edge_evidence: the distinct sources an edge was observed in (SPEC 4.3
---   `evidence`); an edge proposed by extraction is confirmed once it has been
---   re-observed in enough independent sources (SPEC 5.2).
+-- * edge_evidence: the distinct sources an edge was observed in;
+--   an edge proposed by extraction is confirmed once it has been
+--   re-observed in enough independent sources.
 -- * edges.decayed_at: when the stored weight was last decayed to, so that decay
---   (SPEC 5.3) is a function of time and running it twice changes nothing.
+--   is a function of time and running it twice changes nothing.
 
 ALTER TABLE facts ADD COLUMN language TEXT;
 ALTER TABLE facts ADD COLUMN conflicts_with TEXT;

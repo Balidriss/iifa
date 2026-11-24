@@ -1,4 +1,4 @@
-"""A page of a list (SPEC 8): the longest run of items, in the list's order,
+"""A page of a list: the longest run of items, in the list's order,
 that holds at most ``limit`` items and fits under the budget (P1). An item that
 does not fit is never skipped: it opens the next page, so paging by keyset
 delivers every item exactly once."""

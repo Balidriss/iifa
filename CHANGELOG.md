@@ -7,6 +7,10 @@ pre-releases (0.1.0a1).
 
 ## Unreleased
 
+### Changed
+- The twelve principles are in `docs/principles.md` and the security
+  checklist in `tests/security/CHECKLIST.md`.
+
 ## 0.1.0a4 — 2026-11-24
 
 ### Added

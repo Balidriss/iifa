@@ -43,7 +43,7 @@ def pack(costs: Sequence[int], budget_tokens: int, *, reserved_tokens: int = 0) 
 
 def pack_prefix(costs: Sequence[int], budget_tokens: int) -> PackResult:
     """The longest prefix of ``costs`` whose sum never exceeds ``budget_tokens``:
-    what a page of a list takes (SPEC 8), where skipping an item would lose it
+    what a page of a list takes, where skipping an item would lose it
     between two pages. The first item that does not fit ends the page."""
     if budget_tokens < 0:
         raise ValueError("budget_tokens must be non-negative")

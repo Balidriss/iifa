@@ -1,4 +1,4 @@
-"""The dream's guardrails (SPEC 5.6, 12), each proven against a dream model that
+"""The dream's guardrails, each proven against a dream model that
 does its worst: memory that carries instructions proposes nothing outside the
 catalogue (P8); nothing is ever deleted; explicit facts stay untouched (P6); no
 record leaves its scope set (P9); forget wipes the journal (P5); and only the
@@ -130,7 +130,7 @@ def _view() -> Any:
 def test_p8_a_hostile_pair_cannot_make_the_adjudication_act(
     dream_client: TestClient, fake_openai: FakeOpenAIServer, answer: Any
 ) -> None:
-    """SPEC 5.6: instructions in a node's name, alias, summary or facts reach the
+    """Instructions in a node's name, alias, summary or facts reach the
     adjudication only between the markers; an answer that is anything but the
     closed verdict is a bad answer and changes nothing."""
     store = dream_client.app.state.store  # type: ignore[attr-defined]
@@ -162,7 +162,7 @@ def test_p8_an_obeyed_same_only_queues_a_merge_for_review(
     dream_client: TestClient, fake_openai: FakeOpenAIServer
 ) -> None:
     """The worst a hostile pair can obtain is a ``same``: a merge queued for a
-    human, never applied (SPEC 5.6 rule 5, "never merge silently")."""
+    human, never applied ("never merge silently")."""
     store = dream_client.app.state.store  # type: ignore[attr-defined]
     memory = build_memory(store)
     store.add_fact(
@@ -185,7 +185,7 @@ def test_p8_an_obeyed_same_only_queues_a_merge_for_review(
 def test_p8_two_namesakes_told_they_are_one_person_are_queued_at_worst(
     tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
 ) -> None:
-    """SPEC 5.6 rule 5, permanently: two different people with one name, one
+    """Permanently: two different people with one name, one
     fact saying they are one person, a model that obeys and an operator who
     lets every risk class apply. The names fit, so nothing but the review
     stands in the way: the merge is queued, never applied."""
@@ -399,7 +399,7 @@ def test_there_is_no_mcp_tool_for_the_dream() -> None:
 def test_p5_an_archived_record_reaches_neither_the_profile_nor_the_dream(
     dream_client: TestClient, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 12: archiving hides a record from the profile block and from dreams
+    """Archiving hides a record from the profile block and from dreams
     too (recall and expand: test_p5_archive_hides_everywhere_and_restore_brings_back_unchanged).
     A pinned fact and a node are archived; a pinned fact beside them is the
     control that proves the profile and the dream did read Karim."""

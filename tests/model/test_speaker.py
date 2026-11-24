@@ -1,4 +1,4 @@
-"""The speaker through the write path (SPEC 4.2, 4.6): a subject naming the
+"""The speaker through the write path: a subject naming the
 person speaking is never rejected and never becomes a node; it is attached to
 the scope's declared owner, or kept free-standing - and then, since several
 people may speak in one scope, never supersedes another speaker fact. Chatter

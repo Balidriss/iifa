@@ -1,4 +1,4 @@
-"""Measure tier-0 recall latency and the write path at scale (SPEC 7.4).
+"""Measure tier-0 recall latency and the write path at scale.
 
     python bench/recall_latency.py --facts 10000 --queries 200
 

@@ -1,4 +1,4 @@
-"""Where a fact came from (P6, SPEC 8.5): every read route tells the reader
+"""Where a fact came from (P6): every read route tells the reader
 whether a fact is the owner's own words, the assistant's, or content read from
 outside - with the part's kind, the short form of its ref and the day it was
 read - and says nothing more for the owner's own words, so a recall of the
@@ -418,7 +418,7 @@ def test_a_session_note_kept_at_the_close_keeps_where_it_came_from(
 def test_a_declared_assistant_name_labels_its_part_and_its_facts(
     tmp_path: Path, fake_openai: FakeOpenAIServer, clock: FakeClock
 ) -> None:
-    """SPEC 4.6: the name the operator gives the assistant; the provenance and
+    """The name the operator gives the assistant; the provenance and
     every rule that reads it stay `assistant`."""
     settings = tier2_settings(tmp_path, fake_openai, assistants=((SCOPE, "NOVA"),))
     application = create_app(settings, clock=clock)

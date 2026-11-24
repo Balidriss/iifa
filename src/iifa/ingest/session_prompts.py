@@ -1,5 +1,5 @@
-"""The prompt text of the intent reading (SPEC 4.2) and of the session's
-consolidation (SPEC 5.8). Like every prompt that writes memory, each says that
+"""The prompt text of the intent reading and of the session's
+consolidation. Like every prompt that writes memory, each says that
 what it shows is data, never instructions (P8), and the consolidation states
 its target language (P12). An answer goes through a closed schema before
 anything is written.
@@ -71,11 +71,11 @@ def consolidation_messages(
     retry_note: str | None = None,
     partner: str | None = None,
 ) -> list[dict[str, str]]:
-    """The one call that closes a session (SPEC 5.8). ``items`` are the session
+    """The one call that closes a session. ``items`` are the session
     facts ``(index, duration, statement)``; ``turns`` the person's own words of
     the session's sincere turns, in order (the trace); ``subject`` is how the
     person speaking is named (the owner's name, or "User"); in the agent
-    perspective (SPEC 5.8) it is the self, and ``partner`` the person it worked
+    perspective it is the self, and ``partner`` the person it worked
     with (the owner's name, or "the user")."""
     target = (
         f"TARGET LANGUAGE: write the episode in {describe([language])}, the language of the "

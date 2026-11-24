@@ -1,6 +1,6 @@
 """Streamable HTTP transport: the MCP server mounted on the service's own app.
 
-One service process serves the API and MCP over HTTP (SPEC 7.2). The endpoint
+One service process serves the API and MCP over HTTP. The endpoint
 lives at ``/mcp``, requires the same bearer token as the API (a request without
 a valid token is refused before the MCP layer sees it), and each tool call runs
 against the API in-process with the caller's token, so permissions and scopes

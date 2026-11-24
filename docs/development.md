@@ -45,8 +45,10 @@ runs the suite on Linux and Windows only. The Docker image is built and checked 
 
 ## Rules of the repository
 
-- The design is in [SPEC.md](../SPEC.md). A change of behaviour changes the
-  SPEC first.
+- A change never weakens a [principle](principles.md), and a new guardrail
+  comes with its test and its box in the
+  [security checklist](../tests/security/CHECKLIST.md).
+- A change of behaviour changes the page of `docs/` that describes it.
 - Every runtime dependency is justified in
   [DEPENDENCIES.md](../DEPENDENCIES.md).
 - User-facing changes go to [CHANGELOG.md](../CHANGELOG.md), one short line

@@ -200,7 +200,7 @@
       },
       "DreamStart": {
         "additionalProperties": false,
-        "description": "Start a dream over one scope (SPEC 5.6): which operations, what budget,\na dry run or not, a review policy that may only be stricter than the\nconfigured one.",
+        "description": "Start a dream over one scope: which operations, what budget,\na dry run or not, a review policy that may only be stricter than the\nconfigured one.",
         "properties": {
           "budget": {
             "anyOf": [
@@ -285,7 +285,7 @@
       },
       "EdgeDecision": {
         "additionalProperties": false,
-        "description": "A person's decision on a proposed edge (SPEC 5.7); ``rev`` is the edge's\nrevision the author read.",
+        "description": "A person's decision on a proposed edge; ``rev`` is the edge's\nrevision the author read.",
         "properties": {
           "decision": {
             "enum": [
@@ -439,7 +439,7 @@
           },
           "vouched": {
             "default": false,
-            "description": "The host's statement that the owner gave this content or asked for it: the agent perspective may learn from it (SPEC 4.2). Never covers the owner's facts.",
+            "description": "The host's statement that the owner gave this content or asked for it: the agent perspective may learn from it. Never covers the owner's facts.",
             "title": "Vouched",
             "type": "boolean"
           }
@@ -494,7 +494,7 @@
                 "type": "null"
               }
             ],
-            "description": "Replace the fact's scope set (SPEC 4.6): the token must own every scope added and every scope removed.",
+            "description": "Replace the fact's scope set: the token must own every scope added and every scope removed.",
             "title": "Scopes"
           }
         },
@@ -623,7 +623,7 @@
       },
       "NodeMerge": {
         "additionalProperties": false,
-        "description": "Two nodes a person knows are one (SPEC 5.7): ``absorb`` is merged into\n``keep``; ``revs`` (node id -> rev) are the revisions the author read.",
+        "description": "Two nodes a person knows are one: ``absorb`` is merged into\n``keep``; ``revs`` (node id -> rev) are the revisions the author read.",
         "properties": {
           "absorb": {
             "maxLength": 64,
@@ -662,7 +662,7 @@
       },
       "NodePatch": {
         "additionalProperties": false,
-        "description": "A person's correction of a node (SPEC 5.7): rename it, change its kind,\nadd and remove aliases; ``rev`` is the revision the author read.",
+        "description": "A person's correction of a node: rename it, change its kind,\nadd and remove aliases; ``rev`` is the revision the author read.",
         "properties": {
           "add_aliases": {
             "items": {
@@ -983,7 +983,7 @@
       },
       "ProbeSetCreate": {
         "additionalProperties": false,
-        "description": "A probe set (SPEC 11.2): questions and the records that answer them, in one scope.",
+        "description": "A probe set: questions and the records that answer them, in one scope.",
         "properties": {
           "budget_tokens": {
             "anyOf": [
@@ -1045,7 +1045,7 @@
       },
       "QueryVectorIn": {
         "additionalProperties": false,
-        "description": "A query vector the harness already computed (SPEC 6.1): used only when it\ncarries the configured embedding model and the stored dimension.",
+        "description": "A query vector the harness already computed: used only when it\ncarries the configured embedding model and the stored dimension.",
         "properties": {
           "model": {
             "maxLength": 200,
@@ -1175,7 +1175,7 @@
         "properties": {
           "about_self": {
             "default": false,
-            "description": "A fact about the self of the target scopes (SPEC 8.3, agent perspective).",
+            "description": "A fact about the self of the target scopes (agent perspective).",
             "title": "About Self",
             "type": "boolean"
           },
@@ -1959,7 +1959,7 @@
   "paths": {
     "/v1/archive": {
       "get": {
-        "description": "Archived nodes, facts and edges the view sees, most recently archived\nfirst, a page at a time (SPEC 8).",
+        "description": "Archived nodes, facts and edges the view sees, most recently archived\nfirst, a page at a time.",
         "operationId": "list_archived_v1_archive_get",
         "parameters": [
           {
@@ -2431,7 +2431,7 @@
     },
     "/v1/corrections/{correction_id}": {
       "get": {
-        "description": "One entry of the corrections journal (SPEC 5.7): what was changed, by which\ntoken, when, and whether it was undone.",
+        "description": "One entry of the corrections journal: what was changed, by which\ntoken, when, and whether it was undone.",
         "operationId": "get_correction_v1_corrections__correction_id__get",
         "parameters": [
           {
@@ -2473,7 +2473,7 @@
     },
     "/v1/corrections/{correction_id}/undo": {
       "post": {
-        "description": "Revert one correction exactly (SPEC 5.7); refused, naming the records, when\na later write depends on it. It needs the permission that made the\ncorrection: ``write`` for a patch, ``review`` for a merge.",
+        "description": "Revert one correction exactly; refused, naming the records, when\na later write depends on it. It needs the permission that made the\ncorrection: ``write`` for a patch, ``review`` for a merge.",
         "operationId": "undo_correction_v1_corrections__correction_id__undo_post",
         "parameters": [
           {
@@ -2515,7 +2515,7 @@
     },
     "/v1/dream": {
       "post": {
-        "description": "Start a run (SPEC 5.6): recorded and queued at once, executed by the\nbackground worker under the mode, the gate and ``yield`` (P11).",
+        "description": "Start a run: recorded and queued at once, executed by the\nbackground worker under the mode, the gate and ``yield`` (P11).",
         "operationId": "start_dream_v1_dream_post",
         "requestBody": {
           "content": {
@@ -2639,7 +2639,7 @@
     },
     "/v1/dream/{run_id}/plan": {
       "get": {
-        "description": "The run's operations in order, each with what became of it and why\n(content: the model's texts and reasons), a page at a time under budget\n(SPEC 8). ``after`` is the same position as ``cursor``, as a plain ``seq``.",
+        "description": "The run's operations in order, each with what became of it and why\n(content: the model's texts and reasons), a page at a time under budget.\n``after`` is the same position as ``cursor``, as a plain ``seq``.",
         "operationId": "dream_plan_v1_dream__run_id__plan_get",
         "parameters": [
           {
@@ -2744,7 +2744,7 @@
     },
     "/v1/dream/{run_id}/undo": {
       "post": {
-        "description": "Revert a run (all or nothing) or one of its operations (SPEC 5.6 rule 4).",
+        "description": "Revert a run (all or nothing) or one of its operations.",
         "operationId": "undo_dream_v1_dream__run_id__undo_post",
         "parameters": [
           {
@@ -2803,7 +2803,7 @@
     },
     "/v1/dreams": {
       "get": {
-        "description": "The runs on ``scope`` and below it, newest first, a page at a time\n(SPEC 8.6): every run the token reaches, whichever client started it.",
+        "description": "The runs on ``scope`` and below it, newest first, a page at a time:\nevery run the token reaches, whichever client started it.",
         "operationId": "list_dreams_v1_dreams_get",
         "parameters": [
           {
@@ -2917,7 +2917,7 @@
     },
     "/v1/edges/{edge_id}": {
       "post": {
-        "description": "A person's decision on a proposed edge (SPEC 5.7): ``confirm`` makes it\nconfirmed, ``reject`` archives it - journalled with the token's name, undoable.",
+        "description": "A person's decision on a proposed edge: ``confirm`` makes it\nconfirmed, ``reject`` archives it - journalled with the token's name, undoable.",
         "operationId": "decide_edge_v1_edges__edge_id__post",
         "parameters": [
           {
@@ -3121,7 +3121,7 @@
     },
     "/v1/link": {
       "post": {
-        "description": "An explicit, confirmed edge (SPEC 5.2). When the pair already has the live\nedge of that type the token touches, that edge is confirmed (journalled as a\nperson's decision, SPEC 5.7) and returned rather than a twin added.",
+        "description": "An explicit, confirmed edge. When the pair already has the live\nedge of that type the token touches, that edge is confirmed (journalled as a\nperson's decision) and returned rather than a twin added.",
         "operationId": "link_v1_link_post",
         "requestBody": {
           "content": {
@@ -3285,7 +3285,7 @@
     },
     "/v1/nodes": {
       "get": {
-        "description": "The nodes the view sees, a page at a time (SPEC 8.2): id, name, kind,\naliases, live facts, pending proposals and last change, by name or by last\nchange. ``prefix`` matches the start of the name or of an alias, compared in\ntheir normalised form (case and Latin diacritics folded). A walk lists the\nnodes that existed at its first page, with their last change as of then.",
+        "description": "The nodes the view sees, a page at a time: id, name, kind,\naliases, live facts, pending proposals and last change, by name or by last\nchange. ``prefix`` matches the start of the name or of an alias, compared in\ntheir normalised form (case and Latin diacritics folded). A walk lists the\nnodes that existed at its first page, with their last change as of then.",
         "operationId": "list_nodes_v1_nodes_get",
         "parameters": [
           {
@@ -3457,7 +3457,7 @@
     },
     "/v1/nodes/merge": {
       "post": {
-        "description": "Merge two nodes a person knows are one (SPEC 5.7): their merge proposal -\nthe pending one, else one recorded now - is accepted through the review\npath, so the same guard and the same journal apply.",
+        "description": "Merge two nodes a person knows are one: their merge proposal -\nthe pending one, else one recorded now - is accepted through the review\npath, so the same guard and the same journal apply.",
         "operationId": "merge_nodes_v1_nodes_merge_post",
         "requestBody": {
           "content": {
@@ -3605,7 +3605,7 @@
         "summary": "Get Node"
       },
       "patch": {
-        "description": "A person's correction of a node (SPEC 5.7): rename it (the old name stays an\nalias unless ``keep_old_name`` is false), change its kind, add and remove\naliases - journalled with the token's name, undoable.",
+        "description": "A person's correction of a node: rename it (the old name stays an\nalias unless ``keep_old_name`` is false), change its kind, add and remove\naliases - journalled with the token's name, undoable.",
         "operationId": "patch_node_v1_nodes__node_id__patch",
         "parameters": [
           {
@@ -3778,7 +3778,7 @@
         "summary": "List Probe Sets"
       },
       "post": {
-        "description": "Store a probe set (SPEC 11.2). Its expected records must be visible from its\nscope; changing what gates a dream is the ``dream`` permission's.",
+        "description": "Store a probe set. Its expected records must be visible from its\nscope; changing what gates a dream is the ``dream`` permission's.",
         "operationId": "create_probe_set_v1_probes_post",
         "requestBody": {
           "content": {
@@ -3899,7 +3899,7 @@
     },
     "/v1/probes/{set_id}/run": {
       "post": {
-        "description": "Run a probe set now: the probe score (SPEC 11.2), ids and numbers only.",
+        "description": "Run a probe set now: the probe score, ids and numbers only.",
         "operationId": "run_probes_v1_probes__set_id__run_post",
         "parameters": [
           {
@@ -3941,7 +3941,7 @@
     },
     "/v1/proposals": {
       "get": {
-        "description": "The pending proposals visible in the view, oldest first, a page at a time\nunder budget (SPEC 4.4b, 8.3): the only place a fact proposal without a node\nshows.",
+        "description": "The pending proposals visible in the view, oldest first, a page at a time\nunder budget: the only place a fact proposal without a node\nshows.",
         "operationId": "list_proposals_v1_proposals_get",
         "parameters": [
           {
@@ -4092,7 +4092,7 @@
     },
     "/v1/proposals/{proposal_id}": {
       "post": {
-        "description": "Accept (apply: an alias proposal adds the alias, a fact proposal writes an\nexplicit fact) or reject a proposal (SPEC 4.4b), by a token bound to one of its\nscopes; a decided one is not decided again. A fact proposal - a fact about the\nowner that was not the owner's words (P6) - is decided only with ``review``:\nan agent fooled by the page it came from must neither apply nor hide it.",
+        "description": "Accept (apply: an alias proposal adds the alias, a fact proposal writes an\nexplicit fact) or reject a proposal, by a token bound to one of its\nscopes; a decided one is not decided again. A fact proposal - a fact about the\nowner that was not the owner's words (P6) - is decided only with ``review``:\nan agent fooled by the page it came from must neither apply nor hide it.",
         "operationId": "decide_proposal_v1_proposals__proposal_id__post",
         "parameters": [
           {
@@ -4262,7 +4262,7 @@
     },
     "/v1/review": {
       "get": {
-        "description": "One queue (SPEC 4.4b, 8.6): pending alias, fact and merge proposals and\nqueued dream operations the view sees, oldest first, a page at a time under\nbudget (SPEC 8). A merge proposal carries the latest adjudication of its\npair, and stands aside when its merge_nodes is queued (that item carries the\nsame verdict). A fact proposal whose accept would close live facts carries\n``replaces``, each one by its statement. An item about nodes carries\n``nodes``: each one the view sees,\nby name with its first few facts; a queued operation that names facts\ncarries ``facts``, each one the view sees by its statement.",
+        "description": "One queue: pending alias, fact and merge proposals and\nqueued dream operations the view sees, oldest first, a page at a time under\nbudget. A merge proposal carries the latest adjudication of its\npair, and stands aside when its merge_nodes is queued (that item carries the\nsame verdict). A fact proposal whose accept would close live facts carries\n``replaces``, each one by its statement. An item about nodes carries\n``nodes``: each one the view sees,\nby name with its first few facts; a queued operation that names facts\ncarries ``facts``, each one the view sees by its statement.",
         "operationId": "review_queue_v1_review_get",
         "parameters": [
           {
@@ -4392,7 +4392,7 @@
     },
     "/v1/review/{item_id}": {
       "post": {
-        "description": "Accept or reject one item of the queue: a proposal (accepting a merge\nproposal merges the two nodes as a person's decision, SPEC 5.7), or a queued\noperation - checked again against memory as it is now (rule 8: ``stale`` is\na 409).",
+        "description": "Accept or reject one item of the queue: a proposal (accepting a merge\nproposal merges the two nodes as a person's decision), or a queued\noperation - checked again against memory as it is now (``stale`` is\na 409).",
         "operationId": "decide_review_item_v1_review__item_id__post",
         "parameters": [
           {
@@ -4546,7 +4546,7 @@
     },
     "/v1/timeline": {
       "post": {
-        "description": "Fact changes of a node, or of the whole view, inside a date range (P7),\nnewest first, a page at a time (SPEC 8).",
+        "description": "Fact changes of a node, or of the whole view, inside a date range (P7),\nnewest first, a page at a time.",
         "operationId": "timeline_v1_timeline_post",
         "requestBody": {
           "content": {

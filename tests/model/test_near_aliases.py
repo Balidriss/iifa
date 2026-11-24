@@ -1,4 +1,4 @@
-"""Near-form aliases (SPEC 5.1): a grounded alias one letter or an ending away
+"""Near-form aliases: a grounded alias one letter or an ending away
 from the node's name or from one of its aliases ("Ивана" for Иван, "Карим" for
 Карима) is a proposal, never kept on its own - kept, it would attach every
 later mention of the near name by exact match, before the adjudication could

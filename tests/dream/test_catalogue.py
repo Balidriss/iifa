@@ -1,4 +1,4 @@
-"""The closed catalogue and its schema (SPEC 5.6 rule 1, P8): the model's answer
+"""The closed catalogue and its schema (P8): the model's answer
 is parsed item by item; anything outside the schema is rejected and counted,
 never written, and the valid items beside it are still considered."""
 
@@ -87,7 +87,7 @@ def test_every_model_operation_parses(op: dict[str, Any]) -> None:
 
 
 def test_a_unit_answer_may_not_merge() -> None:
-    """SPEC 5.6: a merge is proposed only through the adjudication of a pair,
+    """A merge is proposed only through the adjudication of a pair,
     never by a unit's answer (one node read alone cannot tell two people apart)."""
     merge = {"op": "merge_nodes", "keep": NODE, "absorb": NODE2, "reason": "same person"}
     parsed = parse_answer(_answer(merge, VALID[-1]), allowed=frozenset(MODEL_OPERATIONS))

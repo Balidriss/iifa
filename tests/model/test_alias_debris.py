@@ -1,4 +1,4 @@
-"""Formatting debris and placeholders are no names (SPEC 5.1): a reply written in
+"""Formatting debris and placeholders are no names: a reply written in
 Markdown leaves bold, brackets or quotes around the words a model copies; a
 sentence saying a name is not known yet is no alias. Markdown is stripped, an
 unbalanced bracket is refused, a name the source does not give is no alias and

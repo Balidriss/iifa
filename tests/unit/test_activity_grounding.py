@@ -1,4 +1,4 @@
-"""SPEC 4.2: an activity is kept only when a word of its name is written whole
+"""An activity is kept only when a word of its name is written whole
 in the owner's words that ask for it."""
 
 from __future__ import annotations

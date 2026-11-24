@@ -1,4 +1,4 @@
-"""The benchmark harness (SPEC 11.1) and its corpus, at CI scale against the fake
+"""The benchmark harness and its corpus, at CI scale against the fake
 servers: the command runs, writes every number with its command, and the
 numbers are well formed. Whether they are good is the manual run's business."""
 
@@ -94,7 +94,7 @@ def test_every_turn_states_at_most_one_fact_and_its_gold_answer_parses() -> None
         assert len(answer.facts) == 1 and answer.rejected.total == 0
         assert answer.facts[0].statement == turn.text
         attribute = corpus.events[turn.event].attribute
-        assert answer.facts[0].attribute == GOLD_KEYS[attribute]  # SPEC 5.4 vocabulary
+        assert answer.facts[0].attribute == GOLD_KEYS[attribute]  # the base vocabulary
 
 
 def test_a_corpus_needs_two_months() -> None:
@@ -189,12 +189,12 @@ def test_oracle_run_without_embeddings(tmp_path: Path, fake_openai: FakeOpenAISe
     assert corpus["seed"] == 7 and corpus["months"] == 3
     ingestion = report["ingestion"]
     assert ingestion["processed"] == ingestion["turns"] == corpus["turns"]
-    # one extraction call per turn, chatter too, plus the value adjudications (SPEC 5.4)
+    # one extraction call per turn, chatter too, plus the value adjudications
     assert ingestion["model_calls"] == ingestion["extraction"]["calls"] >= corpus["turns"]
     extraction = ingestion["extraction"]
     assert extraction["facts_written"] == corpus["event_turns"]
     assert extraction["facts_superseded"] > 0  # P7: same-language changes close the old fact
-    # SPEC 5.4: across languages the oracle settles every value it knows, the role
+    # across languages the oracle settles every value it knows, the role
     # and preference changes included (the replacement question, on by default)
     assert extraction["facts_conflict"] == 0
     assert extraction["values_replacement_replaces"] > 0
@@ -233,7 +233,7 @@ def test_oracle_run_without_embeddings(tmp_path: Path, fake_openai: FakeOpenAISe
 def test_the_oracle_falls_into_no_trap(tmp_path: Path) -> None:
     """With --traps an ideal model keys where one works apart from where one
     lives: every supersession is correct, the role and preference changes the
-    replacement question settled included (SPEC 5.4)."""
+    replacement question settled included."""
     argv = ["--months", "12", "--chatter", "0", "--budgets", "600", "--repeat", "1", "--quiet"]
     argv += ["--replacement-question"]
     assert harness.main([*argv, "--traps", "--out", str(tmp_path)]) == 0
@@ -261,7 +261,7 @@ def test_a_model_that_lumps_work_with_home_shows_false_supersessions(
     tmp_path: Path, fake_openai: FakeOpenAIServer
 ) -> None:
     """The metric bites: a fake model that keys the office as ``home`` closes
-    homes that are still true (SPEC 5.4), and the audit says so."""
+    homes that are still true, and the audit says so."""
     corpus = generate(7, months=3, chatter=0.5, traps=True)
     oracle = harness.Oracle(corpus)
 
@@ -530,7 +530,7 @@ def test_an_oracle_run_with_restatements_counts_links_and_self_closures(tmp_path
 def test_the_comparison_form_links_without_asking_and_closes_nothing_more(
     tmp_path: Path,
 ) -> None:
-    """SPEC 5.4, 11.1: with --value-norm the oracle gives ideal forms; values
+    """With --value-norm the oracle gives ideal forms; values
     restated in another language are linked by them instead of adjudicated, and
     no supersession is added or lost."""
     argv = [*SMALL, "--rephrase"]
@@ -745,7 +745,7 @@ def test_name_traps_add_near_named_people_and_leave_the_default_corpus_untouched
 
 
 def test_a_near_name_pair_and_its_answer_are_reported() -> None:
-    """SPEC 11.1: a mention and a candidate naming two different people are a
+    """A mention and a candidate naming two different people are a
     near-name pair; attaching one to the other is a wrong attachment."""
     records = [
         {
@@ -784,8 +784,8 @@ def test_a_near_name_pair_and_its_answer_are_reported() -> None:
 
 def _rename(answer: dict[str, Any], forms: dict[str, str]) -> dict[str, Any]:
     """A model that writes one person's facts under another's name, in its
-    statement and its quote too: no near form left in a located quote (SPEC
-    5.1), so nothing contests the attachment and the audit must catch it."""
+    statement and its quote too: no near form left in a located quote, so nothing
+    contests the attachment and the audit must catch it."""
     for node in answer.get("nodes", []):
         node["name"] = forms.get(node["name"], node["name"])
     for fact in answer.get("facts", []):
@@ -857,7 +857,7 @@ def test_near_names_reach_the_adjudication_and_the_report_says_what_it_answered(
 
 
 def test_the_oracle_answers_the_restatement_question_from_the_truth() -> None:
-    """SPEC 5.4: one value in two forms is the same, two values are different, a
+    """One value in two forms is the same, two values are different, a
     form the corpus does not know is unsure."""
     oracle = harness.Oracle(generate(7, months=3, chatter=0.5))
     pairs = [
@@ -909,7 +909,7 @@ def test_the_oracle_writes_each_projects_fact_on_its_own_node(tmp_path: Path) ->
 
 
 def test_each_neighbour_turn_is_followed_by_an_aside_under_the_same_key() -> None:
-    """SPEC 11.1: the web service told something unrelated, keyed ``description``
+    """The web service told something unrelated, keyed ``description``
     with one value (a real model's slip on a generic key); no random draw."""
     corpus = generate(7, neighbours=True)
     turns = corpus.turns
@@ -985,7 +985,7 @@ def test_an_aside_under_another_key_is_counted_apart(
 def test_a_model_putting_the_tools_sentence_on_the_service_is_caught(
     tmp_path: Path, fake_openai: FakeOpenAIServer
 ) -> None:
-    """SPEC 5.1: the tool's sentence attached to the web service is a proposal,
+    """The tool's sentence attached to the web service is a proposal,
     never a fact on the service's node."""
     corpus = generate(7, months=4, chatter=0.0, neighbours=True)
     oracle = harness.Oracle(corpus)
@@ -1047,8 +1047,8 @@ def test_a_place_node_named_after_an_office_does_not_cost_the_office_question(
     """The trap corpus at tier 2, 300 tokens: a model that also proposes place
     nodes "bureau de Osaka" for where people work gets them created, yet "Où se
     trouve le bureau de Karim ?" (q003) is still answered by Karim's own fact:
-    such a node is ranked on its name only (never its summary, SPEC 6.1) and
-    the named subject's facts come first (subject anchoring, SPEC 5.5). The
+    such a node is ranked on its name only (never its summary) and
+    the named subject's facts come first (subject anchoring). The
     ranking without anchoring is tested in tests/model/test_place_nodes.py."""
     corpus = generate(7, months=12, chatter=0.0, traps=True, name_traps=True)
     question = next(q for q in corpus.questions if q.key == "q003")
@@ -1180,7 +1180,7 @@ def test_without_the_intent_reading_the_work_session_stays_in_memory(tmp_path: P
 
 
 def test_observed_adds_dated_turns_and_leaves_the_default_corpus_untouched() -> None:
-    """SPEC 11.1: per thing, a lasting fact then observations in later months,
+    """Per thing, a lasting fact then observations in later months,
     each dated, under one key; the default corpus is the same."""
     plain, seen = generate(7), generate(7, observed=True)
     told = [t for t in seen.turns if t.observed]
@@ -1231,7 +1231,7 @@ def test_the_engine_without_decay_differs_from_its_engine_by_the_decay_alone(
 
 
 def test_self_adds_a_scope_of_its_own_and_leaves_the_default_corpus_untouched() -> None:
-    """SPEC 11.1: the --self cases live in their own scope, each turn with the
+    """The --self cases live in their own scope, each turn with the
     assistant's reply and its pages; the main corpus is the same."""
     plain = generate(7)
     agent = generate(7)
@@ -1264,7 +1264,7 @@ def test_the_oracle_writes_the_agents_memory_and_nothing_a_page_or_a_role_said(
     assert agent["profile_commitments"] == {"held": 2, "in_profile": 2}
     probe = agent["probes"]["iifa_tier2"]["600"]
     assert probe["transfer_shown"] is True and probe["rules_total"] == 3
-    # SPEC 5.5: another map brings the map's rules first, within the blocks' share
+    # another map brings the map's rules first, within the blocks' share
     assert probe["activity_rules_total"] == 3 and probe["activity_rules_shown"] >= 1
     assert probe["activity_first"] is True
     # what the model named the activities, and the rules linked to each

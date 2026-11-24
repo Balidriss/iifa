@@ -1,4 +1,4 @@
-"""SPEC 5.7: a person corrects a node - renames it, adds and removes aliases,
+"""A person corrects a node - renames it, adds and removes aliases,
 changes its kind - through ``PATCH /v1/nodes/{id}``, journalled with the token's
 name and undoable exactly."""
 
@@ -25,7 +25,7 @@ def _node(app: FastAPI, name: str, aliases: tuple[str, ...] = ()) -> Node:
 
 
 def _unruled_node(app: FastAPI, name: str, aliases: tuple[str, ...] = ()) -> Node:
-    """A node holding a name and aliases the name rule refuses (SPEC 5.1),
+    """A node holding a name and aliases the name rule refuses,
     written straight into the tables, as an older store may hold them."""
     store: Store = app.state.store
     node = store.create_node(scopes=[SCOPE], name="Placeholder", kind="place")
