@@ -38,8 +38,8 @@ from iifa.api.schemas import (
 )
 from iifa.ids import kind_of, new_id
 from iifa.ingest.jobs import PRECOMPACT, SESSION_END, TURN
-from iifa.ingest.keys import canonical_key
-from iifa.ingest.queue import Job
+from iifa.ingest.keys import canonical_key, rule_twin
+from iifa.ingest.queue import RUNNING, WORD_KINDS, Job, JobStarted
 from iifa.ingest.schema import COOCCURRENCE
 from iifa.ingest.worker import RUN_CANCELLING, Budget, RunRefused, Worker
 from iifa.llm import ModelClient
@@ -567,7 +567,8 @@ def _remember_self(request: Request, body: RememberRequest, scopes: list[str]) -
     """SPEC 8.3, the agent remembering about itself: on the self's node, origin
     ``extracted``, provenance ``assistant``. No model is called (P3): the same
     thing said again is an echo and writes nothing; another value of a key the
-    self holds is written in conflict with it, never closing it."""
+    self holds is written in conflict with it, never closing it. A rule's key
+    is also its topic under the other rule family (SPEC 4.2)."""
     if body.node or body.node_id:
         raise HTTPException(422, "about_self names the node: give neither node nor node_id")
     agent = _worker(request).pipeline.agent(scopes)
@@ -585,7 +586,11 @@ def _remember_self(request: Request, body: RememberRequest, scopes: list[str]) -
                 scopes=[agent.scope], name=agent.name, kind="other", aliases=agent.aliases
             )
         live = store.facts([node.id], view)
+        # SPEC 4.2: the key's own facts first; when none holds a value, the
+        # same topic under the other rule family stands for the key
         same_key = [f for f in live if key is not None and canonical_key(f.attribute) == key]
+        if not any(f.value for f in same_key):
+            same_key = [f for f in live if rule_twin(key, canonical_key(f.attribute))]
         echoed = next(
             (
                 f
@@ -796,6 +801,8 @@ def forget(
     body: ForgetRequest,
     principal: Annotated[auth.Principal, auth.declare("POST", "/v1/forget", "forget")],
 ) -> dict[str, Any]:
+    if kind_of(body.id) == "job":
+        return _forget_job(request, principal, body.id)
     store = _store(request)
     with store.lock:
         _touchable(store, principal, body.id)
@@ -805,6 +812,36 @@ def forget(
             raise HTTPException(404, "no such record") from exc
     log.event("forget", record=body.id, **{f"removed_{k}": v for k, v in removed.items()})
     return {"id": body.id, "removed": removed}
+
+
+def _forget_job(request: Request, principal: auth.Principal, job_id: str) -> dict[str, Any]:
+    """P5: a turn or a compaction dropped before it runs, its payload deleted
+    with it. A running or done one is refused (the worker has read it: what it
+    wrote is forgotten by its source), and so is a job that carries no words
+    (a dream, a session's close: its own route stops it). ``started``: it ran
+    before (failed, or interrupted by a crash) and may have written."""
+    queue = _worker(request).queue
+    gone = "no such job (a job that has run is pruned after a while: forget its source)"
+    try:
+        job = queue.get(job_id)
+    except NotFound as exc:
+        raise HTTPException(404, gone) from exc
+    auth.require_touch(principal, job.scopes)
+    if job.kind not in WORD_KINDS:
+        raise HTTPException(409, "only a turn or a compaction waiting to run is forgotten")
+    try:
+        dropped = queue.drop(job_id)
+    except NotFound as exc:
+        raise HTTPException(404, gone) from exc
+    except JobStarted as exc:
+        reason = (
+            "the job is running: forget its source once it is done"
+            if exc.status == RUNNING
+            else "the job has run: forget its source"
+        )
+        raise HTTPException(409, reason) from exc
+    log.event("forget", record=job_id, removed_jobs=1, started=dropped.started)
+    return {"id": job_id, "removed": {"jobs": 1}, "started": dropped.started}
 
 
 @router.patch("/facts/{fact_id}")

@@ -30,7 +30,24 @@ names the test that proves it, and a test fails if an item loses its test.
   test scans the raw bytes of the file for a marker string and finds nothing.
 - **The queue does not keep copies.** A job's text is cleared the moment the
   job is done, so the queue never becomes a second, unindexed copy of what was
-  said (tested by scanning the file bytes).
+  said (tested by scanning the file bytes). A job that has not run yet can be
+  forgotten (`forget` with its `job_id` as `id`): a turn recorded by mistake then
+  never becomes memory.
+- **A secret said in a conversation is not kept.** When a turn gives a
+  password, a one-time or recovery code, an API key or a token, memory keeps
+  what happened ("Alice changed her password on the shop's site"), never the
+  value: no fact, proposal, session note or trace carries it. The model
+  points the value out, in any language, and the service also knows the
+  shapes of keys and tokens (`sk-...`, a JWT, a private key). With
+  `detect_secrets_by_wording` on (off by default, at your own risk), the
+  service also reads values from their wording ("my password is ...",
+  `DB_PASSWORD=`) in English, French, German, Spanish and a little
+  Russian; it may then take an ordinary word for a secret and drop the
+  facts that hold it ("the door code is 2024"); the source keeps the turn as said while
+  sources are retained, and `forget` removes it. A test reads every table
+  after ingestion and finds it only in `sources`. A web page cannot use this
+  to erase what the owner said: a value read only in outside content drops
+  none of the owner's own facts.
 - **Logs carry ids and counts, never content** (tested with marker strings on
   the service and on the hook's log).
 
@@ -136,6 +153,11 @@ For exact counts: install the `exact-tokens` extra (`pip install
 - Plain HTTP: remote access needs a TLS reverse proxy.
 - The Docker image is checked on `linux/amd64` only.
 - One process, one file: no replication.
+- With `detect_secrets_by_wording` off (the default), a password is kept out
+  of memory only when the model points it out or it has the shape of a key:
+  how often a model misses one is not measured yet. On, the wording is read
+  in a few languages only, and a plain lowercase word without quotes ("the
+  password is sunflower") is still left to the model.
 - Near forms of a name are never merged on their own (in Russian a female
   name can also be the male name's genitive: Ивана, Иван); they wait for a
   reviewer.

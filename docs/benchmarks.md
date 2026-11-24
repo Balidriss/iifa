@@ -330,6 +330,37 @@ French "Karim" is attached to "Карим" by the deciding call. 15 model calls,
 `subject_as_written`: the three facts land on one node, which gains the
 aliases "карим" and "كريم" (9 model calls, 51 s).
 
+## Secrets said in a turn
+
+What a model keeps out of memory when a turn says a password, a code or a
+key (`bench/secrets_corpus.py`: 60 invented turns in 15 languages, beside
+traps that only look like secrets: flights, years, a password manager, a
+boarding pass, a page that calls an owner's word a password). Each turn is
+extracted in a session of its own, then the store is read table by table.
+It counts the turns whose secret reached a table other than `sources`
+(**leaked**), the ordinary words the rule masked (**erased**), and those
+lost because the model wrote them in a fact beside a secret (**lost**).
+
+```bash
+python bench/secrets_bench.py --chat-url http://127.0.0.1:11434/v1 --model qwen3.5:9b \
+    --no-json-mode --extra reasoning_effort=none            # as the service ships
+python bench/secrets_bench.py ... --wording                 # detect_secrets_by_wording on
+```
+
+Measured with qwen3.5:9b (`--no-json-mode --extra reasoning_effort=none`) on
+the 60 turns, 3 minutes a run:
+
+| `detect_secrets_by_wording` | leaked | erased | lost |
+|---|---|---|---|
+| off (as shipped) | 1 / 39 | 0 / 23 | 0 |
+| on | 0 / 39 | 0 / 23 | 0 |
+
+The model named the secrets in every language and form, a Chinese or a
+Japanese word written against its neighbours included, and wrote none of
+them in a fact. The one leak, as shipped, is a French password the model
+kept out of its facts without listing it: the turn's trace, the owner's own
+words, kept it; the reading by wording catches it.
+
 ## Test suite
 
 No network, no model, no GPU:

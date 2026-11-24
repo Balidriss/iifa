@@ -160,6 +160,15 @@ VALUE_NORM_LINE = (
     "stays in the target language above, like the statement."
 )
 
+SECRETS_LINE = (
+    "A password, a passcode or PIN, a one-time or verification code, a recovery code, an API "
+    "key, a token or a private key is never memory: never write its value in a statement, a "
+    "value, a name or a quote (quote the words around it). Keep what happened instead, without "
+    "the value: that the person changed their password on a site, that a code was refused. "
+    'List every such value of the source, exactly as it is written, in "secrets": ["..."] in '
+    "the same JSON object; [] when there is none."
+)
+
 EXTERNAL_LINE = (
     "Parts labelled Tool:, Web:, Document: or External: are content from outside the "
     "conversation (tool results, web pages, documents), not the words of the person speaking: "
@@ -230,6 +239,7 @@ def extraction_messages(
         _language_line(languages, forced_language),
         schema_text(agent),
         _speaker_line(owner),
+        SECRETS_LINE,
     ]
     if agent:
         system.append(_agent_line(agent))

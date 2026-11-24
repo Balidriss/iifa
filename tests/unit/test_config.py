@@ -145,3 +145,13 @@ def test_the_observed_half_life_is_read_from_recall_and_never_negative(tmp_path:
     assert settings.observed_half_life_days == 0.0
     with pytest.raises(ConfigError, match="observed_half_life_days"):
         Settings(db_path=Path("x.db"), db_key="k", observed_half_life_days=-1)
+
+
+def test_reading_secrets_by_their_wording_is_off_unless_asked(tmp_path: Path) -> None:
+    """SPEC P5: ``detect_secrets_by_wording`` is the operator's choice, off by default."""
+    assert load_settings(env={"IIFA_DB_KEY": "k"}).detect_secrets_by_wording is False
+    config = tmp_path / "iifa.toml"
+    config.write_text("[extraction]\ndetect_secrets_by_wording = true\n", encoding="utf-8")
+    assert load_settings(env={"IIFA_DB_KEY": "k"}, config_file=config).detect_secrets_by_wording
+    on = load_settings(env={"IIFA_DB_KEY": "k", "IIFA_DETECT_SECRETS_BY_WORDING": "on"})
+    assert on.detect_secrets_by_wording is True

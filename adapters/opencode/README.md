@@ -106,3 +106,12 @@ on iifa's MCP server:
 - **A tool answers "iifa memory unavailable".** The service is down or slower
   than `IIFA_TOOL_DEADLINE_MS`; the session goes on without memory.
 - **Subagents record nothing.** On purpose: only the main session does.
+
+## What is sent
+
+The adapter sends the words of a turn: what the person wrote and what the
+agent answered. It does not send what the agent's tools returned (a page
+fetched, a file read) as `external` parts, so memory learns from a tool's
+output only what the answer says of it. A host that wants the agent to learn
+from what it reads sends those parts itself with `POST /v1/turns`
+(`external`, and `vouched` for what the person gave or asked for).

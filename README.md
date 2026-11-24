@@ -167,7 +167,7 @@ it is written.
 
 ## Status
 
-**0.1.0a3, pre-alpha.** Everything below is built and tested, but the API may
+**0.1.0a4, pre-alpha.** Everything below is built and tested, but the API may
 still change, and the package is not on PyPI yet.
 
 | Area | State |

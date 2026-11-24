@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from iifa.ids import new_id
+from iifa.ingest.credentials import mask
 from iifa.ingest.parts import OWNER, Part
 from iifa.ingest.schema import ProposedFact
 from iifa.recall.tokenizer import normalize
@@ -195,12 +196,15 @@ def _activities(store: Store, state_id: str) -> tuple[str, ...]:
     return tuple(sorted(latest, key=latest.__getitem__))
 
 
-def trace_of(text: str, parts: Sequence[Part]) -> str | None:
+def trace_of(text: str, parts: Sequence[Part], *, secrets: Sequence[str] = ()) -> str | None:
     """The words a turn leaves in the trace: its owner parts only (P6: what the
-    assistant answered or a page said is not the person's), whitespace
-    collapsed, cut on a word within ``TURN_TRACE_CHARS``; None when empty."""
+    assistant answered or a page said is not the person's), each of ``secrets``
+    masked (P5), whitespace collapsed, cut on a word within
+    ``TURN_TRACE_CHARS``; None when empty."""
     words = " ".join(
-        " ".join(text[part.start : part.end].split()) for part in parts if part.provenance == OWNER
+        " ".join(mask(text[part.start : part.end], secrets).split())
+        for part in parts
+        if part.provenance == OWNER
     ).strip()
     if len(words) > TURN_TRACE_CHARS:
         cut = words[: TURN_TRACE_CHARS + 1]

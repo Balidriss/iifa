@@ -11,8 +11,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from iifa.ingest import credentials
 from iifa.ingest.activity import matched_words
 from iifa.ingest.checks import grounded, names_subject, unspaced_chars
+from iifa.ingest.queue import WORD_KINDS
 from iifa.ingest.values import precision
 from iifa.language import detect
 from iifa.recall import graph, handles
@@ -31,6 +33,7 @@ TIER = 0  # with no model at all; the app sets ``RecallEngine.tier`` to 2 with a
 REINFORCEMENT_MEMORY = 4096
 # SPEC 5.5: a request for an activity - activities matched, and what each block holds
 MAX_ACTIVITIES = 3
+_LIFECYCLE = WORD_KINDS  # P5: the sources a turn's words were extracted from
 ACTIVITY_RULES = 10
 USED_NODES = 3
 USED_RULES = 5
@@ -115,8 +118,10 @@ class RecallEngine:
         subject_anchoring: bool = True,
         observed_half_life_days: float = 7.0,
         activity_threshold: Callable[[str], float | None] | None = None,
+        secrets_by_wording: bool = False,
     ) -> None:
         self.store = store
+        self.secrets_by_wording = secrets_by_wording  # SPEC P5: detect_secrets_by_wording
         self.tokenizer = tokenizer
         self.max_candidates = max_candidates
         self.neighbour_facts = neighbour_facts
@@ -763,7 +768,12 @@ class RecallEngine:
             return None
         if fact.excerpt_start is not None and fact.excerpt_end is not None:
             return source.text[fact.excerpt_start : fact.excerpt_end]
-        return source.text
+        if source.kind in _LIFECYCLE:
+            # P5: a turn may hold a secret only its extraction knew; a fact
+            # without an excerpt shows none of it
+            return None
+        found = credentials.collect(source.text, [], wording=self.secrets_by_wording)
+        return credentials.mask(source.text, found)
 
     # ------------------------------------------------------------------ node view
 

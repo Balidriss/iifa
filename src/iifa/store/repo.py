@@ -40,6 +40,7 @@ PENDING, ACCEPTED, REJECTED = "pending", "accepted", "rejected"
 ALIAS, MERGE, FACT = "alias", "merge", "fact"
 PROPOSAL_KINDS = (ALIAS, MERGE, FACT)
 SELF_RULE = "self:rule"  # SPEC 4.2: why a rule of the self waits in review
+RULE_FAMILIES = ("commitment", "preference")  # SPEC 4.2: the key families of a rule
 FACT_PAYLOAD_KEYS = (
     "attribute",
     "value",
@@ -1995,7 +1996,36 @@ class Store:
             proposal_id=proposal.id,
         )
         self._replace_commitment(fact, data.get("why"))
+        self._flag_rule_twin(fact, data.get("why"))
         return fact.id
+
+    def _flag_rule_twin(self, fact: Fact, why: Any) -> None:
+        """SPEC 4.2: an accepted rule of the self whose topic holds another
+        value under the other rule family (``preference.<topic>`` beside
+        ``commitment.<topic>``) is flagged ``conflict`` with that fact, which
+        stays live: the accept closes nothing there. Read like
+        ``_replace_commitment``: only what the proposal's own scopes see (P9)."""
+        family, _, topic = (fact.attribute or "").partition(".")
+        if (
+            why != SELF_RULE
+            or fact.node_id is None
+            or family not in RULE_FAMILIES
+            or not topic
+            or not fact.value
+            or not fact.scopes
+        ):
+            return
+        scopes = fact.scopes
+        view = Visibility.of_scope(scopes[0]) if len(scopes) == 1 else Visibility.of_scopes(scopes)
+        twins = {f"{other}.{topic}" for other in RULE_FAMILIES if other != family}
+        for old in self.facts([fact.node_id], view):
+            if (
+                old.attribute in twins
+                and old.value
+                and normalize(old.value) != normalize(fact.value)
+            ):
+                self.flag_fact(fact.id, "conflict", conflicts_with=old.id)
+                return
 
     def _replace_commitment(self, fact: Fact, why: Any) -> None:
         """SPEC 4.2: a commitment of the self accepted from review replaces the

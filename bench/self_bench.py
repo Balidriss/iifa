@@ -94,6 +94,48 @@ VECTOR_PROBES: tuple[tuple[str, str, str | None], ...] = (
     ("negative-weather", "Will it rain this weekend?", None),
     ("negative-recipe", "Which wine goes with a mushroom risotto?", None),
     ("negative-music", "Play something calm while I work.", None),
+    # more wordings of each activity
+    ("map-beds", "Can you chart where each vegetable bed sits in the yard?", "activity"),
+    ("map-paths", "Lay out on paper where the paths and beds of the allotment go.", "activity"),
+    (
+        "map-campsite",
+        "Put the campsite pitches and the stream on one sheet so visitors find their way.",
+        "activity",
+    ),
+    (
+        "notes-changed",
+        "Summarise what changed in this version for the people who use the app.",
+        "rules",
+    ),
+    ("notes-announcement", "Draft the what's-new announcement for the next update.", "rules"),
+    (
+        "notes-fixes",
+        "List the fixes and new features of the upcoming version for customers.",
+        "rules",
+    ),
+    (
+        "backup-records",
+        "The shop's records from yesterday are gone: recover them from the nightly copy.",
+        "lesson",
+    ),
+    ("backup-roll", "Roll the client's data back to how it was on Friday evening.", "lesson"),
+    (
+        "backup-wiped",
+        "Their tables were wiped this morning; get yesterday's state back.",
+        "lesson",
+    ),
+    # requests in the domain of an activity that ask for something else
+    ("negative-prune", "When should I prune the apple trees?", None),
+    ("negative-installs", "How many people installed the app last week?", None),
+    ("negative-disk", "How much disk space does the customer's server have left?", None),
+    ("negative-paint", "What colour should I paint the bedroom walls?", None),
+    ("negative-headlines", "Summarise today's headlines in three lines.", None),
+    ("negative-thanks", "Write a short thank-you message to Jordan for the gift.", None),
+    # requests far from every activity
+    ("negative-translate", "Translate this sentence into Spanish.", None),
+    ("negative-percent", "What is 17 percent of 240?", None),
+    ("negative-dentist", "Move my dentist appointment to Thursday afternoon.", None),
+    ("negative-train", "When does the next train to Porto leave?", None),
 )
 ACTIVITY_THRESHOLDS = (0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75)
 # SPEC 5.5, 5.6: one activity on four objects, a rule each, then a request

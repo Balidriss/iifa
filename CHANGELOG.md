@@ -7,6 +7,27 @@ pre-releases (0.1.0a1).
 
 ## Unreleased
 
+## 0.1.0a4 — 2026-11-24
+
+### Added
+- `detect_secrets_by_wording` (`[extraction]`, off by default): the service
+  also reads secrets from their wording, at the operator's risk.
+- `POST /v1/forget` takes as `id` the `job_id` of a turn or a compaction that has
+  not run yet: the job is deleted with its text, so a turn recorded by
+  mistake never becomes memory (409 once the job runs or has run).
+
+### Changed
+- A rule the agent holds as `preference.<topic>` and states again as
+  `commitment.<topic>` (or the reverse) is one rule: the same value writes
+  nothing, another value is kept beside the first with a visible `conflict`,
+  in a turn, in `remember` with `about_self` and when accepted from review.
+- The profile block lists the agent's rules commitments first, the newest
+  first; ahead of the central nodes they take at most a third of the budget,
+  and the others follow the nodes, so many rules no longer crowd the nodes out.
+- A password, a one-time or recovery code, an API key or a token said in a
+  turn stays out of memory: memory keeps the event without the value, and the
+  extraction report counts `secrets.found` and `secrets.dropped`.
+
 ## 0.1.0a3 — 2026-11-18
 
 ### Added

@@ -118,6 +118,113 @@ entries, its vectors, its edges, its proposals (§4.4b) and its source excerpts,
 housekeeping that makes the bytes unrecoverable in the file (see §7.1).
 Logs never contain memory content — ids and counts only.
 
+`forget` also takes the id of a **queued turn or compaction** (the
+`job_id` `POST /v1/turns` or `/v1/precompact` answers with, §8.1): the job is
+deleted with its payload before it runs, so a turn recorded by mistake never
+becomes memory. A running or done job is refused (409): the worker has read
+it, and what it wrote is forgotten by its source; a done job is pruned after
+a while, and is then "no such job" (404). A job that carries no words (a
+session's close, a dream: their own routes stop them) is refused (409). A
+failed job keeps its payload (§7.2) and is forgotten like a pending one; the
+answer's `started` says whether the job ran before — failed, or interrupted
+by a crash (a restart marks a job `interrupted` and counts the crashes in
+its error, beside a failure's reason, never spending an attempt; a job of
+any kind that keeps killing the process fails at its third crash, logged) —
+and so may have written.
+
+**A secret said in a conversation is never memory.** A password, a passcode
+or PIN, a one-time or verification code, a recovery code, an API key, a
+token or a private key typed in a turn is one the agent would use again at
+recall, and no host can filter a secret it was never told. The extraction is
+the only place that reads a turn before it becomes memory, so the service
+keeps the event ("Alice changed her password on the shop's site") and never
+the value. The values of a source are the union of three readings, each
+kept only when the source writes it whole (never inside a longer word of a
+script written with spaces; a script written without, Chinese or Japanese,
+has no word to be inside, and a value there may be two characters
+long, where four are the least elsewhere): the
+service's own — the shapes of well-known keys and tokens always, and only
+with `detect_secrets_by_wording` (`[extraction]`, off by default, at the
+operator's risk: a heuristic that knows English, French, German, Spanish
+and a little Russian, and may take an ordinary word for a secret, dropping
+the facts that hold it) its reading of the wording (a credential word — in the languages it knows — followed in
+its own clause — a sentence, cut at a semicolon or a conjunction, not at a
+comma — by a copula or "will be", by "to" after a change verb in the same
+sentence ("changed it to X"; never a link after any of them; "the password to iCloud is X" gives X, and the copula's value always
+comes first; after a preposition never an address, a link, nor digits alone
+unless the word is a code), a colon (not a URL's scheme) or an arrow, and a
+value that looks like a
+secret: a digit, a symbol other than a hyphen or an apostrophe, or a capital
+inside a word that has lowercase letters (an acronym is a name), or quoted (an
+apostrophe inside a quoted value, "'Hunter's2day'", stays in it) —
+without the Markdown or brackets around it, never a path ("the password
+file is /etc/shadow"), with its first field when it is a connection string
+(`password=Hunter22;user=bob`), kept also with its trailing
+punctuation, which may belong to it, and, after a plural word ("recovery
+codes"), followed by every further value of a list in the sentence; a
+"token" in any form counts things and never takes digits alone; "pwd", "pass" and
+"secret" count before a colon or an equals sign at the start of a line, in an
+identifier or after a possessive ("Boarding pass: AF1234" is a ticket); a
+code key may be an identifier (`ACCESS_CODE=`, `door_code:`); the word may sit in an identifier (`DB_PASSWORD=`,
+`DB_PASSWORD_PROD=`), unless a segment of it measures the credential
+(`TOKEN_LIMIT=`, `PASSWORD_MAX_LENGTH:`); a line break ends the window; a
+bare "pin" takes digits only; a code word followed by digits or by a copula
+right after it ("the door code is 4071", not "code review is 2024"), the
+digits of a plural one read as a list, never a year after a bare "code"
+("Advent of Code 2024"), never a zip,
+area, project or language code, nor a count ("the code is 1500 lines"),
+nor a date or a version ("the code: 2024-11-05"); a
+credential word that only qualifies another noun, "password manager",
+"token limit", "max tokens", introduces nothing), the `secrets` the
+extraction answer lists (§4.2), and the value of a fact whose attribute
+names a credential (`password`, `shop_password`, `api_key`, `door_code`:
+the last word decides, so `password_changed` is an event; "pin" and "token"
+only as the whole key or in a known one — `card_pin`, `access_token` — since
+they end ordinary keys, `map_pin`): each of its
+words that looks like a secret ("changed to Xy7#kq9" holds one, and its
+fact is dropped), or the whole value when it is several plain words with no
+event verb that do not open like a description, or four words or more with
+no event verb (a passphrase: "correct horse battery staple", "the old oak
+tree by the river"). A fact kept as the event whose statement or quote
+writes a value of several words is dropped too (it may hold it). A single plain word there ("temporary") drops its fact
+and masks nothing, since it may be an ordinary word of other facts; a value
+that is one event word ("changed", "reset."), or several words with an
+event verb or that open like a description ("changed today", "too weak",
+"same as email"), keeps its fact without the key: it is the event. Then every fact, node, edge or activity
+of the answer that carries one is dropped (a fact with a credential
+attribute holding a value), a quote loses it (the longest piece without
+it is kept, so no excerpt shows it; a fact whose quote was the value alone
+is dropped), a turn's trace (§5.8) masks it, and the later calls of the
+extraction (adjudication) see it masked. A fact of a turn or a compaction
+that has no excerpt is expanded without any of its source (a secret only
+the extraction's model saw is not known any more); another source shown
+whole has the values the service reads in it masked. **A page cannot erase the owner's words this way (P6):**
+a value the service reads only in a web page, a document or other outside
+content — no credential wording around it in the conversation's own parts
+or a tool's output, no answer naming it that a page does not write too, unless the
+conversation's own words introduce it as a credential (read for this
+classification whatever `detect_secrets_by_wording` says: "my new password
+is Hunter22" keeps a value a reset email repeats strong, while a page that
+makes the model list "Porto" gets a weak value), no key shape — drops no node, no edge, and no fact whose quote lies in an owner
+part, and is not masked in the owner's trace ("Admin password: Lisbon" on a
+page leaves "I moved to Lisbon"); it still leaves every summary, alias and
+quote (an owner's quote, a fact's or the activity's, that it would empty
+keeps its words). The report
+counts `secrets.found` and `secrets.dropped`. A secret either answer of a
+retried call named (listed, or under a credential attribute) stays one. A session's close (§5.8) plans its kept notes
+again, reading only its notes' own spans (a page's value of the source
+never becomes strong there): its adjudications are shown the session's masked trace of the
+source, never the source, since a secret only the turn's model saw is not
+known any more (a source without a trace gives the names alone); its notes
+are scrubbed again. The source keeps the turn as
+said when sources are retained (§4.4): that is what `forget` is for. A
+model reading a hostile page may list a harmless word as a secret: that
+only drops from memory what the same model could already leave out of its
+answer, so it gives a page nothing. A plain lowercase word given as a
+password without quotes ("the password is sunflower"), and a value set apart
+from its credential word ("the password, Hunter22, works"), are found only
+by the model: known limits. `remember` (§8.3) stores what its caller states.
+
 ### P6 — Provenance on everything
 Every fact and every edge records where it came from (source id, excerpt
 offset, who wrote it: `explicit` via remember, `extracted` by the pipeline,
@@ -608,6 +715,20 @@ the reader of the memory, never its subject. In the agent perspective:
   (§8.1) carries the self's live rules: its commitments and its preferences
   (`preference.*` on the self's node), which a later session must start with
   whatever its first query is;
+- **one topic, two rule families**: a model files one rule of the self as
+  `preference.<topic>` in one turn and as `commitment.<topic>` in the next,
+  so the two keys of one topic are read together. A rule that gives a topic
+  the value the other family already holds for it is an echo, whoever said
+  it: nothing is written - unless the self also holds the rule's own key
+  with another value, which the key's own rule then decides (a commitment
+  replaces the commitment of its topic). A rule that gives it **another** value is written
+  flagged `conflict` with the fact held under the other family, and closes
+  nothing there: no comparison of words tells a preference the commitment
+  refines from one it contradicts, and when we cannot tell, we do not
+  supersede. Both start the next session, the conflict shown on each (the
+  newer fact stores it, the other side carries it at read, §8.5), until
+  a reviewer settles it. A commitment still replaces the commitment of its
+  topic;
 - **a self's rules may wait for a reviewer** (`review_self_rules`, off by
   default). A rule is a fact about the self whose key is of the family
   `commitment` or `preference`: what the agent commits to, how it prefers to
@@ -639,7 +760,9 @@ the reader of the memory, never its subject. In the agent perspective:
   accepted commitment with a topic replaces the live one of that topic, as
   it would have without review: the reviewer's accept is the decision, and
   the review queue names what it replaces (§4.4b). An accepted preference
-  closes nothing (two preferences on a topic may both be true). What the agent did or
+  closes nothing (two preferences on a topic may both be true). An accepted
+  rule whose topic holds another value under the other family is flagged
+  `conflict` with it, as a written one is. What the agent did or
   learnt, and its rules of method, are written as without the setting;
 - the session's close writes its episode about the self (§5.8), and the
   agent may write about itself through `remember` (§8.3).
@@ -665,6 +788,14 @@ Arabic or Greek sentence ("report-2.pdf — корректный докумен�
 source writes it; only the retry note of a fragment rejected for that cause
 asks to list the source's spelling among the subject's aliases (in the base
 prompt, that instruction made models stuff aliases).
+
+**`secrets`.** The prompt says that a password, a code, a key or a token is
+never memory and that the answer keeps the event without the value; the
+answer lists the source's secrets, exactly as written, in `secrets` ("none"
+or "null" written for the list, or in it, is none; at most 5000 strings of at most 8192 characters, a private key block; a number is
+read as its digits, a single string as a list of one; anything else is
+rejected and counted). The list only ever removes from memory (P5); the service checks
+each value against the source before using it.
 
 **`subject_as_written`.** A known subject is named in the prompt ("reuse these
 exact names"), so a model rightly writes `subject: "Karim"` for a Russian
@@ -821,7 +952,10 @@ is refused (422) with a message naming the whole path, the offending segment
 and the form it should take (`segment 'assistant' needs kind:name, like
 mode:assistant`). A record belongs to a **set of scope paths** (at
 least one) and is visible to a reader if **any** of its scopes is visible to
-that reader.
+that reader. The kind of a segment is a word the operator chooses and no rule
+reads it: a memory may be rooted at `user:alice` with the agent as a node in
+it, or at `agent:nova` with the owner as a node in it (the owner and the self
+declared on that root, below).
 
 A read uses one of three **modes**:
 
@@ -1662,9 +1796,10 @@ as `embeddings.activity_threshold`, which is unset by default: a request
 compared with a short name is not the name-against-name pair the model's
 thresholds were calibrated on, so vectors match no activity until a
 threshold is measured and set (measured with bge-m3 on the `--self`
-corpus, `vector_probes`: requests in other words at 0.71-0.75 from their
-activity, unrelated ones at 0.58 at most, 0.65 between them; a request
-sharing no word nor domain with its activity matched none safely). Every
+corpus, `vector_probes`: twelve requests in other words at 0.52-0.75
+from their activity, fifteen unrelated ones at 0.58 at most, so no value
+separates them: 0.60 matched six of the twelve and 0.65 four, neither
+matched an unrelated one, and 0.55 matched two of those). Every
 matched activity, at most
 `MAX_ACTIVITIES` (3), the activity with the most matched words first (then
 the search's order), brings a **block** ahead of every other candidate but
@@ -2502,7 +2637,7 @@ sort or filter is refused with 400 before anything is read (P9). `POST
 ### 8.1 Lifecycle (Door 2)
 | Endpoint | Purpose | Hot path? |
 |---|---|---|
-| `POST /v1/session/start` | Returns the **profile block**: pinned facts, then in the agent perspective (§4.2) the self's live rules (`commitment.*` and `preference.*`, oldest first), then the most central nodes for the scope, under budget. **Deterministic and stable** across calls when nothing changed, so it can sit in a cacheable prompt prefix. | yes |
+| `POST /v1/session/start` | Returns the **profile block**: pinned facts, then in the agent perspective (§4.2) the self's live rules (`commitment.*`, then `preference.*`, the newest first in each), then the most central nodes for the scope, under budget. The rules ahead of the nodes take at most a third of the budget; those that do not fit there come after the nodes, where they take what is left, so the rules leave the nodes two thirds of the budget, less what the pinned facts take. **Deterministic and stable** across calls when nothing changed, so it can sit in a cacheable prompt prefix. | yes |
 | `POST /v1/recall` | `query` (usually the user's message, optionally recent turns) → handles under budget; optional `query_vector` (`model`, `values`) at tier 3 | yes |
 | `POST /v1/turns` | Record a turn: `user` (the owner's words), `assistant`, and `external` parts (`kind`: `tool` \| `web` \| `document` \| `other`, `text`, optional `ref`, of which only the short form is kept, P6) for content from outside the conversation, each with optional `vouched` (the host's statement that the owner gave that content or asked for it: the agent perspective may learn from it, §4.2); `tool_summaries` is still accepted and counts as `external` parts of kind `tool` (P6). `record: false` is the host's statement that the turn is not to be remembered (a test started inside a real session): nothing of it is written, not even queued — the host's statement, beside iifa's own reading of the intent (§4.2), neither replacing the other. Enqueue only. | yes (enqueue) |
 | `POST /v1/precompact` | The harness is about to compact: receive the messages about to be dropped, enqueue extraction, return a **short** block of what must survive (under budget) | yes |
@@ -2533,8 +2668,8 @@ person needs to choose between `restore` and `forget`: a node's `name` and
 `node_kind` (and `merged_into`), a fact's `statement`, `node_id` and
 `node_name`, an edge's `type`, `status`, `src`, `dst`, `src_name` and
 `dst_name` — a name only when that node is visible in the view, else null,
-P9), `POST /v1/forget` (node, fact, edge or
-source — hard delete, `forget` permission, P5; returns what was removed, by
+P9), `POST /v1/forget` (node, fact, edge,
+source, or a turn or compaction job that has not run — hard delete, `forget` permission, P5; returns what was removed, by
 count), `PATCH /v1/facts/{id}` to
 attach a free-standing fact to a node (`node_id`), detach it, pin it, or
 replace its scope set (`scopes`, §4.6). With `scopes`, the fact's node — the
@@ -2561,10 +2696,11 @@ created in the declared scope, like at extraction): origin `extracted`
 target scopes have no self, and with `node` or `node_id`. `remember` never
 calls a model (P3), so only what can be decided without one applies: a live
 fact of the self that states the same thing (the same statement, or the
-same value of the same key) is an echo: nothing is written, and the answer
+same value of the same key, or of the same topic under the other rule
+family, §4.2) is an echo: nothing is written, and the answer
 returns that fact with `echo: true`; another value of a key the self
-already holds is written flagged `conflict` with the held fact, never
-closing it.
+already holds, or of its topic under the other rule family, is written
+flagged `conflict` with the held fact, never closing it.
 
 `precompact` messages take their provenance from their `role`: `user` is the
 owner's, `assistant` the assistant's, anything else (`tool`, `system`…)
@@ -2965,7 +3101,8 @@ counted with the same tokenizer (§7.3, per-item overhead included):
   be 0); and a recall per thing ("What is the state of Pantry?") at each
   budget: the newest observation shown with the flag, and no stale one (of
   the stale ones shown, those flagged `newer_pending`, `newer_observed` or
-  `conflict`, §8.5, are counted);
+  `conflict`, §8.5, are counted), each engine read twice over the same
+  store, with the decay and without it (`*_no_decay`);
 `--resolve-threshold` and `--merge-threshold` replace the embedding model's
 profile for a run, so that one corpus is measured at two profiles.
 
@@ -3185,10 +3322,33 @@ Each box is ticked only with the test that proves it, named beside it
 
 - [x] Database unreadable without the key (open with plain SQLite fails).
   - `tests/security/test_p5_encryption_archive_forget.py::test_p5_database_is_unreadable_without_the_key`
-- [x] `forget` leaves no trace in tables, FTS index, vectors, or queue.
+- [x] `forget` leaves no trace in tables, FTS index, vectors, or queue; a queued job is forgotten before it runs, never once it has started.
   - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forget_leaves_no_trace_in_the_file`
   - `tests/store/test_vectors_store.py::test_forget_deletes_the_vectors`
   - `tests/security/test_p5_encryption_archive_forget.py::test_p5_forgetting_a_turns_source_leaves_no_trace_in_the_queue_or_anywhere`
+  - `tests/security/test_p5_secrets.py::test_p5_a_queued_turn_is_forgotten_before_it_runs_and_writes_nothing`
+  - `tests/security/test_p5_secrets.py::test_p5_a_running_job_cannot_be_forgotten`
+  - `tests/security/test_p5_secrets.py::test_p5_a_job_that_has_run_cannot_be_forgotten`
+  - `tests/security/test_p5_secrets.py::test_p5_only_a_job_that_carries_words_is_forgotten`
+  - `tests/security/test_p5_secrets.py::test_p5_a_job_interrupted_by_a_crash_is_forgotten_and_said_to_have_started`
+- [x] A secret said in a turn reaches no table but `sources` once it is known — listed by the model, the value of a credential attribute, a key's shape, or (with `detect_secrets_by_wording`) read from its wording: no fact, proposal, session fact, trace or index entry carries it, wherever the model writes it (a statement, a value, a quote), and later model calls see it masked. A secret nothing names is the known limit of the default (§2, P5).
+  - `tests/security/test_p5_secrets.py::test_p5_a_password_said_in_a_turn_reaches_no_table_but_sources`
+  - `tests/security/test_p5_secrets.py::test_p5_by_default_the_model_names_the_secret_and_no_ordinary_fact_is_lost`
+  - `tests/security/test_p5_secrets.py::test_p5_by_default_a_key_shape_is_still_kept_out`
+  - `tests/security/test_p5_secrets.py::test_p5_by_default_a_password_a_document_repeats_is_still_the_owners`
+  - `tests/security/test_p5_secrets.py::test_p5_a_secret_written_against_chinese_characters_reaches_no_table_but_sources`
+  - `tests/security/test_p5_secrets.py::test_p5_a_value_under_a_credential_attribute_is_a_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_a_secret_the_model_lists_is_kept_out_and_one_the_source_does_not_write_is_ignored`
+  - `tests/security/test_p5_secrets.py::test_p5_the_adjudication_never_sees_a_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_the_adjudication_at_a_close_never_sees_a_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_a_secret_the_first_answer_listed_survives_its_retry`
+  - `tests/security/test_p5_secrets.py::test_p5_a_fact_of_a_turn_without_excerpt_shows_nothing_of_the_turn`
+  - `tests/security/test_p5_secrets.py::test_p5_a_page_cannot_erase_what_the_owner_said_by_calling_it_a_password`
+  - `tests/security/test_p5_secrets.py::test_p5_a_passphrase_under_a_credential_key_reaches_no_table_but_sources`
+  - `tests/security/test_p5_secrets.py::test_p5_a_fragment_dropped_still_names_its_secret`
+  - `tests/security/test_p5_secrets.py::test_p5_a_page_cannot_erase_the_owners_note_at_the_close`
+  - `tests/security/test_p5_secrets.py::test_p5_a_page_that_makes_the_model_list_a_word_erases_nothing_of_the_owner`
+  - `tests/security/test_p5_secrets.py::test_p5_a_quote_the_page_also_writes_is_still_the_owners`
 - [x] `archive` hides a record from recall, expand, profile and dreams, and `restore` brings it back unchanged; a token without `forget` cannot hard-delete by any route or tool.
   - `tests/security/test_p5_encryption_archive_forget.py::test_p5_archive_hides_everywhere_and_restore_brings_back_unchanged`
   - `tests/security/test_p8_dream.py::test_p5_an_archived_record_reaches_neither_the_profile_nor_the_dream`
@@ -3345,7 +3505,7 @@ impossible (an SQLCipher binding without Windows wheels, for instance), the
 README says so and CI keeps Linux plus the Docker image. The workflow file is
 ordinary project content and describes the checks it runs, nothing else.
 
-A second workflow runs when a version tag (`v0.1.0a3`) is pushed: it builds
+A second workflow runs when a version tag (`v0.1.0a4`) is pushed: it builds
 the wheel from the tagged tree and publishes a GitHub release named after
 the tag, with that version's section of `CHANGELOG.md` as its notes and the
 wheel attached; a version with `a`, `b` or `rc` is marked a pre-release. It
